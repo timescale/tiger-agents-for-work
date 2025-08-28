@@ -1,0 +1,14 @@
+[project]
+name = "slackdb"
+version = "0.0.1"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.12.15",
+    "logfire[psycopg,system-metrics]>=4.3.6",
+    "psycopg[pool]>=3.2.9",
+    "python-dotenv[cli]>=1.1.1",
+    "semver>=3.0.4",
+    "slack-bolt>=1.23.0",
+]
