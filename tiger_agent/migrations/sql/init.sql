@@ -37,7 +37,7 @@ begin
 
     elsif _owner is distinct from _user then
         -- if the schema exists but is owned by someone other than the user running this, abort
-        raise exception 'only the owner of the slackdb schema can run database migrations';
+        raise exception 'only the owner of the slack schema can run database migrations';
         return;
     end if
     ;

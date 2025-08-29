@@ -7,7 +7,7 @@ import logfire
 from semver import Version
 from psycopg import AsyncConnection, AsyncCursor
 
-from slackdb import __version__
+from tiger_agent import __version__
 
 SHARED_LOCK_KEY = 9373348629322944
 MAX_LOCK_ATTEMPTS = 10

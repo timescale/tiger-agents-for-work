@@ -12,3 +12,4 @@ wheels/
 .idea
 .env
 .logfire
+.claude

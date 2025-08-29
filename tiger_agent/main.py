@@ -10,9 +10,9 @@ from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
-from slackdb import __version__
-from slackdb.migrations.runner import migrate_db
-from slackdb.ingest import register_event_handlers
+from tiger_agent import __version__
+from tiger_agent.migrations.runner import migrate_db
+from tiger_agent.ingest import register_event_handlers
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
@@ -83,14 +83,14 @@ async def main() -> None:
         async with pool.connection() as con:
             await migrate_db(con)
 
-        slack_app = AsyncApp(
+        app = AsyncApp(
             token=slack_bot_token,
             ignoring_self_events_enabled=False,
         )
         
-        await register_event_handlers(slack_app, pool)
+        await register_event_handlers(app, pool)
 
-        handler = AsyncSocketModeHandler(slack_app, slack_app_token)
+        handler = AsyncSocketModeHandler(app, slack_app_token)
         
         await asyncio.gather(handler.start_async())
 
