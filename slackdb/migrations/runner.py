@@ -27,23 +27,23 @@ async def try_migration_lock(cur: AsyncCursor) -> bool:
     return bool(row[0])
 
 
-@logfire.instrument("creating migration infrastructure if not exists", extract_args=False)
+@logfire.instrument("run_init", extract_args=False)
 async def run_init(cur: AsyncCursor) -> None:
     """Initialize migration infrastructure tables"""
-    sql = Path(__file__).parent.joinpath("init.sql").read_text()
+    sql = Path(__file__).parent.joinpath("sql", "init.sql").read_text()
     await cur.execute(sql)
 
 
 async def get_db_version(cur: AsyncCursor) -> Version:
     """Get current database version"""
-    await cur.execute("select version from slackdb.version")
+    await cur.execute("select version from slack.version")
     row = await cur.fetchone()
     assert row is not None
     ver = Version.parse(str(row[0]))
     return ver
 
 
-@logfire.instrument("is migration required", extract_args=["target_version"])
+@logfire.instrument("is_migration_required", extract_args=["target_version"])
 async def is_migration_required(cur: AsyncCursor, target_version: Version) -> bool:
     """Check if migration is required"""
     db_version = await get_db_version(cur)
@@ -78,14 +78,14 @@ def check_sql_file_order(paths: list[Path]) -> None:
 
 async def run_incremental(cur: AsyncCursor, target_version: Version) -> None:
     """Run incremental migrations"""
-    migration_template = Path(__file__).parent.joinpath("migration_template.sql").read_text()
+    migration_template = Path(__file__).parent.joinpath("sql", "migration.sql").read_text()
     incremental = Path(__file__).parent.joinpath("incremental")
     paths = [path for path in incremental.glob("*.sql")]
     paths.sort()
     check_sql_file_order(paths)
 
     for path in paths:
-        with logfire.span("running incremental sql", script=path.name):
+        with logfire.span(f"incremental_sql", script=path.name):
             sql = migration_template.format(
                 migration_name=path.name,
                 migration_body=path.read_text(),
@@ -102,14 +102,15 @@ async def run_idempotent(cur: AsyncCursor) -> None:
     check_sql_file_order(paths)
 
     for path in paths:
-        with logfire.span("running idempotent sql", script=path.name):
+        with logfire.span("idempotent_sql", script=path.name):
             sql = path.read_text()
             await cur.execute(sql)
 
 
+@logfire.instrument("set_version", extract_args=["version"])
 async def set_version(cur: AsyncCursor, version: Version) -> None:
     """Update database version"""
-    await cur.execute("update slackdb.version set version = %s, at = clock_timestamp()", (str(version),))
+    await cur.execute("update slack.version set version = %s, at = clock_timestamp()", (str(version),))
 
 
 @logfire.instrument("migrate_db", extract_args=False)

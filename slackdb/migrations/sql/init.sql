@@ -12,25 +12,25 @@ begin
 
     select n.nspowner into _owner
     from pg_catalog.pg_namespace n
-    where n.nspname = 'slackdb'
+    where n.nspname = 'slack'
     ;
 
     if _owner is null then
-        -- slackdb schema
-        create schema slackdb;
+        -- slack schema
+        create schema slack;
 
-        -- slackdb.version
-        create table slackdb.version
+        -- slack.version
+        create table slack.version
         ( version text not null check (regexp_like(version, '((0|[1-9]+)[0-9]*)\.((0|[1-9]+)[0-9]*)\.((0|[1-9]+)[0-9]*)(-[a-z-]+[0-9]*){0,1}'))
         , at timestamptz not null default now()
         );
-        create unique index on slackdb.version ((true)); -- ensure only one row in the table ever
-        insert into slackdb.version (version) values ('0.0.0');
+        create unique index on slack.version ((true)); -- ensure only one row in the table ever
+        insert into slack.version (version) values ('0.0.0');
 
-        -- slackdb.migration
-        create table if not exists slackdb.migration
+        -- slack.migration
+        create table if not exists slack.migration
         ( file_name text not null primary key
-        , applied_at_version integer not null
+        , applied_at_version text not null
         , applied_at timestamptz not null default pg_catalog.clock_timestamp()
         , body text not null
         );
@@ -46,4 +46,4 @@ $block$
 ;
 
 --make sure there is only one installation happening at a time
-lock table slackdb.migration;
+lock table slack.migration;

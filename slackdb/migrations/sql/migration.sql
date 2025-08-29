@@ -1,3 +1,4 @@
+--{migration_name}
 do $outer_migration_block$ /* {migration_name} */
 declare
     _sql text;
@@ -10,7 +11,7 @@ $migration_body$;
 begin
 
     select * into _migration
-    from slackdb.migration
+    from slack.migration
     where file_name operator(pg_catalog.=) _migration_name
     ;
 
@@ -25,7 +26,7 @@ begin
     _sql = pg_catalog.format(E'do /* %s */ $migration_body$\nbegin\n%s\nend;\n$migration_body$;', _migration_name, _migration_body);
     execute _sql;
 
-    insert into slackdb.migration
+    insert into slack.migration
     ( file_name
     , body
     , applied_at_version
@@ -33,7 +34,7 @@ begin
     values
     ( _migration_name
     , _migration_body
-    , {version}
+    , $version${version}$version$
     );
 end;
 $outer_migration_block$;

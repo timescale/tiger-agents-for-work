@@ -11,8 +11,8 @@ from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
 from slackdb import __version__
-from .migrations.runner import migrate_db
-from .ingest import register_event_handlers
+from slackdb.migrations.runner import migrate_db
+from slackdb.ingest import register_event_handlers
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
@@ -80,7 +80,7 @@ async def main() -> None:
     ) as pool:
         await pool.wait()
 
-        with pool.connection() as con:
+        async with pool.connection() as con:
             await migrate_db(con)
 
         slack_app = AsyncApp(
