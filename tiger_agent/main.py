@@ -12,7 +12,7 @@ from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent import __version__
 from tiger_agent.migrations.runner import migrate_db
-from tiger_agent.ingest import register_event_handlers
+from tiger_agent.events import initialize
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
@@ -87,12 +87,12 @@ async def main() -> None:
             token=slack_bot_token,
             ignoring_self_events_enabled=False,
         )
-        
-        await register_event_handlers(app, pool)
 
         handler = AsyncSocketModeHandler(app, slack_app_token)
         
-        await asyncio.gather(handler.start_async())
+        async with asyncio.TaskGroup() as tasks:
+            await initialize(app, pool, tasks, num_agent_workers=5)
+            tasks.create_task(handler.start_async())
 
 
 if __name__ == "__main__":

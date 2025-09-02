@@ -23,3 +23,46 @@ as $func$
     ;
 $func$ language sql volatile security invoker
 ;
+
+-----------------------------------------------------------------------
+-- slack.insert_bot_event
+create or replace function slack.insert_bot_event(_event jsonb) returns void
+as $func$
+    insert into slack.bot_event
+    ( event_ts
+    , event
+    )
+    select
+      slack.to_timestamptz((_event->>'event_ts')::numeric)
+    , _event
+    ;
+$func$ language sql volatile security invoker
+;
+
+-----------------------------------------------------------------------
+-- slack.delete_bot_event
+create or replace function slack.delete_bot_event(_id int8) returns void
+as $func$
+    with d as
+    (
+        delete from slack.bot_event
+        where id = _id
+        returning *
+    )
+    insert into slack.bot_event_hist
+    ( id
+    , event_ts
+    , attempts
+    , vt
+    , event
+    )
+    select
+      d.id
+    , d.event_ts
+    , d.attempts
+    , d.vt
+    , d.event
+    from d
+    ;
+$func$ language sql volatile security invoker
+;
