@@ -11,7 +11,7 @@ $migration_body$;
 begin
 
     select * into _migration
-    from slack.migration
+    from agent.migration
     where file_name operator(pg_catalog.=) _migration_name
     ;
 
@@ -26,7 +26,7 @@ begin
     _sql = pg_catalog.format(E'do /* %s */ $migration_body$\nbegin\n%s\nend;\n$migration_body$;', _migration_name, _migration_body);
     execute _sql;
 
-    insert into slack.migration
+    insert into agent.migration
     ( file_name
     , body
     , applied_at_version

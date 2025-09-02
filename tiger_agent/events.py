@@ -40,125 +40,21 @@ def diagnostic_to_dict(d: psycopg.errors.Diagnostic) -> dict[str, Any]:
     return {k: v for k, v in kv.items() if v is not None}
 
 
-@logfire.instrument("upsert_user", extract_args=False)
-async def upsert_user(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.upsert_user(%s)", (Jsonb(event),))
-
-
-@logfire.instrument("upsert_channel", extract_args=False)
-async def upsert_channel(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.upsert_channel(%s)", (Jsonb(event),))
-
-
-@logfire.instrument("insert_message", extract_args=False)
-async def insert_message(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.insert_message(%s)", (Jsonb(event),))
-
-
-@logfire.instrument("update_message", extract_args=False)
-async def update_message(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.update_message(%s)", (Jsonb(event),))
-
-
-@logfire.instrument("delete_message", extract_args=False)
-async def delete_message(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.delete_message(%s)", (Jsonb(event),))
-
-
-@logfire.instrument("add_reaction", extract_args=False)
-async def add_reaction(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.add_reaction(%s)", (Jsonb(event),))
-
-
-@logfire.instrument("remove_reaction", extract_args=False)
-async def remove_reaction(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.remove_reaction(%s)", (Jsonb(event),))
-
-
-@logfire.instrument("insert_bot_event", extract_args=False)
-async def insert_bot_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute("select slack.insert_bot_event(%s)", (Jsonb(event),))
-
-
 @logfire.instrument("insert_event", extract_args=False)
-async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any], error: Optional[dict[str, Any]]) -> None:
-    try:
-        async with (
-            pool.connection() as con,
-            con.transaction() as _,
-            con.cursor() as cur,
-        ):
-            await cur.execute(
-                "select slack.insert_event(%s, %s)",
-                (Jsonb(event), Jsonb(error))
-            )
-    except Exception as _:
-        logfire.exception("failed to insert event", **event)
+async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
+    async with (
+        pool.connection() as con,
+        con.transaction() as _,
+        con.cursor() as cur,
+    ):
+        await cur.execute("select slack.insert_event(%s)", (Jsonb(event),))
 
 
 async def event_router(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
     match event.get("type"):
-        case "channel_created" | "channel_renamed":
-            await upsert_channel(pool, event)
-        case "user_change" | "user_profile_changed" | "team_join":
-            await upsert_user(pool, event)
-        case "reaction_added":
-            await add_reaction(pool, event)
-        case "reaction_removed":
-            await remove_reaction(pool, event)
         case "app_mention":
-            await insert_bot_event(pool, event)
+            await insert_event(pool, event)
             await _agent_trigger.put(True)  # signal an agent worker to service the request
-        case "message":
-            match event.get("subtype"):
-                case None | "bot_message" | "thread_broadcast" | "file_share":
-                    await insert_message(pool, event)
-                case "message_changed":
-                    await update_message(pool, event)
-                case "message_deleted":
-                    await delete_message(pool, event)
-                case _:
-                    logfire.warning(f"unrouted event", **event)
         case _:
             logfire.warning(f"unrouted event", **event)
 
@@ -199,13 +95,4 @@ async def initialize(app: AsyncApp, pool: AsyncConnectionPool, tasks: asyncio.Ta
     for worker_id in range(num_agent_workers):
         tasks.create_task(agent_worker(app, pool, worker_id))
 
-    app.message("")(event_handler)
-    app.event("message")(event_handler)
     app.event("app_mention")(event_handler)
-    app.event("channel_created")(event_handler)
-    app.event("channel_renamed")(event_handler)
-    app.event("reaction_added")(event_handler)
-    app.event("reaction_removed")(event_handler)
-    app.event("team_join")(event_handler)
-    app.event("user_change")(event_handler)
-    app.event("user_profile_changed")(event_handler)

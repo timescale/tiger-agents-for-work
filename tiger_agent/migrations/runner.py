@@ -9,7 +9,7 @@ from psycopg import AsyncConnection, AsyncCursor
 
 from tiger_agent import __version__
 
-SHARED_LOCK_KEY = 9373348629322944
+SHARED_LOCK_KEY = 31321898691465844
 MAX_LOCK_ATTEMPTS = 10
 LOCK_SLEEP_SECONDS = 10
 
@@ -36,7 +36,7 @@ async def run_init(cur: AsyncCursor) -> None:
 
 async def get_db_version(cur: AsyncCursor) -> Version:
     """Get current database version"""
-    await cur.execute("select version from slack.version")
+    await cur.execute("select version from agent.version")
     row = await cur.fetchone()
     assert row is not None
     ver = Version.parse(str(row[0]))
@@ -110,7 +110,7 @@ async def run_idempotent(cur: AsyncCursor) -> None:
 @logfire.instrument("set_version", extract_args=["version"])
 async def set_version(cur: AsyncCursor, version: Version) -> None:
     """Update database version"""
-    await cur.execute("update slack.version set version = %s, at = clock_timestamp()", (str(version),))
+    await cur.execute("update agent.version set version = %s, at = clock_timestamp()", (str(version),))
 
 
 @logfire.instrument("migrate_db", extract_args=False)

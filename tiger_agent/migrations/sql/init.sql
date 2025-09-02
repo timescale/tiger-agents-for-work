@@ -12,23 +12,23 @@ begin
 
     select n.nspowner into _owner
     from pg_catalog.pg_namespace n
-    where n.nspname = 'slack'
+    where n.nspname = 'agent'
     ;
 
     if _owner is null then
-        -- slack schema
-        create schema slack;
+        -- agent schema
+        create schema agent;
 
-        -- slack.version
-        create table slack.version
+        -- agent.version
+        create table agent.version
         ( version text not null check (regexp_like(version, '((0|[1-9]+)[0-9]*)\.((0|[1-9]+)[0-9]*)\.((0|[1-9]+)[0-9]*)(-[a-z-]+[0-9]*){0,1}'))
         , at timestamptz not null default now()
         );
-        create unique index on slack.version ((true)); -- ensure only one row in the table ever
-        insert into slack.version (version) values ('0.0.0');
+        create unique index on agent.version ((true)); -- ensure only one row in the table ever
+        insert into agent.version (version) values ('0.0.0');
 
-        -- slack.migration
-        create table if not exists slack.migration
+        -- agent.migration
+        create table if not exists agent.migration
         ( file_name text not null primary key
         , applied_at_version text not null
         , applied_at timestamptz not null default pg_catalog.clock_timestamp()
@@ -37,7 +37,7 @@ begin
 
     elsif _owner is distinct from _user then
         -- if the schema exists but is owned by someone other than the user running this, abort
-        raise exception 'only the owner of the slack schema can run database migrations';
+        raise exception 'only the owner of the agent schema can run database migrations';
         return;
     end if
     ;
@@ -46,4 +46,4 @@ $block$
 ;
 
 --make sure there is only one installation happening at a time
-lock table slack.migration;
+lock table agent.migration;
