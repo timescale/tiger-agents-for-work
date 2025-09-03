@@ -81,12 +81,11 @@ async def process_memory_tool_calls(
     name: str,
     tool_args: dict[str, Any],
 ) -> ToolResult:
-    if name in ["forget", "remember", "update"]:
-        if (
-            not ctx.deps.user_id
-            or tool_args.get("key") != f"progress-agent:{ctx.deps.user_id}"
-        ):
-            return "Tried altering memories for a different user which is not allowed"
+    if name in ["forget", "remember", "update"] and (
+        not ctx.deps.user_id
+        or tool_args.get("key") != f"progress-agent:{ctx.deps.user_id}"
+    ):
+        return "Tried altering memories for a different user which is not allowed"
     return await call_tool(name, tool_args, None)
 
 
