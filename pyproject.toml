@@ -16,7 +16,7 @@ dependencies = [
 
 [tool.uv]
 dev-dependencies = [
-    "ruff>=0.10.0",
+    "ruff>=0.12.11",
 ]
 
 [tool.ruff]
