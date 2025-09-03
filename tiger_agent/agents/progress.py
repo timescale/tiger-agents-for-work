@@ -113,9 +113,7 @@ progress_agent = Agent(
 @progress_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:
     memories_key = f"progress-agent:{ctx.deps.user_id}"
-    return f"""Current UTC time: {
-        datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
-    }\
+    return f"""Current UTC time: {datetime.now(UTC).strftime("%Y-%m-%d %H:%M")}\
         {
         f'You have the ability to retrieve and store memories for users. Always retrieve memories before doing anything else.\
             Always include user memories into the context and save memories that you think will be helpful to have in the future, or if the user explicitly asks for you to remember something.\

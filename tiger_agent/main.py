@@ -25,14 +25,16 @@ logfire.instrument_psycopg()
 logfire.instrument_pydantic_ai()
 logfire.instrument_mcp()
 logfire.instrument_httpx()
-logfire.instrument_system_metrics({
-    "process.cpu.time": ["user", "system"],
-    "process.cpu.utilization": None,
-    "process.cpu.core_utilization": None,
-    "process.memory.usage": None,
-    "process.memory.virtual": None,
-    "process.thread.count": None,
-})
+logfire.instrument_system_metrics(
+    {
+        "process.cpu.time": ["user", "system"],
+        "process.cpu.utilization": None,
+        "process.cpu.core_utilization": None,
+        "process.memory.usage": None,
+        "process.memory.virtual": None,
+        "process.thread.count": None,
+    }
+)
 
 
 def shutdown_handler(signum: int, _frame: Any):
@@ -62,16 +64,20 @@ async def main() -> None:
     database_url = os.getenv("DATABASE_URL")
     assert database_url is not None, "DATABASE_URL environment variable is missing!"
     slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
-    assert slack_bot_token is not None, "SLACK_BOT_TOKEN environment variable is missing!"
+    assert slack_bot_token is not None, (
+        "SLACK_BOT_TOKEN environment variable is missing!"
+    )
     slack_app_token = os.getenv("SLACK_APP_TOKEN")
-    assert slack_app_token is not None, "SLACK_APP_TOKEN environment variable is missing!"
-    
+    assert slack_app_token is not None, (
+        "SLACK_APP_TOKEN environment variable is missing!"
+    )
+
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
-    
+
     loop = asyncio.get_running_loop()
     loop.set_exception_handler(exception_handler)
-    
+
     async with AsyncConnectionPool(
         database_url,
         check=AsyncConnectionPool.check_connection,
@@ -89,7 +95,7 @@ async def main() -> None:
         )
 
         handler = AsyncSocketModeHandler(app, slack_app_token)
-        
+
         async with asyncio.TaskGroup() as tasks:
             await initialize(app, pool, tasks, num_agent_workers=5)
             tasks.create_task(handler.start_async())

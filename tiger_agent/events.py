@@ -53,12 +53,16 @@ async def event_router(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
     match event.get("type"):
         case "app_mention":
             await insert_event(pool, event)
-            await _agent_trigger.put(True)  # signal an agent worker to service the request
+            await _agent_trigger.put(
+                True
+            )  # signal an agent worker to service the request
         case _:
             logfire.warning("unrouted event", **event)
 
 
-async def agent_worker(app: AsyncApp, pool: AsyncConnectionPool, worker_id: int) -> None:
+async def agent_worker(
+    app: AsyncApp, pool: AsyncConnectionPool, worker_id: int
+) -> None:
     while True:
         try:
             jitter = random.randint(-15, 15)
@@ -70,7 +74,12 @@ async def agent_worker(app: AsyncApp, pool: AsyncConnectionPool, worker_id: int)
             await agent.run_agent(app, pool)
 
 
-async def initialize(app: AsyncApp, pool: AsyncConnectionPool, tasks: asyncio.TaskGroup, num_agent_workers: int = 5) -> None:
+async def initialize(
+    app: AsyncApp,
+    pool: AsyncConnectionPool,
+    tasks: asyncio.TaskGroup,
+    num_agent_workers: int = 5,
+) -> None:
     async def event_handler(ack: AsyncAck, event: dict[str, Any]):
         event_type = event.get("type")
         with logfire.span(event_type) as _:
