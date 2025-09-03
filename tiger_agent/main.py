@@ -11,6 +11,7 @@ from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent import __version__
+from tiger_agent.agents.eon import respond_worker
 from tiger_agent.events import initialize
 from tiger_agent.migrations.runner import migrate_db
 
@@ -95,10 +96,13 @@ async def main() -> None:
         )
 
         handler = AsyncSocketModeHandler(app, slack_app_token)
+        slack_client = app.client
+        bot_info = await slack_client.auth_test()
 
         async with asyncio.TaskGroup() as tasks:
             await initialize(app, pool, tasks, num_agent_workers=5)
             tasks.create_task(handler.start_async())
+            tasks.create_task(respond_worker(pool, slack_client, bot_info))
 
 
 if __name__ == "__main__":
