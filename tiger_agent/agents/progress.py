@@ -2,7 +2,7 @@
 """
 Progress Summarizer Agent
 
-A comprehensive Pydantic AI agent that creates progress summaries for individual contributors 
+A comprehensive Pydantic AI agent that creates progress summaries for individual contributors
 and projects using data from Slack and GitHub via MCP servers.
 
 Features:
@@ -14,12 +14,12 @@ Features:
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
+
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import CallToolFunc, MCPServerStreamableHTTP, ToolResult
-from dotenv import load_dotenv
-from typing import Any, Optional
 
 all_messages = None
 
@@ -38,42 +38,40 @@ if not linear_mcp_server_url:
 if not memory_mcp_server_url:
     raise ValueError("MEMORY_MCP_SERVER_URL environment variable is required")
 
+
 class ProgressSummary(BaseModel):
     summary: str
 
+
 class AgentContext(BaseModel):
-    thread_ts: Optional[str] = Field(
-        None, 
-        description="Slack thread timestamp for fetching thread messages when in conversational context"
-    )
-    bot_user_id: Optional[str] = Field(
-        None, 
-        description="Bot's Slack user ID for filtering conversation history - messages from this ID are 'assistant messages', messages mentioning this ID are 'user messages'"
-    )
-    channel: Optional[str] = Field(
-        None, 
-        description="Slack channel ID where the conversation is taking place"
-    )
-    user_id: Optional[str] = Field(
+    thread_ts: str | None = Field(
         None,
-        description="The current user's Slack user id. This should be used for all operations related to memory."
+        description="Slack thread timestamp for fetching thread messages when in conversational context",
+    )
+    bot_user_id: str | None = Field(
+        None,
+        description="Bot's Slack user ID for filtering conversation history - messages from this ID are 'assistant messages', messages mentioning this ID are 'user messages'",
+    )
+    channel: str | None = Field(
+        None, description="Slack channel ID where the conversation is taking place"
+    )
+    user_id: str | None = Field(
+        None,
+        description="The current user's Slack user id. This should be used for all operations related to memory.",
     )
 
 
 # MCP servers
 github_mcp_server = MCPServerStreamableHTTP(
-    url=github_mcp_server_url,
-    tool_prefix="github_mcp"
+    url=github_mcp_server_url, tool_prefix="github_mcp"
 )
 
 slack_mcp_server = MCPServerStreamableHTTP(
-    url=slack_mcp_server_url,
-    tool_prefix="slack_mcp"
+    url=slack_mcp_server_url, tool_prefix="slack_mcp"
 )
 
 linear_mcp_server = MCPServerStreamableHTTP(
-    url=linear_mcp_server_url,
-    tool_prefix="linear"
+    url=linear_mcp_server_url, tool_prefix="linear"
 )
 
 
@@ -84,7 +82,10 @@ async def process_memory_tool_calls(
     tool_args: dict[str, Any],
 ) -> ToolResult:
     if name in ["forget", "remember", "update"]:
-        if not ctx.deps.user_id or tool_args.get("key") != f"progress-agent:{ctx.deps.user_id}":
+        if (
+            not ctx.deps.user_id
+            or tool_args.get("key") != f"progress-agent:{ctx.deps.user_id}"
+        ):
             return "Tried altering memories for a different user which is not allowed"
     return await call_tool(name, tool_args, None)
 
@@ -92,28 +93,40 @@ async def process_memory_tool_calls(
 memory_mcp_server = MCPServerStreamableHTTP(
     url=memory_mcp_server_url,
     tool_prefix="memory",
-    process_tool_call=process_memory_tool_calls
+    process_tool_call=process_memory_tool_calls,
 )
 
 # Create the PydanticAI agent
 progress_agent = Agent(
-   'anthropic:claude-sonnet-4-20250514',
+    "anthropic:claude-sonnet-4-20250514",
     output_type=ProgressSummary,
-    toolsets=[github_mcp_server, linear_mcp_server, memory_mcp_server, slack_mcp_server],
+    toolsets=[
+        github_mcp_server,
+        linear_mcp_server,
+        memory_mcp_server,
+        slack_mcp_server,
+    ],
     deps_type=AgentContext,
 )
 
+
 @progress_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:
-    memories_key = f"progress-agent:{ctx.deps.user_id}";
-    return f"""Current UTC time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}\
-        {f"You have the ability to retrieve and store memories for users. Always retrieve memories before doing anything else.\
+    memories_key = f"progress-agent:{ctx.deps.user_id}"
+    return f"""Current UTC time: {
+        datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+    }\
+        {
+        f'You have the ability to retrieve and store memories for users. Always retrieve memories before doing anything else.\
             Always include user memories into the context and save memories that you think will be helpful to have in the future, or if the user explicitly asks for you to remember something.\
                 **When adding a memory, always try to combine it with a related memory before saving it as a new memory**. If the new memory conflicts with an existing memory, the \
                 existing memory should be replaced/merged with the new memory. \
                 Memories stored should not include ephemeral information, such as report data. Memories should be used for\
                 storing user preferences and important mappings, not status reports.\
-                **The user's memory key is \"{memories_key}\", only use that key for memory operations**" if ctx.deps.user_id else "" }
+                **The user\'s memory key is "{memories_key}", only use that key for memory operations**'
+        if ctx.deps.user_id
+        else ""
+    }
         You are a member of TigerData.
 
 TigerData is a company who provides the fastest PostgreSQL platform for real-time, analytical, and agentic applications.
@@ -122,7 +135,9 @@ You are a helpful assistant that provides concise summaries of team member activ
 
 ## Core Workflow
 
-1. **Retrieve user memories**: If user_id exists, retrieve user memories using the memory MCP server with the correct key ({memories_key}) to understand user preferences and context before proceeding.
+1. **Retrieve user memories**: If user_id exists, retrieve user memories using the memory MCP server with the correct key ({
+        memories_key
+    }) to understand user preferences and context before proceeding.
 
 2. **Check for thread context**: Use has_thread_context() first. If in a thread, fetch conversation history with getThreadMessages and respond naturally without explaining your process.
 
@@ -164,7 +179,9 @@ You are a helpful assistant that provides concise summaries of team member activ
    - **GitHub-only requests**: Use ONLY GitHub MCP tools (after Slack user identification for matching)
    - **Comprehensive requests**: Use both platforms as needed, following the full workflow
    
-7. If user has specified a new preference, or if there is a useful item to store, store the memory using the correct key ({memories_key}). Rather than always making a new memory, try to combine memories that are similar. Try to summarize the memory when appropriate.
+7. If user has specified a new preference, or if there is a useful item to store, store the memory using the correct key ({
+        memories_key
+    }). Rather than always making a new memory, try to combine memories that are similar. Try to summarize the memory when appropriate.
 
 ## Analysis Types
 
@@ -277,33 +294,43 @@ Focus on how Slack discussions relate to GitHub work
 - When mentioning users, link to their Slack profile: [Username](https://iobeam.slack.com/team/USER_ID)
 - "Opened [Authentication Refactor](github_url)" not "worked on backend"
 - "Discussed rate limiting in [#engineering](slack_url)" not "had meetings\""""
-        
+
+
 # Individual tool functions for context attributes
 @progress_agent.tool
-def get_thread_ts(ctx: RunContext[AgentContext]) -> Optional[str]:
+def get_thread_ts(ctx: RunContext[AgentContext]) -> str | None:
     """Get the current thread timestamp for fetching thread messages"""
     return ctx.deps.thread_ts
 
-@progress_agent.tool  
-def get_bot_user_id(ctx: RunContext[AgentContext]) -> Optional[str]:
+
+@progress_agent.tool
+def get_bot_user_id(ctx: RunContext[AgentContext]) -> str | None:
     """Get the bot user ID for identifying bot messages in threads"""
     return ctx.deps.bot_user_id
+
 
 @progress_agent.tool
 def has_thread_context(ctx: RunContext[AgentContext]) -> bool:
     """Check if we are responding within a thread context"""
     return ctx.deps.thread_ts is not None
 
+
 @progress_agent.tool
-def get_channel(ctx: RunContext[AgentContext]) -> Optional[str]:
+def get_channel(ctx: RunContext[AgentContext]) -> str | None:
     """Get the current channel ID"""
     return ctx.deps.channel
 
-async def summarize_progress(subject: str, time_interval: Optional[str] = "7 days") -> ProgressSummary:
+
+async def summarize_progress(
+    subject: str, time_interval: str | None = "7 days"
+) -> ProgressSummary:
     """Summarize progress for a given subject using the progress agent"""
     context = AgentContext()  # Create empty context with default None values
     async with progress_agent as agent:
-        result = await agent.run(f"Create a progress summary for {subject} over the last {time_interval}", deps=context)
+        result = await agent.run(
+            f"Create a progress summary for {subject} over the last {time_interval}",
+            deps=context,
+        )
         return result.output
 
 
@@ -311,14 +338,23 @@ async def create_snooper_of_the_week_report() -> ProgressSummary:
     """Generate snooper of the week report"""
     context = AgentContext()  # Create empty context with default None values
     async with progress_agent as agent:
-        result = await agent.run(f"Create a snooper of the week report.", deps=context)
+        result = await agent.run("Create a snooper of the week report.", deps=context)
         return result.output
 
-async def add_message(message: str, thread_ts: Optional[str] = None, bot_user_id: Optional[str] = None, channel: Optional[str] = None, user_id: Optional[str] = None) -> ProgressSummary:
+
+async def add_message(
+    message: str,
+    thread_ts: str | None = None,
+    bot_user_id: str | None = None,
+    channel: str | None = None,
+    user_id: str | None = None,
+) -> ProgressSummary:
     """Add a message to the conversation with optional thread and channel context"""
-    context = AgentContext(thread_ts=thread_ts, bot_user_id=bot_user_id, channel=channel, user_id=user_id)
-    
+    context = AgentContext(
+        thread_ts=thread_ts, bot_user_id=bot_user_id, channel=channel, user_id=user_id
+    )
+
     async with progress_agent as agent:
         result = await agent.run(message, deps=context)
-        
+
         return result.output

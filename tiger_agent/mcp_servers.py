@@ -1,4 +1,5 @@
 import os
+
 from pydantic_ai.mcp import MCPServer, MCPServerStreamableHTTP
 
 docs_mcp_server_url = os.environ.get("DOCS_MCP_SERVER_URL", "http://tiger-docs-mcp-server/mcp")

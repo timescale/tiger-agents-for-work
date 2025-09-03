@@ -3,16 +3,16 @@ import os
 import signal
 from typing import Any
 
-from dotenv import load_dotenv, find_dotenv
 import logfire
+from dotenv import find_dotenv, load_dotenv
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent import __version__
-from tiger_agent.migrations.runner import migrate_db
 from tiger_agent.events import initialize
+from tiger_agent.migrations.runner import migrate_db
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
@@ -26,12 +26,12 @@ logfire.instrument_pydantic_ai()
 logfire.instrument_mcp()
 logfire.instrument_httpx()
 logfire.instrument_system_metrics({
-    'process.cpu.time': ['user', 'system'],
-    'process.cpu.utilization': None,
-    'process.cpu.core_utilization': None,
-    'process.memory.usage': None,
-    'process.memory.virtual': None,
-    'process.thread.count': None,
+    "process.cpu.time": ["user", "system"],
+    "process.cpu.utilization": None,
+    "process.cpu.core_utilization": None,
+    "process.memory.usage": None,
+    "process.memory.virtual": None,
+    "process.thread.count": None,
 })
 
 
@@ -43,11 +43,11 @@ def shutdown_handler(signum: int, _frame: Any):
 
 def exception_handler(_, context):
     with logfire.span("asyncio loop exception") as _:
-        exception = context.get('exception')
+        exception = context.get("exception")
         if exception:
-            logfire.error('asyncio task failed', _exc_info=exception, **context)
+            logfire.error("asyncio task failed", _exc_info=exception, **context)
         else:
-            logfire.error('asyncio task failed', **context)
+            logfire.error("asyncio task failed", **context)
 
 
 async def configure_database_connection(con: AsyncConnection) -> None:

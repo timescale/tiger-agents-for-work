@@ -1,7 +1,7 @@
 import asyncio
 import random
 import traceback
-from typing import Any, Optional
+from typing import Any
 
 import logfire
 import psycopg
@@ -11,7 +11,6 @@ from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
 from tiger_agent import agent
-
 
 _agent_trigger = asyncio.Queue()
 
@@ -56,7 +55,7 @@ async def event_router(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
             await insert_event(pool, event)
             await _agent_trigger.put(True)  # signal an agent worker to service the request
         case _:
-            logfire.warning(f"unrouted event", **event)
+            logfire.warning("unrouted event", **event)
 
 
 async def agent_worker(app: AsyncApp, pool: AsyncConnectionPool, worker_id: int) -> None:
@@ -66,7 +65,7 @@ async def agent_worker(app: AsyncApp, pool: AsyncConnectionPool, worker_id: int)
             await asyncio.wait_for(_agent_trigger.get(), timeout=(60.0 + jitter))
             logfire.info("got one!", worker_id=worker_id)
             await agent.run_agent(app, pool)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logfire.info("timeout", worker_id=worker_id)
             await agent.run_agent(app, pool)
 
@@ -76,7 +75,7 @@ async def initialize(app: AsyncApp, pool: AsyncConnectionPool, tasks: asyncio.Ta
         event_type = event.get("type")
         with logfire.span(event_type) as _:
             await ack()
-            error: Optional[dict[str, Any]] = None
+            error: dict[str, Any] | None = None
             try:
                 await event_router(pool, event)
             except psycopg.Error as pge:
@@ -84,9 +83,9 @@ async def initialize(app: AsyncApp, pool: AsyncConnectionPool, tasks: asyncio.Ta
                 logfire.exception(f"exception processing {event_type} event", **event)
             except Exception as e:
                 error = {
-                    'type': type(e).__name__,
-                    'message': str(e),
-                    'traceback': traceback.format_exc(),
+                    "type": type(e).__name__,
+                    "message": str(e),
+                    "traceback": traceback.format_exc(),
                 }
                 logfire.exception(f"exception processing {event_type} event", **event)
             finally:

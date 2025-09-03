@@ -3,21 +3,19 @@ import os
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Any, TypedDict
-from urllib.parse import urlparse, ParseResult
+from typing import Any, TypedDict
+from urllib.parse import ParseResult, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import logfire
 from psycopg import AsyncConnection
 from psycopg.rows import class_row
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, RunContext
-
 from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
-import logfire
 
 from tiger_agent.mcp_servers import slack_mcp_server
-
 
 EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-0")
 MAX_ATTEMPTS = 3  # only attempt to answer a mention up to this many times
@@ -75,19 +73,20 @@ def db_url_parts(url: str) -> dict[str, Any]:
         PGPASSWORD=parsed.password,
     )
 
+
 @dataclass
 class AgentDeps:
     user_timezone: str
     bot_user_id: str
 
+
 agent = Agent(
-            EON_MODEL,
-            deps_type=AgentDeps,
-            system_prompt=SYSTEM_PROMPT.format(bot_name="eon"),
-            toolsets=[
-                slack_mcp_server()
-            ]
-        )
+    EON_MODEL,
+    deps_type=AgentDeps,
+    system_prompt=SYSTEM_PROMPT.format(bot_name="eon"),
+    toolsets=[slack_mcp_server()],
+)
+
 
 @agent.system_prompt
 def add_the_date(ctx: RunContext[AgentDeps]) -> str:
@@ -95,13 +94,14 @@ def add_the_date(ctx: RunContext[AgentDeps]) -> str:
         timezone = ZoneInfo(ctx.deps.user_timezone)
     except ZoneInfoNotFoundError:
         timezone = ZoneInfo("UTC")
-    return f"User's current time: {datetime.now(timezone).strftime('%Y-%m-%d %H:%M:%S%z')}"
+    return (
+        f"User's current time: {datetime.now(timezone).strftime('%Y-%m-%d %H:%M:%S%z')}"
+    )
+
 
 @agent.system_prompt
 def add_bot_user_id(ctx: RunContext[AgentDeps]) -> str:
     return f"Your Slack user ID is {ctx.deps.bot_user_id}."
-
-
 
 
 @dataclass
@@ -110,16 +110,16 @@ class Mention:
     ts: str
     channel: str
     user: str
-    tz: Optional[str]
+    tz: str | None
     text: str
-    thread_ts: Optional[str]
+    thread_ts: str | None
     attempts: int
     vt: datetime
 
 
-async def get_any_app_mention(con: AsyncConnection) -> Optional[Mention]:
+async def get_any_app_mention(con: AsyncConnection) -> Mention | None:
     """Gets zero or one app_mentions that have not been handled.
-    
+
     It is possible to claim a row that is still being worked elsewhere, but that work
     would have to exceed INVISIBLE_MINUTES for this to happen.
     """
@@ -127,7 +127,8 @@ async def get_any_app_mention(con: AsyncConnection) -> Optional[Mention]:
         async with con.cursor(row_factory=class_row(Mention)) as cur:
             for x in range(3):  # try more than once to claim a row
                 async with con.transaction() as _:
-                    await cur.execute("""\
+                    await cur.execute(
+                        """\
                         with x as
                         (
                             select *
@@ -160,10 +161,12 @@ async def get_any_app_mention(con: AsyncConnection) -> Optional[Mention]:
                         , u.vt
                         from u
                         left join slack.user as su on u.event->>'user' = su.id
-                    """, dict(
-                        max_attempts=MAX_ATTEMPTS,
-                        invisible_minutes=INVISIBLE_MINUTES
-                    ))
+                    """,
+                        dict(
+                            max_attempts=MAX_ATTEMPTS,
+                            invisible_minutes=INVISIBLE_MINUTES,
+                        ),
+                    )
                     row = await cur.fetchone()
                     if row:
                         return row
@@ -179,7 +182,8 @@ async def delete_app_mention(con: AsyncConnection, mention: Mention) -> None:
             con.cursor() as cur,
             con.transaction() as _,
         ):
-            await cur.execute("""\
+            await cur.execute(
+                """\
                 with x as
                 (
                     delete from slack.mention d
@@ -200,9 +204,11 @@ async def delete_app_mention(con: AsyncConnection, mention: Mention) -> None:
                 , x.vt
                 , x.event
                 from x
-            """, dict(
-                id=mention.id,
-            ))
+            """,
+                dict(
+                    id=mention.id,
+                ),
+            )
 
 
 async def delete_expired_mentions(pool: AsyncConnectionPool) -> None:
@@ -213,46 +219,68 @@ async def delete_expired_mentions(pool: AsyncConnectionPool) -> None:
             con.cursor() as cur,
             con.transaction() as _,
         ):
-            await cur.execute("""\
+            await cur.execute(
+                """\
                 -- delete them. trigger "moves" them to mention_hist table
                 delete from slack.mention d
                 where d.vt <= (now() - (%(vt_timeout)s * interval '1m')) -- too old
-            """, dict(
-                vt_timeout=TIMEOUT_MINUTES,
-                max_attempts=MAX_ATTEMPTS,
-            ))
+            """,
+                dict(
+                    vt_timeout=TIMEOUT_MINUTES,
+                    max_attempts=MAX_ATTEMPTS,
+                ),
+            )
             logfire.info(f"found {cur.rowcount} expired/dead mentions. deleted.")
 
 
-async def react_to_mention(client: AsyncWebClient, mention: Mention, emoji: str) -> None:
-    with logfire.span("reacting to mention", channel=mention.channel, ts=mention.ts, emoji=emoji):
+async def react_to_mention(
+    client: AsyncWebClient, mention: Mention, emoji: str
+) -> None:
+    with logfire.span(
+        "reacting to mention", channel=mention.channel, ts=mention.ts, emoji=emoji
+    ):
         try:
             await client.reactions_add(
-                channel=mention.channel,
-                timestamp=mention.ts,
-                name=emoji
+                channel=mention.channel, timestamp=mention.ts, name=emoji
             )
         except Exception as e:
-            logfire.error("error while reacting to mention", _exc_info=e, channel=mention.channel, ts=mention.ts, emoji=emoji)
+            logfire.error(
+                "error while reacting to mention",
+                _exc_info=e,
+                channel=mention.channel,
+                ts=mention.ts,
+                emoji=emoji,
+            )
 
 
-async def remove_reaction_from_mention(client: AsyncWebClient, mention: Mention, emoji: str) -> None:
-    with logfire.span("removing reaction from mention", channel=mention.channel, ts=mention.ts, emoji=emoji):
+async def remove_reaction_from_mention(
+    client: AsyncWebClient, mention: Mention, emoji: str
+) -> None:
+    with logfire.span(
+        "removing reaction from mention",
+        channel=mention.channel,
+        ts=mention.ts,
+        emoji=emoji,
+    ):
         try:
             await client.reactions_remove(
-                channel=mention.channel,
-                timestamp=mention.ts,
-                name=emoji
+                channel=mention.channel, timestamp=mention.ts, name=emoji
             )
         except Exception as e:
-            logfire.error("error while removing reaction from mention", _exc_info=e, channel=mention.channel, ts=mention.ts, emoji=emoji)
+            logfire.error(
+                "error while removing reaction from mention",
+                _exc_info=e,
+                channel=mention.channel,
+                ts=mention.ts,
+                emoji=emoji,
+            )
 
 
-async def post_response(client: AsyncWebClient, channel: str, thread_ts: str, text: str) -> None:
+async def post_response(
+    client: AsyncWebClient, channel: str, thread_ts: str, text: str
+) -> None:
     await client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        markdown_text=text
+        channel=channel, thread_ts=thread_ts, markdown_text=text
     )
 
 
@@ -277,7 +305,9 @@ class BotInfo(TypedDict):
     user: str
 
 
-async def respond(pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo) -> bool:
+async def respond(
+    pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo
+) -> bool:
     with logfire.span("respond") as span:
         try:
             async with pool.connection() as con:
@@ -289,12 +319,14 @@ async def respond(pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: B
                 span.set_attributes({"channel": mention.channel, "user": mention.user})
                 try:
                     await react_to_mention(client, mention, "spinthinking")
-                    async with get_agent(bot_info['user'], bot_info['user_id']) as agent:
+                    async with get_agent(
+                        bot_info["user"], bot_info["user_id"]
+                    ) as agent:
                         # Slack messages are limited to 40k chars and 1 token ~= 4 chars
                         # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
                         # https://api.slack.com/methods/chat.postMessage#truncating
                         response = await agent.run(
-                            deps=AgentDeps(user_timezone=mention.tz or 'UTC'),
+                            deps=AgentDeps(user_timezone=mention.tz or "UTC"),
                             user_prompt=user_prompt(mention),
                             usage_limits=UsageLimits(response_tokens_limit=9_000),
                         )
@@ -316,18 +348,24 @@ async def respond(pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: B
                         client,
                         mention.channel,
                         mention.thread_ts if mention.thread_ts else mention.ts,
-                        "I experienced an issue trying to respond." +
-                        " I will try again." if mention.attempts < MAX_ATTEMPTS else " I give up. Sorry.",
+                        "I experienced an issue trying to respond."
+                        + " I will try again."
+                        if mention.attempts < MAX_ATTEMPTS
+                        else " I give up. Sorry.",
                     )
         except Exception as e:
             logfire.exception("respond failed", error_type=type(e).__name__)
         return False
 
 
-async def respond_worker(pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo) -> None:
+async def respond_worker(
+    pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo
+) -> None:
     while True:
         with logfire.span("respond_worker"):
-            while await respond(pool, client, bot_info):  # while we are being successful, continue
+            while await respond(
+                pool, client, bot_info
+            ):  # while we are being successful, continue
                 pass
             await delete_expired_mentions(pool)
         jitter = random.randint(WORKER_MIN_JITTER_SECONDS, WORKER_MAX_JITTER_SECONDS)

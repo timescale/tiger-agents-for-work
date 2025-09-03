@@ -1,14 +1,13 @@
-from typing import Any, Optional
+from typing import Any
 
 import logfire
-import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.app.async_app import AsyncApp
 
 
 @logfire.instrument("claim_event", extract_args=False)
-async def claim_event(pool: AsyncConnectionPool) -> Optional[dict[str, Any]]:
+async def claim_event(pool: AsyncConnectionPool) -> dict[str, Any] | None:
     async with (
         pool.connection() as con,
         con.transaction() as _,
