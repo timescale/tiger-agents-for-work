@@ -1,9 +1,8 @@
 import asyncio
 import os
 import random
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, TypedDict
+from typing import Any
 from urllib.parse import ParseResult, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -16,6 +15,8 @@ from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
 
 from tiger_agent.mcp_servers import slack_mcp_server
+from tiger_agent.agents.progress import add_message
+from tiger_agent.agents.types import AgentContext, BotInfo, Mention
 
 EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-0")
 MAX_ATTEMPTS = 3  # only attempt to answer a mention up to this many times
@@ -74,22 +75,18 @@ def db_url_parts(url: str) -> dict[str, Any]:
     )
 
 
-@dataclass
-class AgentDeps:
-    user_timezone: str
-    bot_user_id: str
 
 
-agent = Agent(
+eon_agent = Agent(
     EON_MODEL,
-    deps_type=AgentDeps,
+    deps_type=AgentContext,
     system_prompt=SYSTEM_PROMPT.format(bot_name="eon"),
     toolsets=[slack_mcp_server()],
 )
 
 
-@agent.system_prompt
-def add_the_date(ctx: RunContext[AgentDeps]) -> str:
+@eon_agent.system_prompt
+def add_the_date(ctx: RunContext[AgentContext]) -> str:
     try:
         timezone = ZoneInfo(ctx.deps.user_timezone)
     except ZoneInfoNotFoundError:
@@ -99,22 +96,36 @@ def add_the_date(ctx: RunContext[AgentDeps]) -> str:
     )
 
 
-@agent.system_prompt
-def add_bot_user_id(ctx: RunContext[AgentDeps]) -> str:
+@eon_agent.system_prompt
+def add_bot_user_id(ctx: RunContext[AgentContext]) -> str:
     return f"Your Slack user ID is {ctx.deps.bot_user_id}."
 
 
-@dataclass
-class Mention:
-    id: int
-    ts: str
-    channel: str
-    user: str
-    tz: str | None
-    text: str
-    thread_ts: str | None
-    attempts: int
-    vt: datetime
+@eon_agent.tool
+async def progress_agent_tool(
+    ctx: RunContext[AgentContext],
+    message: str
+) -> str:
+    """Create progress summaries for team members and projects using Slack, GitHub, Linear, and memory data.
+    
+    This tool provides comprehensive analysis of individual contributor activity and project status by:
+    - Analyzing Slack conversations and GitHub activity 
+    - Supporting exact matching with @username and #channel prefixes
+    - Providing both individual contributor and project/channel summaries
+    - Creating "Snooper of the Week" reports with highlights across teams
+    - Integrating data from Slack, GitHub, Linear, and user memory systems
+    
+    Use this tool for progress updates, team activity summaries, project status reports, and cross-platform collaboration insights."""
+    result = await add_message(
+        message=message,
+        thread_ts=ctx.deps.thread_ts,
+        bot_user_id=ctx.deps.bot_user_id,
+        channel=ctx.deps.channel,
+        user_id=ctx.deps.user_id
+    )
+    return result.summary
+
+
 
 
 async def get_any_app_mention(con: AsyncConnection) -> Mention | None:
@@ -297,12 +308,6 @@ def user_prompt(mention: Mention) -> str:
     return "\n".join(lines)
 
 
-# See https://api.slack.com/methods/auth.test
-class BotInfo(TypedDict):
-    bot_id: str
-    team_id: str
-    user_id: str
-    user: str
 
 
 async def respond(
@@ -319,14 +324,18 @@ async def respond(
                 span.set_attributes({"channel": mention.channel, "user": mention.user})
                 try:
                     await react_to_mention(client, mention, "spinthinking")
-                    async with get_agent(
-                        bot_info["user"], bot_info["user_id"]
-                    ) as agent:
+                    async with eon_agent as agent:
                         # Slack messages are limited to 40k chars and 1 token ~= 4 chars
                         # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
                         # https://api.slack.com/methods/chat.postMessage#truncating
                         response = await agent.run(
-                            deps=AgentDeps(user_timezone=mention.tz or "UTC"),
+                            deps=AgentContext(
+                                user_timezone=mention.tz or "UTC",
+                                bot_user_id=bot_info["user_id"],
+                                thread_ts=mention.thread_ts,
+                                channel=mention.channel,
+                                user_id=mention.user,
+                            ),
                             user_prompt=user_prompt(mention),
                             usage_limits=UsageLimits(response_tokens_limit=9_000),
                         )
