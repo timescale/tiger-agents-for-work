@@ -14,6 +14,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
 
+from tiger_agent import AGENT_NAME
 from tiger_agent.mcp_servers import slack_mcp_server
 from tiger_agent.agents.progress import add_message
 from tiger_agent.agents.types import AgentContext, BotInfo, Mention
@@ -80,7 +81,7 @@ def db_url_parts(url: str) -> dict[str, Any]:
 eon_agent = Agent(
     EON_MODEL,
     deps_type=AgentContext,
-    system_prompt=SYSTEM_PROMPT.format(bot_name="eon"),
+    system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
     toolsets=[slack_mcp_server()],
 )
 

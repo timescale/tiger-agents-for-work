@@ -10,7 +10,7 @@ from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
-from tiger_agent import __version__
+from tiger_agent import __version__, AGENT_NAME
 from tiger_agent.agents.eon import respond_worker
 from tiger_agent.events import initialize
 from tiger_agent.migrations.runner import migrate_db
@@ -19,7 +19,7 @@ load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
 
 logfire.configure(
-    service_name=os.getenv("SERVICE_NAME", "eon"),
+    service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
     service_version=__version__,
 )
 logfire.instrument_psycopg()
