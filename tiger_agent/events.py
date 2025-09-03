@@ -82,7 +82,7 @@ async def initialize(
 ) -> None:
     async def event_handler(ack: AsyncAck, event: dict[str, Any]):
         event_type = event.get("type")
-        with logfire.span(event_type) as _:
+        with logfire.span(event_type):
             await ack()
             error: dict[str, Any] | None = None
             try:
