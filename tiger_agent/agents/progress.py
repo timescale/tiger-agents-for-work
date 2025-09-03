@@ -17,10 +17,11 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
-from tiger_agent.agents.types import AgentContext
+from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.mcp import CallToolFunc, MCPServerStreamableHTTP, ToolResult
+
+from tiger_agent.agents.types import AgentContext
 
 all_messages = None
 
@@ -42,8 +43,6 @@ if not memory_mcp_server_url:
 
 class ProgressSummary(BaseModel):
     summary: str
-
-
 
 
 # MCP servers
