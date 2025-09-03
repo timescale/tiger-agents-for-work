@@ -13,81 +13,38 @@ Features:
 - Integrates with Slack bots for real-time analysis
 """
 
-import os
 from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.mcp import CallToolFunc, MCPServerStreamableHTTP, ToolResult
 
 from tiger_agent.agents.types import AgentContext
+from tiger_agent.mcp_servers import (
+    github_mcp_server,
+    linear_mcp_server,
+    memory_mcp_server,
+    slack_mcp_server,
+)
 
 all_messages = None
-
-# Get required environment variables
-github_mcp_server_url = os.environ.get("GITHUB_MCP_SERVER_URL")
-slack_mcp_server_url = os.environ.get("SLACK_MCP_SERVER_URL")
-linear_mcp_server_url = os.environ.get("LINEAR_MCP_SERVER_URL")
-memory_mcp_server_url = os.environ.get("MEMORY_MCP_SERVER_URL")
-
-if not github_mcp_server_url:
-    raise ValueError("GITHUB_MCP_SERVER_URL environment variable is required")
-if not slack_mcp_server_url:
-    raise ValueError("SLACK_MCP_SERVER_URL environment variable is required")
-if not linear_mcp_server_url:
-    raise ValueError("LINEAR_MCP_SERVER_URL environment variable is required")
-if not memory_mcp_server_url:
-    raise ValueError("MEMORY_MCP_SERVER_URL environment variable is required")
 
 
 class ProgressSummary(BaseModel):
     summary: str
 
 
-# MCP servers
-github_mcp_server = MCPServerStreamableHTTP(
-    url=github_mcp_server_url, tool_prefix="github_mcp"
-)
-
-slack_mcp_server = MCPServerStreamableHTTP(
-    url=slack_mcp_server_url, tool_prefix="slack_mcp"
-)
-
-linear_mcp_server = MCPServerStreamableHTTP(
-    url=linear_mcp_server_url, tool_prefix="linear"
-)
 
 
-async def process_memory_tool_calls(
-    ctx: RunContext[AgentContext],
-    call_tool: CallToolFunc,
-    name: str,
-    tool_args: dict[str, Any],
-) -> ToolResult:
-    if name in ["forget", "remember", "update"] and (
-        not ctx.deps.user_id
-        or tool_args.get("key") != f"progress-agent:{ctx.deps.user_id}"
-    ):
-        return "Tried altering memories for a different user which is not allowed"
-    return await call_tool(name, tool_args, None)
-
-
-memory_mcp_server = MCPServerStreamableHTTP(
-    url=memory_mcp_server_url,
-    tool_prefix="memory",
-    process_tool_call=process_memory_tool_calls,
-)
 
 # Create the PydanticAI agent
 progress_agent = Agent(
     "anthropic:claude-sonnet-4-20250514",
     output_type=ProgressSummary,
     toolsets=[
-        github_mcp_server,
-        linear_mcp_server,
-        memory_mcp_server,
-        slack_mcp_server,
+        github_mcp_server(),
+        linear_mcp_server(),
+        memory_mcp_server(key_prefix="progress-agent"),
+        slack_mcp_server(),
     ],
     deps_type=AgentContext,
 )

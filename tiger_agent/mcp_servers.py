@@ -1,6 +1,10 @@
 import os
+from typing import Any
 
-from pydantic_ai.mcp import MCPServer, MCPServerStreamableHTTP
+from pydantic_ai import RunContext
+from pydantic_ai.mcp import CallToolFunc, MCPServer, MCPServerStreamableHTTP, ToolResult
+
+from tiger_agent import AGENT_NAME
 
 docs_mcp_server_url = os.environ.get(
     "DOCS_MCP_SERVER_URL", "http://tiger-docs-mcp-server/mcp"
@@ -36,3 +40,28 @@ def docs_mcp_server() -> MCPServer:
 
 def salesforce_mcp_server() -> MCPServer:
     return MCPServerStreamableHTTP(salesforce_mcp_server_url, tool_prefix="salesforce")
+
+
+def linear_mcp_server() -> MCPServer:
+    return MCPServerStreamableHTTP(linear_mcp_server_url, tool_prefix="linear")
+
+
+def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
+    async def process_memory_tool_calls(
+        ctx: RunContext[Any],
+        call_tool: CallToolFunc,
+        name: str,
+        tool_args: dict[str, Any],
+    ) -> ToolResult:
+        if name in ["forget", "remember", "update"] and (
+            not hasattr(ctx.deps, 'user_id') or not ctx.deps.user_id
+            or tool_args.get("key") != f"{key_prefix}:{ctx.deps.user_id}"
+        ):
+            return "Tried altering memories for a different user which is not allowed"
+        return await call_tool(name, tool_args, None)
+    
+    return MCPServerStreamableHTTP(
+        memory_mcp_server_url, 
+        tool_prefix="memory",
+        process_tool_call=process_memory_tool_calls
+    )
