@@ -37,7 +37,7 @@ as $func$
     , u as
     (
         update agent.event u set
-          vt = clock_timestamp() + (_invisible_for * interval '1m') -- invisible for a bit while we work it
+          vt = clock_timestamp() + _invisible_for -- invisible for a bit while we work it
         , attempts = u.attempts + 1
         from x
         where u.id = x.id
