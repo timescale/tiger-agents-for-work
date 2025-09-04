@@ -7,9 +7,41 @@ requires-python = ">=3.13"
 dependencies = [
     "logfire[httpx,psycopg,system-metrics]>=4.3.6",
     "psycopg[pool]>=3.2.9",
-    "pydantic-ai[logfire]>=0.8.0",
+    "pydantic-ai[logfire]>=0.8.1",
     "python-dotenv[cli]>=1.1.1",
     "semver>=3.0.4",
-    "slack-bolt>=1.23.0",
+    "slack-bolt>=1.24.0",
     "websockets>=15.0.1",
 ]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.12.11",
+]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+output-format = "grouped"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # Pyflakes
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "I",    # isort
+    "ARG",  # unused arguments
+    "W291", # trailing whitespace
+    "PIE",  # print statements
+    "Q"     # flakes8-quote
+]
+ignore = ["E501"] # we use `ruff format` on everything, so this is just annoying
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"db/tests/*" = ["E501", "SIM117", "W291", "ARG001"]

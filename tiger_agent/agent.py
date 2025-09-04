@@ -1,14 +1,13 @@
-from typing import Any, Optional
+from typing import Any
 
 import logfire
-import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.app.async_app import AsyncApp
 
 
 @logfire.instrument("claim_event", extract_args=False)
-async def claim_event(pool: AsyncConnectionPool) -> Optional[dict[str, Any]]:
+async def claim_event(pool: AsyncConnectionPool) -> dict[str, Any] | None:
     async with (
         pool.connection() as con,
         con.transaction() as _,
@@ -16,6 +15,7 @@ async def claim_event(pool: AsyncConnectionPool) -> Optional[dict[str, Any]]:
     ):
         cur.execute("select * from agent.claim_event")
         return cur.fetchone()
+
 
 @logfire.instrument("delete_event", extract_args=False)
 async def delete_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
@@ -30,6 +30,7 @@ async def delete_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
 @logfire.instrument("run_agent", extract_args=False)
 async def run_agent(app: AsyncApp, pool: AsyncConnectionPool) -> None:
     event = await claim_event(pool)
+
     if not event:
         return
     # create the agent
