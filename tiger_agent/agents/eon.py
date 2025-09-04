@@ -1,7 +1,7 @@
 import asyncio
 import os
 import random
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -15,10 +15,10 @@ from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
 
 from tiger_agent import AGENT_NAME
-from tiger_agent.mcp_servers import slack_mcp_server
-from tiger_agent.agents.progress import add_message
 from tiger_agent.agents.docs import query_docs
+from tiger_agent.agents.progress import add_message
 from tiger_agent.agents.types import AgentContext, BotInfo, Mention
+from tiger_agent.mcp_servers import slack_mcp_server
 
 EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-0")
 MAX_ATTEMPTS = 3  # only attempt to answer a mention up to this many times
