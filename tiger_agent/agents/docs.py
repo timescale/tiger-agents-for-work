@@ -22,21 +22,9 @@ def get_system_prompt(ctx: RunContext[AgentContext]) -> str:
 
 async def query_docs(
     message: str,
-    user_timezone: str = "UTC",
-    bot_user_id: str | None = None,
-    thread_ts: str | None = None,
-    channel: str | None = None,
-    user_id: str | None = None,
+    context: AgentContext,
 ) -> str:
     """Query documentation using the docs agent"""
-    context = AgentContext(
-        user_timezone=user_timezone,
-        bot_user_id=bot_user_id,
-        thread_ts=thread_ts,
-        channel=channel,
-        user_id=user_id,
-    )
-
     async with docs_agent as agent:
         result = await agent.run(message, deps=context)
         return result

@@ -278,17 +278,9 @@ async def create_snooper_of_the_week_report() -> ProgressSummary:
 
 async def add_message(
     message: str,
-    thread_ts: str | None = None,
-    bot_user_id: str | None = None,
-    channel: str | None = None,
-    user_id: str | None = None,
+    context: AgentContext,
 ) -> ProgressSummary:
-    """Add a message to the conversation with optional thread and channel context"""
-    context = AgentContext(
-        thread_ts=thread_ts, bot_user_id=bot_user_id, channel=channel, user_id=user_id
-    )
-
+    """Add a message to the conversation with provided agent context"""
     async with progress_agent as agent:
         result = await agent.run(message, deps=context)
-
         return result.output

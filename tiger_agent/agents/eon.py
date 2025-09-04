@@ -105,10 +105,7 @@ async def progress_agent_tool(
     Use this tool for progress updates, team activity summaries, project status reports, and cross-platform collaboration insights."""
     result = await add_message(
         message=message,
-        thread_ts=ctx.deps.thread_ts,
-        bot_user_id=ctx.deps.bot_user_id,
-        channel=ctx.deps.channel,
-        user_id=ctx.deps.user_id
+        context=ctx.deps,
     )
     return result.summary
 
@@ -130,11 +127,7 @@ async def docs_agent_tool(
     Use this tool for technical questions, feature explanations, configuration guidance, troubleshooting help, and best practices related to the PostgreSQL ecosystem and TigerCloud platform."""
     result = await query_docs(
         message=message,
-        user_timezone=ctx.deps.user_timezone,
-        bot_user_id=ctx.deps.bot_user_id,
-        thread_ts=ctx.deps.thread_ts,
-        channel=ctx.deps.channel,
-        user_id=ctx.deps.user_id,
+        context=ctx.deps,
     )
     return result
 
