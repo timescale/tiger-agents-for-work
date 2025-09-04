@@ -17,6 +17,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 from tiger_agent import AGENT_NAME
 from tiger_agent.mcp_servers import slack_mcp_server
 from tiger_agent.agents.progress import add_message
+from tiger_agent.agents.docs import query_docs
 from tiger_agent.agents.types import AgentContext, BotInfo, Mention
 
 EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-0")
@@ -76,15 +77,12 @@ def db_url_parts(url: str) -> dict[str, Any]:
     )
 
 
-
-
 eon_agent = Agent(
     EON_MODEL,
     deps_type=AgentContext,
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
     toolsets=[slack_mcp_server()],
 )
-
 
 @eon_agent.system_prompt
 def add_the_date(ctx: RunContext[AgentContext]) -> str:
@@ -127,6 +125,30 @@ async def progress_agent_tool(
     return result.summary
 
 
+@eon_agent.tool
+async def docs_agent_tool(
+    ctx: RunContext[AgentContext],
+    message: str
+) -> str:
+    """Query comprehensive documentation for PostgreSQL, TimescaleDB, and TigerCloud platform.
+    
+    This tool provides expert assistance with technical documentation by:
+    - Searching through PostgreSQL, TimescaleDB, and TigerCloud documentation
+    - Providing direct quotes and references from official documentation
+    - Offering expert guidance on database concepts, features, and best practices
+    - Handling queries about SQL syntax, performance optimization, and platform-specific features
+    - Providing confidence levels when documentation is incomplete or unavailable
+    
+    Use this tool for technical questions, feature explanations, configuration guidance, troubleshooting help, and best practices related to the PostgreSQL ecosystem and TigerCloud platform."""
+    result = await query_docs(
+        message=message,
+        user_timezone=ctx.deps.user_timezone,
+        bot_user_id=ctx.deps.bot_user_id,
+        thread_ts=ctx.deps.thread_ts,
+        channel=ctx.deps.channel,
+        user_id=ctx.deps.user_id,
+    )
+    return result
 
 
 async def get_any_app_mention(con: AsyncConnection) -> Mention | None:
