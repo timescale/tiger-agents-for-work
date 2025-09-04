@@ -46,7 +46,7 @@ async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select slack.insert_event(%s)", (Jsonb(event),))
+        await cur.execute("select agent.insert_event(%s)", (Jsonb(event),))
 
 
 async def event_router(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
@@ -98,9 +98,12 @@ async def initialize(
                 }
                 logfire.exception(f"exception processing {event_type} event", **event)
             finally:
-                await insert_event(pool, event, error)
+                await insert_event(pool, event)
 
     for worker_id in range(num_agent_workers):
         tasks.create_task(agent_worker(app, pool, worker_id))
 
     app.event("app_mention")(event_handler)
+    @app.event("message")
+    async def handle_message(ack):
+        await ack()

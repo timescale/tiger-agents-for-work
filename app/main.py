@@ -5,13 +5,12 @@ from typing import Any
 
 import logfire
 from dotenv import find_dotenv, load_dotenv
+from events import initialize
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
-from agents.eon import respond_worker
-from events import initialize
 from migrations.runner import migrate_db
 
 from . import AGENT_NAME, __version__
@@ -103,7 +102,7 @@ async def main() -> None:
         async with asyncio.TaskGroup() as tasks:
             await initialize(app, pool, tasks, num_agent_workers=5)
             tasks.create_task(handler.start_async())
-            tasks.create_task(respond_worker(pool, slack_client, bot_info))
+            # tasks.create_task(respond_worker(pool, slack_client, bot_info))
 
 
 if __name__ == "__main__":
