@@ -33,9 +33,6 @@ class ProgressSummary(BaseModel):
     summary: str
 
 
-
-
-
 # Create the PydanticAI agent
 progress_agent = Agent(
     "anthropic:claude-sonnet-4-20250514",
@@ -48,7 +45,6 @@ progress_agent = Agent(
     ],
     deps_type=AgentContext,
 )
-
 
 @progress_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:
