@@ -317,7 +317,6 @@ async def post_response(
         channel=channel, thread_ts=thread_ts, markdown_text=text
     )
 
-
 def user_prompt(mention: Mention) -> str:
     lines = []
     lines.append("<slack-message>")
@@ -329,9 +328,6 @@ def user_prompt(mention: Mention) -> str:
     lines.append("</slack-message>")
     lines.append(f"Q: {mention.text}")
     return "\n".join(lines)
-
-
-
 
 async def respond(
     pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo
