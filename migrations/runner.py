@@ -4,10 +4,10 @@ import re
 from pathlib import Path
 
 import logfire
-from semver import Version
 from psycopg import AsyncConnection, AsyncCursor
+from semver import Version
 
-from tiger_agent import __version__
+from app import __version__
 
 SHARED_LOCK_KEY = 31321898691465844
 MAX_LOCK_ATTEMPTS = 10
@@ -92,7 +92,7 @@ async def run_incremental(cur: AsyncCursor, target_version: Version) -> None:
     check_sql_file_order(paths)
 
     for path in paths:
-        with logfire.span(f"incremental_sql", script=path.name):
+        with logfire.span("incremental_sql", script=path.name):
             sql = migration_template.format(
                 migration_name=path.name,
                 migration_body=path.read_text(),
@@ -165,7 +165,7 @@ async def migrate_db(con: AsyncConnection) -> None:
 
 async def main():
     """Run database migrations CLI"""
-    from dotenv import load_dotenv, find_dotenv
+    from dotenv import find_dotenv, load_dotenv
 
     # Load environment variables
     load_dotenv(dotenv_path=find_dotenv(usecwd=True))

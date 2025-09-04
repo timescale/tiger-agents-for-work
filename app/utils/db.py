@@ -5,7 +5,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import class_row
 from psycopg_pool import AsyncConnectionPool
 
-from tiger_agent.agents.types import Mention
+from agents.types import Mention
 
 # Constants from eon.py
 MAX_ATTEMPTS = 3  # only attempt to answer a mention up to this many times

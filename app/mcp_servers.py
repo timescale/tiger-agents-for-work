@@ -4,7 +4,7 @@ from typing import Any
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import CallToolFunc, MCPServer, MCPServerStreamableHTTP, ToolResult
 
-from tiger_agent import AGENT_NAME
+from app import AGENT_NAME
 
 docs_mcp_server_url = os.environ.get(
     "DOCS_MCP_SERVER_URL", "http://tiger-docs-mcp-server/mcp"
@@ -61,7 +61,7 @@ def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
         return await call_tool(name, tool_args, None)
     
     return MCPServerStreamableHTTP(
-        memory_mcp_server_url,
+        url=memory_mcp_server_url,
         tool_prefix="memory",
         process_tool_call=process_memory_tool_calls
     )

@@ -1,7 +1,7 @@
 import logfire
 from slack_sdk.web.async_client import AsyncWebClient
 
-from tiger_agent.agents.types import Mention
+from agents.types import Mention
 
 
 async def react_to_mention(

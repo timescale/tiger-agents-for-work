@@ -5,28 +5,28 @@ from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
+from agents.docs import query_docs
+from agents.progress import add_message
+from agents.sales import query_sales_support
+from agents.types import AgentContext, BotInfo, Mention
+from mcp_servers import slack_mcp_server
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
-
-from tiger_agent import AGENT_NAME
-from tiger_agent.agents.docs import query_docs
-from tiger_agent.agents.progress import add_message
-from tiger_agent.agents.sales import query_sales_support
-from tiger_agent.agents.types import AgentContext, BotInfo, Mention
-from tiger_agent.mcp_servers import slack_mcp_server
-from tiger_agent.utils.db import (
+from utils.db import (
     MAX_ATTEMPTS,
     delete_app_mention,
     delete_expired_mentions,
     get_any_app_mention,
 )
-from tiger_agent.utils.slack import (
+from utils.slack import (
     post_response,
     react_to_mention,
     remove_reaction_from_mention,
 )
+
+from app import AGENT_NAME
 
 EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-0")
 WORKER_SLEEP_SECONDS = 60  # how long the worker sleeps between iterations

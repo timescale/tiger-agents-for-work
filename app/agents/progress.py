@@ -18,8 +18,8 @@ from datetime import UTC, datetime
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 
-from tiger_agent.agents.types import AgentContext
-from tiger_agent.mcp_servers import (
+from agents.types import AgentContext
+from mcp_servers import (
     github_mcp_server,
     linear_mcp_server,
     memory_mcp_server,
