@@ -13,6 +13,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 from tiger_agent import AGENT_NAME
 from tiger_agent.agents.docs import query_docs
 from tiger_agent.agents.progress import add_message
+from tiger_agent.agents.sales import query_sales_support
 from tiger_agent.agents.types import AgentContext, BotInfo, Mention
 from tiger_agent.mcp_servers import slack_mcp_server
 from tiger_agent.utils.db import (
@@ -130,6 +131,30 @@ async def docs_agent_tool(
         context=ctx.deps,
     )
     return result
+
+
+@eon_agent.tool
+async def sales_agent_tool(
+    ctx: RunContext[AgentContext],
+    message: str
+) -> str:
+    """Search historical Salesforce support cases and customer data to provide sales and support insights.
+    
+    This tool provides access to comprehensive customer support history and sales data by:
+    - Performing semantic searches through historical Salesforce support cases
+    - Finding solutions to customer problems based on past successful resolutions
+    - Retrieving detailed case summaries for specific support tickets
+    - Identifying patterns in customer issues and support trends
+    - Providing context about customer interactions and case histories
+    - Generating insights for sales teams based on support case data
+    
+    Use this tool for customer support questions, troubleshooting based on historical cases, sales insights from support data, and understanding common customer issues and their resolutions."""
+    result = await query_sales_support(
+        message=message,
+        context=ctx.deps,
+    )
+    return result
+
 
 def user_prompt(mention: Mention) -> str:
     lines = []
