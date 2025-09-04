@@ -61,7 +61,7 @@ def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
         return await call_tool(name, tool_args, None)
     
     return MCPServerStreamableHTTP(
-        memory_mcp_server_url,
+        url=memory_mcp_server_url,
         tool_prefix="memory",
         process_tool_call=process_memory_tool_calls
     )
