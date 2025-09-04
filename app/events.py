@@ -10,7 +10,7 @@ from psycopg_pool import AsyncConnectionPool
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
-from tiger_agent import agent
+from app import agent
 
 _agent_trigger = asyncio.Queue()
 
