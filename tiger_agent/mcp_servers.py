@@ -27,23 +27,23 @@ slack_mcp_server_url = os.environ.get(
 
 
 def github_mcp_server() -> MCPServer:
-    return MCPServerStreamableHTTP(github_mcp_server_url, tool_prefix="github")
+    return MCPServerStreamableHTTP(url=github_mcp_server_url, tool_prefix="github")
 
 
 def slack_mcp_server() -> MCPServer:
-    return MCPServerStreamableHTTP(slack_mcp_server_url, tool_prefix="slack")
+    return MCPServerStreamableHTTP(url=slack_mcp_server_url, tool_prefix="slack")
 
 
 def docs_mcp_server() -> MCPServer:
-    return MCPServerStreamableHTTP(docs_mcp_server_url, tool_prefix="docs")
+    return MCPServerStreamableHTTP(url=docs_mcp_server_url, tool_prefix="docs")
 
 
 def salesforce_mcp_server() -> MCPServer:
-    return MCPServerStreamableHTTP(salesforce_mcp_server_url, tool_prefix="salesforce")
+    return MCPServerStreamableHTTP(url=salesforce_mcp_server_url, tool_prefix="salesforce")
 
 
 def linear_mcp_server() -> MCPServer:
-    return MCPServerStreamableHTTP(linear_mcp_server_url, tool_prefix="linear")
+    return MCPServerStreamableHTTP(url=linear_mcp_server_url, tool_prefix="linear")
 
 
 def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
@@ -54,14 +54,14 @@ def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
         tool_args: dict[str, Any],
     ) -> ToolResult:
         if name in ["forget", "remember", "update"] and (
-            not hasattr(ctx.deps, 'user_id') or not ctx.deps.user_id
+            not hasattr(ctx.deps, "user_id") or not ctx.deps.user_id
             or tool_args.get("key") != f"{key_prefix}:{ctx.deps.user_id}"
         ):
             return "Tried altering memories for a different user which is not allowed"
         return await call_tool(name, tool_args, None)
     
     return MCPServerStreamableHTTP(
-        memory_mcp_server_url, 
+        memory_mcp_server_url,
         tool_prefix="memory",
         process_tool_call=process_memory_tool_calls
     )
