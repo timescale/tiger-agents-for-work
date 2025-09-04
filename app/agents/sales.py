@@ -1,7 +1,7 @@
-from pydantic_ai import Agent, RunContext
+from types import AgentContext
 
-from agents.types import AgentContext
 from mcp_servers import salesforce_mcp_server
+from pydantic_ai import Agent, RunContext
 
 sales_agent = Agent(
     "anthropic:claude-sonnet-4-20250514",

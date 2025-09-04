@@ -2,28 +2,19 @@ import asyncio
 import os
 import random
 from datetime import datetime
+from types import AgentContext, BotInfo, Mention
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
 from agents.docs import query_docs
 from agents.progress import add_message
 from agents.sales import query_sales_support
-from agents.types import AgentContext, BotInfo, Mention
 from mcp_servers import slack_mcp_server
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
 from utils.db import (
-    MAX_ATTEMPTS,
-    delete_app_mention,
     delete_expired_mentions,
-    get_any_app_mention,
-)
-from utils.slack import (
-    post_response,
-    react_to_mention,
-    remove_reaction_from_mention,
 )
 
 from app import AGENT_NAME
@@ -183,58 +174,58 @@ def user_prompt(mention: Mention) -> str:
 async def respond(
     pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo
 ) -> bool:
-    with logfire.span("respond") as span:
-        try:
-            async with pool.connection() as con:
-                mention = await get_any_app_mention(con)
-                if not mention:
-                    logfire.info("no mention found")
-                    return False
-                assert mention is not None
-                span.set_attributes({"channel": mention.channel, "user": mention.user})
-                try:
-                    await react_to_mention(client, mention, "spinthinking")
-                    async with eon_agent as agent:
-                        # Slack messages are limited to 40k chars and 1 token ~= 4 chars
-                        # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
-                        # https://api.slack.com/methods/chat.postMessage#truncating
-                        response = await agent.run(
-                            deps=AgentContext(
-                                user_timezone=mention.tz or "UTC",
-                                bot_user_id=bot_info["user_id"],
-                                thread_ts=mention.thread_ts,
-                                channel=mention.channel,
-                                user_id=mention.user,
-                            ),
-                            user_prompt=user_prompt(mention),
-                            usage_limits=UsageLimits(response_tokens_limit=9_000),
-                        )
-                        await post_response(
-                            client,
-                            mention.channel,
-                            mention.thread_ts if mention.thread_ts else mention.ts,
-                            response.output,
-                        )
-                    await delete_app_mention(con, mention)
-                    await remove_reaction_from_mention(client, mention, "spinthinking")
-                    await react_to_mention(client, mention, "white_check_mark")
-                    return True
-                except Exception as e:
-                    logfire.exception("respond failed", error_type=type(e).__name__)
-                    await remove_reaction_from_mention(client, mention, "spinthinking")
-                    await react_to_mention(client, mention, "x")
-                    await post_response(
-                        client,
-                        mention.channel,
-                        mention.thread_ts if mention.thread_ts else mention.ts,
-                        "I experienced an issue trying to respond."
-                        + " I will try again."
-                        if mention.attempts < MAX_ATTEMPTS
-                        else " I give up. Sorry.",
-                    )
-        except Exception as e:
-            logfire.exception("respond failed", error_type=type(e).__name__)
-        return False
+    # with logfire.span("respond") as span:
+    #     try:
+    #         async with pool.connection() as con:
+    #             mention = await get_any_app_mention(con)
+    #             if not mention:
+    #                 logfire.info("no mention found")
+    #                 return False
+    #             assert mention is not None
+    #             span.set_attributes({"channel": mention.channel, "user": mention.user})
+    #             try:
+    #                 await react_to_mention(client, mention, "spinthinking")
+    #                 async with eon_agent as agent:
+    #                     # Slack messages are limited to 40k chars and 1 token ~= 4 chars
+    #                     # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+    #                     # https://api.slack.com/methods/chat.postMessage#truncating
+    #                     response = await agent.run(
+    #                         deps=AgentContext(
+    #                             user_timezone=mention.tz or "UTC",
+    #                             bot_user_id=bot_info["user_id"],
+    #                             thread_ts=mention.thread_ts,
+    #                             channel=mention.channel,
+    #                             user_id=mention.user,
+    #                         ),
+    #                         user_prompt=user_prompt(mention),
+    #                         usage_limits=UsageLimits(response_tokens_limit=9_000),
+    #                     )
+    #                     await post_response(
+    #                         client,
+    #                         mention.channel,
+    #                         mention.thread_ts if mention.thread_ts else mention.ts,
+    #                         response.output,
+    #                     )
+    #                 await delete_app_mention(con, mention)
+    #                 await remove_reaction_from_mention(client, mention, "spinthinking")
+    #                 await react_to_mention(client, mention, "white_check_mark")
+    #                 return True
+    #             except Exception as e:
+    #                 logfire.exception("respond failed", error_type=type(e).__name__)
+    #                 await remove_reaction_from_mention(client, mention, "spinthinking")
+    #                 await react_to_mention(client, mention, "x")
+    #                 await post_response(
+    #                     client,
+    #                     mention.channel,
+    #                     mention.thread_ts if mention.thread_ts else mention.ts,
+    #                     "I experienced an issue trying to respond."
+    #                     + " I will try again."
+    #                     if mention.attempts < MAX_ATTEMPTS
+    #                     else " I give up. Sorry.",
+    #                 )
+    #     except Exception as e:
+    #         logfire.exception("respond failed", error_type=type(e).__name__)
+         return False
 
 
 async def respond_worker(
