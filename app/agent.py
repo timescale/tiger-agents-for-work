@@ -13,8 +13,8 @@ async def claim_event(pool: AsyncConnectionPool) -> dict[str, Any] | None:
         con.transaction() as _,
         con.cursor(row_factory=dict_row) as cur,
     ):
-        cur.execute("select * from agent.claim_event")
-        return cur.fetchone()
+        await cur.execute("select * from agent.claim_event()")
+        return await cur.fetchone()
 
 
 @logfire.instrument("delete_event", extract_args=False)
@@ -24,7 +24,7 @@ async def delete_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        cur.execute("select agent.delete_event(%s)", (event["id"],))
+        await cur.execute("select agent.delete_event(%s)", (event["id"],))
 
 
 @logfire.instrument("run_agent", extract_args=False)
