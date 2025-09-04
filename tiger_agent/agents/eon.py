@@ -2,8 +2,6 @@ import asyncio
 import os
 import random
 from datetime import datetime
-from typing import Any
-from urllib.parse import ParseResult, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
@@ -64,18 +62,6 @@ Respond in valid Markdown format, following these rules:
 - Your response MUST be less than 40,000 characters.
 - For bullet points, you MUST ONLY use asterisks (*), not dashes (-), pluses (+), or any other character.
 """
-
-
-def db_url_parts(url: str) -> dict[str, Any]:
-    parsed: ParseResult = urlparse(url)
-    return dict(
-        PGHOST=parsed.hostname,
-        PGDATABASE=parsed.path.lstrip("/"),
-        PGPORT=str(parsed.port),
-        PGUSER=parsed.username,
-        PGPASSWORD=parsed.password,
-    )
-
 
 eon_agent = Agent(
     EON_MODEL,
@@ -159,8 +145,8 @@ async def get_any_app_mention(con: AsyncConnection) -> Mention | None:
     """
     with logfire.span("get_any_app_mention"):
         async with con.cursor(row_factory=class_row(Mention)) as cur:
-            for x in range(3):  # try more than once to claim a row
-                async with con.transaction() as _:
+            for _ in range(3):  # try more than once to claim a row
+                async with con.transaction():
                     await cur.execute(
                         """\
                         with x as
