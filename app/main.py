@@ -21,26 +21,28 @@ load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 logfire.configure(
     service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
     service_version=__version__,
+    scrubbing=False,
+    min_level="info"
 )
-logfire.instrument_psycopg()
+#logfire.instrument_psycopg()
 logfire.instrument_pydantic_ai()
-logfire.instrument_mcp()
-logfire.instrument_httpx()
-logfire.instrument_system_metrics(
-    {
-        "process.cpu.time": ["user", "system"],
-        "process.cpu.utilization": None,
-        "process.cpu.core_utilization": None,
-        "process.memory.usage": None,
-        "process.memory.virtual": None,
-        "process.thread.count": None,
-    }
-)
+#logfire.instrument_mcp()
+#logfire.instrument_httpx()
+# logfire.instrument_system_metrics(
+#     {
+#         "process.cpu.time": ["user", "system"],
+#         "process.cpu.utilization": None,
+#         "process.cpu.core_utilization": None,
+#         "process.memory.usage": None,
+#         "process.memory.virtual": None,
+#         "process.thread.count": None,
+#     }
+# )
 
 
 def shutdown_handler(signum: int, _frame: Any):
     signame = signal.Signals(signum).name
-    logfire.info(f"received {signame}, exiting")
+    logfire.info(f"Received {signame}, exiting")
     exit(0)
 
 
@@ -99,10 +101,14 @@ async def main() -> None:
         slack_client = app.client
         bot_info = await slack_client.auth_test()
 
-        async with asyncio.TaskGroup() as tasks:
-            await initialize(app, pool, tasks, num_agent_workers=5)
-            tasks.create_task(handler.start_async())
-            # tasks.create_task(respond_worker(pool, slack_client, bot_info))
+        try:
+            async with asyncio.TaskGroup() as tasks:
+                await initialize(app, pool, tasks, bot_info, num_agent_workers=5)
+                tasks.create_task(handler.start_async())
+                # tasks.create_task(respond_worker(pool, slack_client, bot_info))
+        except* Exception as eg:
+            for error in eg.exceptions:
+                logfire.exception("Task failed", error=error)
 
 
 if __name__ == "__main__":

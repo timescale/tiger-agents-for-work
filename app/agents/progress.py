@@ -14,7 +14,6 @@ Features:
 """
 
 from datetime import UTC, datetime
-from types import AgentContext
 
 from mcp_servers import (
     github_mcp_server,
@@ -24,6 +23,8 @@ from mcp_servers import (
 )
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
+
+from app.types import AgentContext
 
 all_messages = None
 

@@ -2,7 +2,6 @@ import asyncio
 import os
 import random
 from datetime import datetime
-from types import AgentContext, BotInfo, Mention
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
@@ -14,12 +13,19 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, RunContext
 from slack_sdk.web.async_client import AsyncWebClient
 from utils.db import (
+    MAX_ATTEMPTS,
     delete_expired_mentions,
 )
 
 from app import AGENT_NAME
+from app.types import AgentContext, BotInfo, Mention
+from app.utils.slack import (
+    post_response,
+    react_to_mention,
+    remove_reaction_from_mention,
+)
 
-EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-0")
+EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-20250514")
 WORKER_SLEEP_SECONDS = 60  # how long the worker sleeps between iterations
 WORKER_MIN_JITTER_SECONDS = -15
 WORKER_MAX_JITTER_SECONDS = 15
@@ -53,8 +59,9 @@ You are an orchestrator agent that uses specialized sub-agents to answer questio
 1. If the question is unclear, first search recent Slack messages in the channel/thread for context
 2. Select the most appropriate sub-agent tool(s) based on the question type - you may use multiple sub-agents when their combined insights would provide a more comprehensive answer
 3. When using multiple sub-agents, synthesize their outputs into a cohesive response that highlights how the different perspectives complement each other
-4. If no sub-agent is appropriate, use your general knowledge or explain limitations
-5. Always be concise but thorough in your responses
+4. **IMPORTANT: When presenting output from sub-agents, preserve their original markdown formatting, including links, bold text, headers, and bullet points. Do not reformat or paraphrase their responses.**
+5. If no sub-agent is appropriate, use your general knowledge or explain limitations
+6. Always be concise but thorough in your responses
 
 If asked to do something that falls outside your purpose or abilities, respond with an explanation why you refuse to carry out the ask.
 
@@ -171,61 +178,50 @@ def user_prompt(mention: Mention) -> str:
     lines.append(f"Q: {mention.text}")
     return "\n".join(lines)
 
-async def respond(
-    pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo
+async def respond(mention: Mention,
+    client: AsyncWebClient, bot_info: BotInfo
 ) -> bool:
-    # with logfire.span("respond") as span:
-    #     try:
-    #         async with pool.connection() as con:
-    #             mention = await get_any_app_mention(con)
-    #             if not mention:
-    #                 logfire.info("no mention found")
-    #                 return False
-    #             assert mention is not None
-    #             span.set_attributes({"channel": mention.channel, "user": mention.user})
-    #             try:
-    #                 await react_to_mention(client, mention, "spinthinking")
-    #                 async with eon_agent as agent:
-    #                     # Slack messages are limited to 40k chars and 1 token ~= 4 chars
-    #                     # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
-    #                     # https://api.slack.com/methods/chat.postMessage#truncating
-    #                     response = await agent.run(
-    #                         deps=AgentContext(
-    #                             user_timezone=mention.tz or "UTC",
-    #                             bot_user_id=bot_info["user_id"],
-    #                             thread_ts=mention.thread_ts,
-    #                             channel=mention.channel,
-    #                             user_id=mention.user,
-    #                         ),
-    #                         user_prompt=user_prompt(mention),
-    #                         usage_limits=UsageLimits(response_tokens_limit=9_000),
-    #                     )
-    #                     await post_response(
-    #                         client,
-    #                         mention.channel,
-    #                         mention.thread_ts if mention.thread_ts else mention.ts,
-    #                         response.output,
-    #                     )
-    #                 await delete_app_mention(con, mention)
-    #                 await remove_reaction_from_mention(client, mention, "spinthinking")
-    #                 await react_to_mention(client, mention, "white_check_mark")
-    #                 return True
-    #             except Exception as e:
-    #                 logfire.exception("respond failed", error_type=type(e).__name__)
-    #                 await remove_reaction_from_mention(client, mention, "spinthinking")
-    #                 await react_to_mention(client, mention, "x")
-    #                 await post_response(
-    #                     client,
-    #                     mention.channel,
-    #                     mention.thread_ts if mention.thread_ts else mention.ts,
-    #                     "I experienced an issue trying to respond."
-    #                     + " I will try again."
-    #                     if mention.attempts < MAX_ATTEMPTS
-    #                     else " I give up. Sorry.",
-    #                 )
-    #     except Exception as e:
-    #         logfire.exception("respond failed", error_type=type(e).__name__)
-         return False
+    with logfire.span("respond") as span:
+        span.set_attributes({"channel": mention.channel, "user": mention.user})
+        try:
+            await react_to_mention(client, mention, "spinthinking")
+            async with eon_agent as agent:
+                # Slack messages are limited to 40k chars and 1 token ~= 4 chars
+                # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+                # https://api.slack.com/methods/chat.postMessage#truncating
+                response = await agent.run(
+                    deps=AgentContext(
+                        user_timezone=mention.tz or "UTC",
+                        bot_user_id=bot_info["user_id"],
+                        thread_ts=mention.thread_ts,
+                        channel=mention.channel,
+                        user_id=mention.user,
+                    ),
+                    user_prompt=user_prompt(mention),
+                )
+                await post_response(
+                    client,
+                    mention.channel,
+                    mention.thread_ts if mention.thread_ts else mention.ts,
+                    response.output,
+                )
+            await remove_reaction_from_mention(client, mention, "spinthinking")
+            await react_to_mention(client, mention, "white_check_mark")
+            return True
+        except Exception as e:
+            logfire.exception("respond failed", error_type=type(e).__name__)
+            await remove_reaction_from_mention(client, mention, "spinthinking")
+            await react_to_mention(client, mention, "x")
+            await post_response(
+                client,
+                mention.channel,
+                mention.thread_ts if mention.thread_ts else mention.ts,
+                "I experienced an issue trying to respond."
+                + " I will try again."
+                if mention.attempts < MAX_ATTEMPTS
+                else " I give up. Sorry.",
+            )
+            return False
 
 
 async def respond_worker(
