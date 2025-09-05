@@ -1,6 +1,5 @@
 import asyncio
 import random
-import traceback
 from typing import Any
 
 import logfire
@@ -11,6 +10,7 @@ from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
 from app import agent
+from app.types import BotInfo
 
 _agent_trigger = asyncio.Queue()
 
@@ -46,7 +46,7 @@ async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select slack.insert_event(%s)", (Jsonb(event),))
+        await cur.execute("select agent.insert_event(%s)", (Jsonb(event),))
 
 
 async def event_router(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
@@ -61,46 +61,39 @@ async def event_router(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
 
 
 async def agent_worker(
-    app: AsyncApp, pool: AsyncConnectionPool, worker_id: int
+    app: AsyncApp, pool: AsyncConnectionPool, worker_id: int, bot_info: BotInfo
 ) -> None:
     while True:
         try:
             jitter = random.randint(-15, 15)
             await asyncio.wait_for(_agent_trigger.get(), timeout=(60.0 + jitter))
-            logfire.info("got one!", worker_id=worker_id)
-            await agent.run_agent(app, pool)
+            logfire.debug("got one!", worker_id=worker_id)
+            await agent.run_agent(app, pool, bot_info)
         except TimeoutError:
-            logfire.info("timeout", worker_id=worker_id)
-            await agent.run_agent(app, pool)
+            logfire.debug("timeout", worker_id=worker_id)
+            await agent.run_agent(app, pool, bot_info=bot_info)
 
 
 async def initialize(
     app: AsyncApp,
     pool: AsyncConnectionPool,
     tasks: asyncio.TaskGroup,
+    bot_info: BotInfo,
     num_agent_workers: int = 5,
 ) -> None:
     async def event_handler(ack: AsyncAck, event: dict[str, Any]):
         event_type = event.get("type")
         with logfire.span(event_type):
             await ack()
-            error: dict[str, Any] | None = None
             try:
                 await event_router(pool, event)
-            except psycopg.Error as pge:
-                error = diagnostic_to_dict(pge.diag)
+            except Exception:
                 logfire.exception(f"exception processing {event_type} event", **event)
-            except Exception as e:
-                error = {
-                    "type": type(e).__name__,
-                    "message": str(e),
-                    "traceback": traceback.format_exc(),
-                }
-                logfire.exception(f"exception processing {event_type} event", **event)
-            finally:
-                await insert_event(pool, event, error)
 
     for worker_id in range(num_agent_workers):
-        tasks.create_task(agent_worker(app, pool, worker_id))
+        tasks.create_task(agent_worker(app, pool, worker_id, bot_info))
 
     app.event("app_mention")(event_handler)
+    @app.event("message")
+    async def handle_message(ack):
+        await ack()

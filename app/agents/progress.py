@@ -15,16 +15,16 @@ Features:
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel
-from pydantic_ai import Agent, RunContext
-
-from agents.types import AgentContext
 from mcp_servers import (
     github_mcp_server,
     linear_mcp_server,
     memory_mcp_server,
     slack_mcp_server,
 )
+from pydantic import BaseModel
+from pydantic_ai import Agent, RunContext
+
+from app.types import AgentContext
 
 all_messages = None
 

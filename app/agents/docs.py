@@ -1,7 +1,7 @@
+from mcp_servers import docs_mcp_server
 from pydantic_ai import Agent, RunContext
 
-from agents.types import AgentContext
-from mcp_servers import docs_mcp_server
+from app.types import AgentContext
 
 docs_agent = Agent(
     "anthropic:claude-sonnet-4-20250514",

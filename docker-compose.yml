@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  app:
+    image: python:3.13-slim
+    container_name: tiger-agent-app
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/tiger_agent
+    command: tail -f /dev/null
+
+  db:
+    image: timescale/timescaledb-ha:pg17
+    container_name: tiger-agent-db
+    environment:
+      - POSTGRES_DB=tiger_agent
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+
+volumes:
+  timescale_data:

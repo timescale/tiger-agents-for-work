@@ -1,7 +1,7 @@
 import logfire
 from slack_sdk.web.async_client import AsyncWebClient
 
-from agents.types import Mention
+from app.types import Mention
 
 
 async def react_to_mention(
@@ -51,5 +51,9 @@ async def post_response(
     client: AsyncWebClient, channel: str, thread_ts: str, text: str
 ) -> None:
     await client.chat_postMessage(
-        channel=channel, thread_ts=thread_ts, markdown_text=text
+        channel=channel,
+        thread_ts=thread_ts,
+        text=text,blocks=[{"type": "markdown", "text": text}],
+        unfurl_links=False,
+        unfurl_media=False,
     )
