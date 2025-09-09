@@ -2,30 +2,81 @@ version: '3.8'
 
 services:
   app:
-    image: python:3.13-slim
+    build: .
     container_name: tiger-agent-app
-    working_dir: /app
-    volumes:
-      - .:/app
+    environment:
+      SLACK_MCP_SERVER_URL: http://localhost:5559/mcp
+    env_file:
+      .env
     ports:
       - "8000:8000"
     depends_on:
       - db
-    environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/tiger_agent
-    command: tail -f /dev/null
 
   db:
     image: timescale/timescaledb-ha:pg17
     container_name: tiger-agent-db
     environment:
-      - POSTGRES_DB=tiger_agent
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
+      POSTGRES_DB: ${PGDATABASE}
+      POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+    # healthcheck:
+    #   test: ["CMD-SHELL", "pg_isready -U tsdbadmin -d tsdb"]
+    #   interval: 1s
+    #   timeout: 5s
+    #   retries: 50
     ports:
       - "5432:5432"
     volumes:
       - timescale_data:/var/lib/postgresql/data
 
+
+  tiger-docs:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-docs-mcp-server
+    container_name: tiger-docs
+    env_file:
+      .env
+    ports:
+      - "5555:3001"
+
+  tiger-github:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-gh-mcp-server
+    container_name: tiger-gh
+    env_file:
+      .env
+    ports:
+      - "5556:3001"
+
+  tiger-linear:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-linear-mcp-server
+    container_name: tiger-linear
+    env_file:
+      .env
+    ports:
+      - "5557:3001"
+
+  tiger-memory:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-memory-mcp-server
+    container_name: tiger-memory
+    env_file:
+      .env
+    ports:
+      - "5558:3001"
+
+  tiger-slack:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-slack-mcp-server
+    container_name: tiger-slack
+    ports:
+      - "5559:3001"
+    env_file:
+      .env
+    depends_on:
+      - db
+
 volumes:
   timescale_data:
+
+networks:
+  default:
+    name: tiger-network
+    driver: bridge

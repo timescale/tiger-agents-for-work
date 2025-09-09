@@ -64,8 +64,6 @@ async def reset_database_connection(con: AsyncConnection) -> None:
 
 
 async def main() -> None:
-    database_url = os.getenv("DATABASE_URL")
-    assert database_url is not None, "DATABASE_URL environment variable is missing!"
     slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
     assert slack_bot_token is not None, (
         "SLACK_BOT_TOKEN environment variable is missing!"
@@ -82,7 +80,7 @@ async def main() -> None:
     loop.set_exception_handler(exception_handler)
 
     async with AsyncConnectionPool(
-        database_url,
+        "",
         check=AsyncConnectionPool.check_connection,
         configure=configure_database_connection,
         reset=reset_database_connection,

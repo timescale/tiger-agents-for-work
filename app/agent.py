@@ -5,7 +5,7 @@ from psycopg_pool import AsyncConnectionPool
 from slack_bolt.app.async_app import AsyncApp
 
 from app.agents.eon import respond
-from app.types import BotInfo, Mention
+from app.data_types import BotInfo, Mention
 
 
 async def claim_event(pool: AsyncConnectionPool) -> Mention | None:

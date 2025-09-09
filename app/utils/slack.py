@@ -1,7 +1,7 @@
 import logfire
 from slack_sdk.web.async_client import AsyncWebClient
 
-from app.types import Mention
+from app.data_types import Mention
 
 
 async def react_to_mention(

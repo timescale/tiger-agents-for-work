@@ -10,7 +10,7 @@ from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
 from app import agent
-from app.types import BotInfo
+from app.data_types import BotInfo
 
 _agent_trigger = asyncio.Queue()
 

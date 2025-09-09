@@ -1,5 +1,4 @@
 import asyncio
-import os
 import re
 from pathlib import Path
 
@@ -170,13 +169,9 @@ async def main():
     # Load environment variables
     load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        raise ValueError("DATABASE_URL environment variable is required")
-
     logfire.info("Starting database migration...")
 
-    async with AsyncConnection.connect(database_url) as con:
+    async with AsyncConnection.connect() as con:
         await migrate_db(con)
 
     logfire.info("Database migration completed successfully")
