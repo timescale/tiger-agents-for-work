@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logfire
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
 from utils.db import (
     MAX_ATTEMPTS,
@@ -215,18 +216,20 @@ async def respond(mention: Mention,
             await react_to_mention(client, mention, "spinthinking")
         
             async with eon_agent as agent:
+                # Slack messages are limited to 40k chars and 1 token ~= 4 chars
+                # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+                # https://api.slack.com/methods/chat.postMessage#truncating
                 response = await agent.run(
                     deps=AgentContext(
                         bot_user_id=bot_info["user_id"],
                         thread_ts=mention.thread_ts,
                         channel=mention.channel,
                         user_id=mention.user,
+                        usage_limits=UsageLimits(output_tokens_limit=9_000)
                     ),
                     user_prompt=user_prompt(mention),
                     )
-            # Slack messages are limited to 40k chars and 1 token ~= 4 chars
-            # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
-            # https://api.slack.com/methods/chat.postMessage#truncating
+            
             await post_response(
                 client,
                 mention.channel,
