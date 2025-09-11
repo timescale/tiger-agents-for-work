@@ -6,10 +6,6 @@ from pydantic import BaseModel, Field
 
 
 class AgentContext(BaseModel):
-    user_timezone: str = Field(
-        default="UTC",
-        description="User's timezone for date/time formatting",
-    )
     thread_ts: str | None = Field(
         None,
         description="Slack thread timestamp for fetching thread messages when in conversational context",
@@ -46,3 +42,12 @@ class BotInfo(TypedDict):
     team_id: str
     user_id: str
     user: str
+
+@dataclass
+class SlackUser:
+    id: str
+    user_name: str
+    real_name: str
+    display_name: str
+    email: str
+    tz: str | None

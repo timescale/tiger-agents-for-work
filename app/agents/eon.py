@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import random
 from datetime import datetime
@@ -18,7 +19,7 @@ from app import AGENT_NAME
 from app.agents.docs import query_docs
 from app.agents.progress import add_message
 from app.agents.sales import query_sales_support
-from app.data_types import AgentContext, BotInfo, Mention
+from app.data_types import AgentContext, BotInfo, Mention, SlackUser
 from app.mcp_servers import memory_mcp_server, slack_mcp_server
 from app.utils.slack import (
     post_response,
@@ -78,6 +79,7 @@ Respond in valid Markdown format, following these rules:
 """
 
 _memory_mcp_server = memory_mcp_server()
+_slack_mcp_server = slack_mcp_server()
 
 eon_agent = Agent(
     EON_MODEL,
@@ -87,15 +89,21 @@ eon_agent = Agent(
 )
 
 @eon_agent.system_prompt
-def add_the_date(ctx: RunContext[AgentContext]) -> str:
+async def add_user_metadata(ctx: RunContext[AgentContext]) -> str:
     try:
-        timezone = ZoneInfo(ctx.deps.user_timezone)
+        result = await _slack_mcp_server.direct_call_tool("getUsers", { "keyword": ctx.deps.user_id, "includeTimezone": True })
+        user: SlackUser = result["results"][0] if result["results"] else None
+        
+        if user is not None and user["tz"] is not None:
+            timezone = ZoneInfo(user["tz"])
+            user.pop("tz")
+        else:
+            timezone = ZoneInfo("UTC")
     except ZoneInfoNotFoundError:
         timezone = ZoneInfo("UTC")
-    return (
-        f"User's current time: {datetime.now(timezone).strftime('%Y-%m-%d %H:%M:%S%z')}"
-    )
-
+    return f"""User's Slack metadata: {json.dumps(user)}\n
+        User's current time: {datetime.now(timezone).strftime('%Y-%m-%d %H:%M:%S%z')}"""
+    
 
 @eon_agent.system_prompt
 def add_bot_user_id(ctx: RunContext[AgentContext]) -> str:
@@ -118,8 +126,6 @@ async def memory_prompt(ctx: RunContext[AgentContext]) -> str:
     {"\n".join(f"ID {m['id']} - {m['content']}" for m in memories)}
     """
     )
-
-
 
 @eon_agent.tool
 async def progress_agent_tool(
@@ -209,12 +215,8 @@ async def respond(mention: Mention,
             await react_to_mention(client, mention, "spinthinking")
         
             async with eon_agent as agent:
-                # Slack messages are limited to 40k chars and 1 token ~= 4 chars
-                # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
-                # https://api.slack.com/methods/chat.postMessage#truncating
                 response = await agent.run(
                     deps=AgentContext(
-                        user_timezone=mention.tz or "UTC",
                         bot_user_id=bot_info["user_id"],
                         thread_ts=mention.thread_ts,
                         channel=mention.channel,
@@ -222,6 +224,9 @@ async def respond(mention: Mention,
                     ),
                     user_prompt=user_prompt(mention),
                     )
+            # Slack messages are limited to 40k chars and 1 token ~= 4 chars
+            # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+            # https://api.slack.com/methods/chat.postMessage#truncating
             await post_response(
                 client,
                 mention.channel,
