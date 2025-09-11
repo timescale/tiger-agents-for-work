@@ -13,7 +13,8 @@ services:
     ports:
       - "5678:5678"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   db:
     image: timescale/timescaledb-ha:pg17
@@ -41,7 +42,8 @@ services:
     ports:
       - "5555:3001"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   tiger-github-mcp:
     image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-gh-mcp-server
@@ -67,7 +69,8 @@ services:
     ports:
       - "5558:3001"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   tiger-salesforce-mcp:
     image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-salesforce-mcp-server
@@ -85,7 +88,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   tiger-slack-ingest:
     image: ghcr.io/timescale/tiger-slack/ingest:v0.2
@@ -93,7 +97,8 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   timescale_data:
