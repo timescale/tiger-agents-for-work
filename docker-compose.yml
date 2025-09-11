@@ -7,7 +7,12 @@ services:
     environment:
       DEBUG: true
       DEBUG_WAIT_FOR_ATTACH: false
-
+      DOCS_MCP_SERVER_URL: http://tiger-docs-mcp:3001/mcp
+      GITHUB_MCP_SERVER_URL: http://tiger-github-mcp:3001/mcp
+      LINEAR_MCP_SERVER_URL: http://tiger-linear-mcp:3001/mcp
+      MEMORY_MCP_SERVER_URL: http://tiger-memory-mcp:3001/mcp
+      SALESFORCE_MCP_SERVER_URL: http://tiger-salesforce-mcp:3001/mcp
+      SLACK_MCP_SERVER_URL: http://tiger-slack-mcp:3001/mcp
     env_file:
       - .env
     ports:
