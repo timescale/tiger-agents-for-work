@@ -5,6 +5,15 @@ from typing import Any
 
 import logfire
 from dotenv import find_dotenv, load_dotenv
+
+# Enable remote debugging if DEBUG environment variable is set
+if os.getenv("DEBUG", "false").lower() == "true":
+    import debugpy
+    debugpy.listen(("0.0.0.0", 5678))
+    print("🐛 Debug server started on port 5678. Waiting for debugger to attach...")
+    if os.getenv("DEBUG_WAIT_FOR_ATTACH", "false").lower() == "true":
+        debugpy.wait_for_client()  # Uncomment to wait for debugger before starting
+
 from events import initialize
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
@@ -16,7 +25,6 @@ from migrations.runner import migrate_db
 from . import AGENT_NAME, __version__
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
-
 
 logfire.configure(
     service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
@@ -58,7 +66,6 @@ def exception_handler(_, context):
 async def configure_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
 
-
 async def reset_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
 
@@ -80,7 +87,6 @@ async def main() -> None:
     loop.set_exception_handler(exception_handler)
 
     async with AsyncConnectionPool(
-        "",
         check=AsyncConnectionPool.check_connection,
         configure=configure_database_connection,
         reset=reset_database_connection,

@@ -1,10 +1,11 @@
 [project]
-name = "slackdb"
+name = "tiger-agent"
 version = "0.0.1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "debugpy>=1.8.7",
     "logfire[httpx,psycopg,system-metrics]>=4.3.6",
     "psycopg[binary,pool]>=3.2.9",
     "pydantic-ai[logfire]>=0.8.1",

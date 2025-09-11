@@ -2,6 +2,22 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Attach (Remote Debug)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "/app"
+                }
+            ],
+            "justMyCode": false
+        },
+        {
             "name": "Debug Tiger Agent",
             "type": "python",
             "request": "launch",
@@ -9,7 +25,8 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {
-                "PYTHONPATH": "${workspaceFolder}"
+                "PYTHONPATH": "${workspaceFolder}",
+                "PGHOST": "localhost"
             },
             "envFile": "${workspaceFolder}/.env"
         },
@@ -17,7 +34,7 @@
             "name": "Debug Progress Agent Standalone",
             "type": "python",
             "request": "launch",
-            "program": "${workspaceFolder}/src/agents/progress.py",
+            "program": "${workspaceFolder}/app/agents/progress.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {
@@ -42,7 +59,10 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/.venv/bin/python",
-            "args": ["-m", "src.main"],
+            "args": [
+                "-m",
+                "app.main"
+            ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "envFile": "${workspaceFolder}/.env"

@@ -18,6 +18,7 @@ from app.agents.docs import query_docs
 from app.agents.progress import add_message
 from app.agents.sales import query_sales_support
 from app.data_types import AgentContext, BotInfo, Mention
+from app.mcp_servers import slack_mcp_server
 from app.utils.slack import (
     post_response,
     react_to_mention,
@@ -79,7 +80,7 @@ eon_agent = Agent(
     EON_MODEL,
     deps_type=AgentContext,
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
-    # toolsets=[slack_mcp_server()],
+    toolsets=[slack_mcp_server()],
 )
 
 @eon_agent.system_prompt
@@ -185,19 +186,20 @@ async def respond(mention: Mention,
         try:
             await react_to_mention(client, mention, "spinthinking")
         
-            # Slack messages are limited to 40k chars and 1 token ~= 4 chars
-            # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
-            # https://api.slack.com/methods/chat.postMessage#truncating
-            response = await eon_agent.run(
-                deps=AgentContext(
-                    user_timezone=mention.tz or "UTC",
-                    bot_user_id=bot_info["user_id"],
-                    thread_ts=mention.thread_ts,
-                    channel=mention.channel,
-                    user_id=mention.user,
-                ),
-                user_prompt=user_prompt(mention),
-                )
+            async with eon_agent as agent:
+                # Slack messages are limited to 40k chars and 1 token ~= 4 chars
+                # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
+                # https://api.slack.com/methods/chat.postMessage#truncating
+                response = await agent.run(
+                    deps=AgentContext(
+                        user_timezone=mention.tz or "UTC",
+                        bot_user_id=bot_info["user_id"],
+                        thread_ts=mention.thread_ts,
+                        channel=mention.channel,
+                        user_id=mention.user,
+                    ),
+                    user_prompt=user_prompt(mention),
+                    )
             await post_response(
                 client,
                 mention.channel,

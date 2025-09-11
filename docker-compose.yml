@@ -5,11 +5,13 @@ services:
     build: .
     container_name: tiger-agent-app
     environment:
-      SLACK_MCP_SERVER_URL: http://localhost:5559/mcp
+      DEBUG: true
+      DEBUG_WAIT_FOR_ATTACH: false
+
     env_file:
-      .env
+      - .env
     ports:
-      - "8000:8000"
+      - "5678:5678"
     depends_on:
       - db
 
@@ -31,45 +33,65 @@ services:
       - timescale_data:/var/lib/postgresql/data
 
 
-  tiger-docs:
+  tiger-docs-mcp:
     image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-docs-mcp-server
-    container_name: tiger-docs
+    container_name: tiger-docs-mcp
     env_file:
-      .env
+      - .env
     ports:
       - "5555:3001"
+    depends_on:
+      - db
 
-  tiger-github:
+  tiger-github-mcp:
     image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-gh-mcp-server
-    container_name: tiger-gh
+    container_name: tiger-gh-mcp
     env_file:
-      .env
+      - .env
     ports:
       - "5556:3001"
 
-  tiger-linear:
+  tiger-linear-mcp:
     image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-linear-mcp-server
-    container_name: tiger-linear
+    container_name: tiger-linear-mcp
     env_file:
-      .env
+      - .env
     ports:
       - "5557:3001"
 
-  tiger-memory:
+  tiger-memory-mcp:
     image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-memory-mcp-server
-    container_name: tiger-memory
+    container_name: tiger-memory-mcp
     env_file:
-      .env
+      - .env
     ports:
       - "5558:3001"
+    depends_on:
+      - db
 
-  tiger-slack:
-    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-slack-mcp-server
-    container_name: tiger-slack
+  tiger-salesforce-mcp:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-salesforce-mcp-server
+    container_name: tiger-salesforce-mcp
     ports:
       - "5559:3001"
     env_file:
-      .env
+      - .env
+
+  tiger-slack-mcp:
+    image: ghcr.io/timescale/tiger-slack/mcp:v0.2
+    container_name: tiger-slack-mcp
+    ports:
+      - "5560:3001"
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+  tiger-slack-ingest:
+    image: ghcr.io/timescale/tiger-slack/ingest:v0.2
+    container_name: tiger-slack-ingest
+    env_file:
+      - .env
     depends_on:
       - db
 
