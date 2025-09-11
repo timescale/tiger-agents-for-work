@@ -2,30 +2,113 @@ version: '3.8'
 
 services:
   app:
-    image: python:3.13-slim
+    build: .
     container_name: tiger-agent-app
-    working_dir: /app
-    volumes:
-      - .:/app
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/tiger_agent
-    command: tail -f /dev/null
+      DEBUG: true
+      DEBUG_WAIT_FOR_ATTACH: false
+      DOCS_MCP_SERVER_URL: http://tiger-docs-mcp:3001/mcp
+      GITHUB_MCP_SERVER_URL: http://tiger-github-mcp:3001/mcp
+      LINEAR_MCP_SERVER_URL: http://tiger-linear-mcp:3001/mcp
+      MEMORY_MCP_SERVER_URL: http://tiger-memory-mcp:3001/mcp
+      SALESFORCE_MCP_SERVER_URL: http://tiger-salesforce-mcp:3001/mcp
+      SLACK_MCP_SERVER_URL: http://tiger-slack-mcp:3001/mcp
+    env_file:
+      - .env
+    ports:
+      - "5678:5678"
+    depends_on:
+      db:
+        condition: service_healthy
 
   db:
     image: timescale/timescaledb-ha:pg17
     container_name: tiger-agent-db
     environment:
-      - POSTGRES_DB=tiger_agent
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
+      POSTGRES_DB: ${PGDATABASE}
+      POSTGRES_USER: ${PGUSER}
+      POSTGRES_PASSWORD: ${PGPASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tsdbadmin -d tsdb"]
+      interval: 1s
+      timeout: 5s
+      retries: 50
     ports:
       - "5432:5432"
     volumes:
       - timescale_data:/var/lib/postgresql/data
 
+
+  tiger-docs-mcp:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-docs-mcp-server
+    container_name: tiger-docs-mcp
+    env_file:
+      - .env
+    ports:
+      - "5555:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  tiger-github-mcp:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-gh-mcp-server
+    container_name: tiger-gh-mcp
+    env_file:
+      - .env
+    ports:
+      - "5556:3001"
+
+  tiger-linear-mcp:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-linear-mcp-server
+    container_name: tiger-linear-mcp
+    env_file:
+      - .env
+    ports:
+      - "5557:3001"
+
+  tiger-memory-mcp:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-memory-mcp-server
+    container_name: tiger-memory-mcp
+    env_file:
+      - .env
+    ports:
+      - "5558:3001"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  tiger-salesforce-mcp:
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-salesforce-mcp-server
+    container_name: tiger-salesforce-mcp
+    ports:
+      - "5559:3001"
+    env_file:
+      - .env
+
+  tiger-slack-mcp:
+    image: ghcr.io/timescale/tiger-slack/mcp:v0.2
+    container_name: tiger-slack-mcp
+    ports:
+      - "5560:3001"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  tiger-slack-ingest:
+    image: ghcr.io/timescale/tiger-slack/ingest:v0.2
+    container_name: tiger-slack-ingest
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   timescale_data:
+
+networks:
+  default:
+    name: tiger-network
+    driver: bridge

@@ -104,34 +104,6 @@ tiger-agent/
 ├── uv.lock                             # Lock file for dependencies
 └── README.md                           # This file
 ```
-### Key Files Description
-
-- **`eon.py`**: The orchestrator agent that contains tool definitions for all sub-agents. Routes incoming Slack messages to appropriate specialists.
-
-- **`progress.py`**: Handles team progress tracking, integrating data from Slack, GitHub, Linear, and user memory systems to provide comprehensive activity summaries.
-
-- **`docs.py`**: Provides technical documentation assistance with expertise in PostgreSQL, TimescaleDB, and TigerCloud platform features.
-
-- **`sales.py`**: Accesses Salesforce support case history to provide customer support insights and sales intelligence.
-
-- **`types.py`**: Defines shared data structures including `AgentContext` (user session context), `Mention` (Slack mention events), and `BotInfo` (bot metadata).
-
-- **`mcp_servers.py`**: Configures Model Context Protocol servers for external integrations (GitHub, Slack, Linear, Memory, Salesforce, Documentation).
-
-- **`utils/db.py`**: Database utilities for managing Slack mention processing, including retrieval, cleanup, and expiration handling.
-
-- **`utils/slack.py`**: Slack-specific utilities for reactions, message posting, and API interactions.
-
-## Features
-
-### Intelligent Request Routing
-
-Eon analyzes incoming messages and automatically selects the most appropriate sub-agent based on:
-
-- Keywords and context clues
-- Question type and domain
-- User intent analysis
-- Conversation history
 
 ### Cross-Platform Integration
 

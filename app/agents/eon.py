@@ -5,10 +5,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
-from agents.docs import query_docs
-from agents.progress import add_message
-from agents.sales import query_sales_support
-from mcp_servers import slack_mcp_server
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, RunContext
 from slack_sdk.web.async_client import AsyncWebClient
@@ -18,7 +14,11 @@ from utils.db import (
 )
 
 from app import AGENT_NAME
-from app.types import AgentContext, BotInfo, Mention
+from app.agents.docs import query_docs
+from app.agents.progress import add_message
+from app.agents.sales import query_sales_support
+from app.data_types import AgentContext, BotInfo, Mention
+from app.mcp_servers import slack_mcp_server
 from app.utils.slack import (
     post_response,
     react_to_mention,
@@ -107,7 +107,7 @@ async def progress_agent_tool(
     """Create progress summaries for team members and projects using Slack, GitHub, Linear, and memory data.
     
     This tool provides comprehensive analysis of individual contributor activity and project status by:
-    - Analyzing Slack conversations and GitHub activity 
+    - Analyzing Slack conversations and GitHub activity
     - Supporting exact matching with @username and #channel prefixes
     - Providing both individual contributor and project/channel summaries
     - Creating "Snooper of the Week" reports with highlights across teams
@@ -185,6 +185,7 @@ async def respond(mention: Mention,
         span.set_attributes({"channel": mention.channel, "user": mention.user})
         try:
             await react_to_mention(client, mention, "spinthinking")
+        
             async with eon_agent as agent:
                 # Slack messages are limited to 40k chars and 1 token ~= 4 chars
                 # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
@@ -198,18 +199,18 @@ async def respond(mention: Mention,
                         user_id=mention.user,
                     ),
                     user_prompt=user_prompt(mention),
-                )
-                await post_response(
-                    client,
-                    mention.channel,
-                    mention.thread_ts if mention.thread_ts else mention.ts,
-                    response.output,
-                )
+                    )
+            await post_response(
+                client,
+                mention.channel,
+                mention.thread_ts if mention.thread_ts else mention.ts,
+                response.output,
+            )
             await remove_reaction_from_mention(client, mention, "spinthinking")
             await react_to_mention(client, mention, "white_check_mark")
             return True
         except Exception as e:
-            logfire.exception("respond failed", error_type=type(e).__name__)
+            logfire.exception("respond failed", error=e)
             await remove_reaction_from_mention(client, mention, "spinthinking")
             await react_to_mention(client, mention, "x")
             await post_response(

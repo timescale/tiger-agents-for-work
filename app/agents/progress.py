@@ -24,7 +24,7 @@ from mcp_servers import (
 from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 
-from app.types import AgentContext
+from app.data_types import AgentContext
 
 all_messages = None
 
