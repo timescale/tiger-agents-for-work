@@ -25,7 +25,6 @@ slack_mcp_server_url = os.environ.get(
     "SLACK_MCP_SERVER_URL", "http://tiger-slack-mcp-server/mcp"
 )
 
-
 def github_mcp_server() -> MCPServer:
     return MCPServerStreamableHTTP(url=github_mcp_server_url, tool_prefix="github")
 

@@ -109,7 +109,6 @@ async def main() -> None:
             async with asyncio.TaskGroup() as tasks:
                 await initialize(app, pool, tasks, bot_info, num_agent_workers=5)
                 tasks.create_task(handler.start_async())
-                # tasks.create_task(respond_worker(pool, slack_client, bot_info))
         except* Exception as eg:
             for error in eg.exceptions:
                 logfire.exception("Task failed", error=error)
