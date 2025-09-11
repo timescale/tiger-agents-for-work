@@ -18,7 +18,6 @@ from datetime import UTC, datetime
 from mcp_servers import (
     github_mcp_server,
     linear_mcp_server,
-    memory_mcp_server,
     slack_mcp_server,
 )
 from pydantic import BaseModel
@@ -40,7 +39,6 @@ progress_agent = Agent(
     toolsets=[
         github_mcp_server(),
         linear_mcp_server(),
-        memory_mcp_server(key_prefix="progress-agent"),
         slack_mcp_server(),
     ],
     deps_type=AgentContext,

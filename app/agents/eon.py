@@ -2,6 +2,7 @@ import asyncio
 import os
 import random
 from datetime import datetime
+from textwrap import dedent
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
@@ -18,7 +19,7 @@ from app.agents.docs import query_docs
 from app.agents.progress import add_message
 from app.agents.sales import query_sales_support
 from app.data_types import AgentContext, BotInfo, Mention
-from app.mcp_servers import slack_mcp_server
+from app.mcp_servers import memory_mcp_server, slack_mcp_server
 from app.utils.slack import (
     post_response,
     react_to_mention,
@@ -76,11 +77,13 @@ Respond in valid Markdown format, following these rules:
 - For bullet points, you MUST ONLY use asterisks (*), not dashes (-), pluses (+), or any other character.
 """
 
+_memory_mcp_server = memory_mcp_server()
+
 eon_agent = Agent(
     EON_MODEL,
     deps_type=AgentContext,
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
-    toolsets=[slack_mcp_server()],
+    toolsets=[slack_mcp_server(), _memory_mcp_server],
 )
 
 @eon_agent.system_prompt
@@ -97,6 +100,25 @@ def add_the_date(ctx: RunContext[AgentContext]) -> str:
 @eon_agent.system_prompt
 def add_bot_user_id(ctx: RunContext[AgentContext]) -> str:
     return f"Your Slack user ID is {ctx.deps.bot_user_id}."
+
+@eon_agent.system_prompt
+async def memory_prompt(ctx: RunContext[AgentContext]) -> str:
+    result = await _memory_mcp_server.direct_call_tool("getMemories", {"key": f"{AGENT_NAME}:{ctx.deps.user_id}"}, None)
+    memories = result["memories"] if isinstance(result, dict) and "memories" in result else []
+    return dedent(f"""\
+    You have memory tools which may be used to store and retrieve important notes about the user.
+    User-specific memories use a key of the format `{AGENT_NAME}:<USER_ID>`.
+    The key for this user is `{AGENT_NAME}:{ctx.deps.user_id}`. You MUST use this key if you choose to store/retrieve memories about this user.
+    Assume the newest memory is most accurate and supersedes older conflicting memories.
+    When a newer memory conflicts with an older memory, either delete or update the older memory.
+    Prefer to update an existing memory over creating a new one if the existing memory is very relevant.
+    If there are redundant memories, update one with the semantic sum of the two and remove the other.
+
+    The current memories for this user are:
+    {"\n".join(f"ID {m['id']} - {m['content']}" for m in memories)}
+    """
+    )
+
 
 
 @eon_agent.tool
