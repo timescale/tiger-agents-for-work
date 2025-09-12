@@ -8,8 +8,6 @@ from app.mcp_servers import memory_mcp_server, slack_mcp_server
 
 
 async def get_user_metadata(user_id: str) -> SlackUserResult | None:
-    if os.environ.get("DISABLE_SLACK_MCP_SERVER"):
-        return None
     try:
         result = await slack_mcp_server().direct_call_tool(
             "getUsers", {"keyword": user_id, "includeTimezone": True}

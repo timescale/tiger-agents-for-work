@@ -46,8 +46,6 @@ def github_mcp_server() -> MCPServer | None:
 
 
 def slack_mcp_server() -> MCPServer | None:
-    if os.environ.get("DISABLE_SLACK_MCP_SERVER"):
-        return None
     global _slack_server_instance
     if _slack_server_instance is None:
         _slack_server_instance = MCPServerStreamableHTTP(
