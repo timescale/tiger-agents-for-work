@@ -77,14 +77,11 @@ Respond in valid Markdown format, following these rules:
 - For bullet points, you MUST ONLY use asterisks (*), not dashes (-), pluses (+), or any other character.
 """
 
-_memory_mcp_server = memory_mcp_server()
-_slack_mcp_server = slack_mcp_server()
-
 eon_agent = Agent(
     EON_MODEL,
     deps_type=AgentContext,
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
-    toolsets=[slack_mcp_server(), _memory_mcp_server],
+    toolsets=[slack_mcp_server(), memory_mcp_server()],
 )
     
 @eon_agent.system_prompt
