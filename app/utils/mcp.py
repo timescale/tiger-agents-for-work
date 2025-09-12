@@ -1,3 +1,5 @@
+import os
+
 import logfire
 
 from app import AGENT_NAME
@@ -6,6 +8,8 @@ from app.mcp_servers import memory_mcp_server, slack_mcp_server
 
 
 async def get_user_metadata(user_id: str) -> SlackUserResult | None:
+    if os.environ.get("DISABLE_SLACK_MCP_SERVER"):
+        return None
     try:
         result = await slack_mcp_server().direct_call_tool(
             "getUsers", {"keyword": user_id, "includeTimezone": True}
@@ -18,6 +22,8 @@ async def get_user_metadata(user_id: str) -> SlackUserResult | None:
 
 
 async def get_memories(user_id: str) -> list[Memory] | None:
+    if os.environ.get("DISABLE_MEMORY_MCP_SERVER"):
+        return None
     try:
         result = await memory_mcp_server().direct_call_tool(
             "getMemories", {"key": f"{AGENT_NAME}:{user_id}"}, None
