@@ -164,14 +164,26 @@ async def migrate_db(con: AsyncConnection) -> None:
 
 async def main():
     """Run database migrations CLI"""
+    import os
+
     from dotenv import find_dotenv, load_dotenv
 
     # Load environment variables
     load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
+    from app import AGENT_NAME
+    
+    logfire.configure(
+        service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
+        service_version=__version__,
+        scrubbing=False,
+        min_level="info",
+    )
+    logfire.instrument_psycopg()
+
     logfire.info("Starting database migration...")
 
-    async with AsyncConnection.connect() as con:
+    async with await AsyncConnection.connect() as con:
         await migrate_db(con)
 
     logfire.info("Database migration completed successfully")
