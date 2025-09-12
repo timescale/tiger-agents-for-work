@@ -192,7 +192,7 @@ async def respond(mention: Mention,
                         usage_limits=UsageLimits(output_tokens_limit=9_000)
                     ),
                     user_prompt=user_prompt(mention),
-                    )
+                )
             
             await post_response(
                 client,
