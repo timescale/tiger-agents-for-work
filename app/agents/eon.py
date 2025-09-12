@@ -1,13 +1,11 @@
 import asyncio
 import os
 import random
-from datetime import datetime
-from textwrap import dedent
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
 from utils.db import (
     MAX_ATTEMPTS,
@@ -20,6 +18,8 @@ from app.agents.progress import add_message
 from app.agents.sales import query_sales_support
 from app.data_types import AgentContext, BotInfo, Mention
 from app.mcp_servers import memory_mcp_server, slack_mcp_server
+from app.utils.mcp import get_memories, get_user_metadata
+from app.utils.prompt import create_memory_prompt, create_user_metadata_prompt
 from app.utils.slack import (
     post_response,
     react_to_mention,
@@ -77,64 +77,34 @@ Respond in valid Markdown format, following these rules:
 - For bullet points, you MUST ONLY use asterisks (*), not dashes (-), pluses (+), or any other character.
 """
 
-_memory_mcp_server = memory_mcp_server()
-
 eon_agent = Agent(
     EON_MODEL,
     deps_type=AgentContext,
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
-    toolsets=[slack_mcp_server(), _memory_mcp_server],
+    toolsets=[slack_mcp_server(), memory_mcp_server()],
 )
-
-@eon_agent.system_prompt
-def add_the_date(ctx: RunContext[AgentContext]) -> str:
-    try:
-        timezone = ZoneInfo(ctx.deps.user_timezone)
-    except ZoneInfoNotFoundError:
-        timezone = ZoneInfo("UTC")
-    return (
-        f"User's current time: {datetime.now(timezone).strftime('%Y-%m-%d %H:%M:%S%z')}"
-    )
 
 
 @eon_agent.system_prompt
 def add_bot_user_id(ctx: RunContext[AgentContext]) -> str:
     return f"Your Slack user ID is {ctx.deps.bot_user_id}."
 
-@eon_agent.system_prompt
-async def memory_prompt(ctx: RunContext[AgentContext]) -> str:
-    result = await _memory_mcp_server.direct_call_tool("getMemories", {"key": f"{AGENT_NAME}:{ctx.deps.user_id}"}, None)
-    memories = result["memories"] if isinstance(result, dict) and "memories" in result else []
-    return dedent(f"""\
-    You have memory tools which may be used to store and retrieve important notes about the user.
-    User-specific memories use a key of the format `{AGENT_NAME}:<USER_ID>`.
-    The key for this user is `{AGENT_NAME}:{ctx.deps.user_id}`. You MUST use this key if you choose to store/retrieve memories about this user.
-    Assume the newest memory is most accurate and supersedes older conflicting memories.
-    When a newer memory conflicts with an older memory, either delete or update the older memory.
-    Prefer to update an existing memory over creating a new one if the existing memory is very relevant.
-    If there are redundant memories, update one with the semantic sum of the two and remove the other.
 
-    The current memories for this user are:
-    {"\n".join(f"ID {m['id']} - {m['content']}" for m in memories)}
-    """
-    )
-
+eon_agent.system_prompt(create_memory_prompt)
+eon_agent.system_prompt(create_user_metadata_prompt)
 
 
 @eon_agent.tool
-async def progress_agent_tool(
-    ctx: RunContext[AgentContext],
-    message: str
-) -> str:
+async def progress_agent_tool(ctx: RunContext[AgentContext], message: str) -> str:
     """Create progress summaries for team members and projects using Slack, GitHub, Linear, and memory data.
-    
+
     This tool provides comprehensive analysis of individual contributor activity and project status by:
     - Analyzing Slack conversations and GitHub activity
     - Supporting exact matching with @username and #channel prefixes
     - Providing both individual contributor and project/channel summaries
     - Creating "Snooper of the Week" reports with highlights across teams
     - Integrating data from Slack, GitHub, Linear, and user memory systems
-    
+
     Use this tool for progress updates, team activity summaries, project status reports, and cross-platform collaboration insights."""
     result = await add_message(
         message=message,
@@ -144,19 +114,16 @@ async def progress_agent_tool(
 
 
 @eon_agent.tool
-async def docs_agent_tool(
-    ctx: RunContext[AgentContext],
-    message: str
-) -> str:
+async def docs_agent_tool(ctx: RunContext[AgentContext], message: str) -> str:
     """Query comprehensive documentation for PostgreSQL, TimescaleDB, and TigerCloud platform.
-    
+
     This tool provides expert assistance with technical documentation by:
     - Searching through PostgreSQL, TimescaleDB, and TigerCloud documentation
     - Providing direct quotes and references from official documentation
     - Offering expert guidance on database concepts, features, and best practices
     - Handling queries about SQL syntax, performance optimization, and platform-specific features
     - Providing confidence levels when documentation is incomplete or unavailable
-    
+
     Use this tool for technical questions, feature explanations, configuration guidance, troubleshooting help, and best practices related to the PostgreSQL ecosystem and TigerCloud platform."""
     result = await query_docs(
         message=message,
@@ -166,12 +133,9 @@ async def docs_agent_tool(
 
 
 @eon_agent.tool
-async def sales_agent_tool(
-    ctx: RunContext[AgentContext],
-    message: str
-) -> str:
+async def sales_agent_tool(ctx: RunContext[AgentContext], message: str) -> str:
     """Search historical Salesforce support cases and customer data to provide sales and support insights.
-    
+
     This tool provides access to comprehensive customer support history and sales data by:
     - Performing semantic searches through historical Salesforce support cases
     - Finding solutions to customer problems based on past successful resolutions
@@ -179,7 +143,7 @@ async def sales_agent_tool(
     - Identifying patterns in customer issues and support trends
     - Providing context about customer interactions and case histories
     - Generating insights for sales teams based on support case data
-    
+
     Use this tool for customer support questions, troubleshooting based on historical cases, sales insights from support data, and understanding common customer issues and their resolutions."""
     result = await query_sales_support(
         message=message,
@@ -200,28 +164,29 @@ def user_prompt(mention: Mention) -> str:
     lines.append(f"Q: {mention.text}")
     return "\n".join(lines)
 
-async def respond(mention: Mention,
-    client: AsyncWebClient, bot_info: BotInfo
-) -> bool:
+
+async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -> bool:
     with logfire.span("respond") as span:
         span.set_attributes({"channel": mention.channel, "user": mention.user})
         try:
             await react_to_mention(client, mention, "spinthinking")
-        
             async with eon_agent as agent:
                 # Slack messages are limited to 40k chars and 1 token ~= 4 chars
                 # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
                 # https://api.slack.com/methods/chat.postMessage#truncating
                 response = await agent.run(
                     deps=AgentContext(
-                        user_timezone=mention.tz or "UTC",
                         bot_user_id=bot_info["user_id"],
                         thread_ts=mention.thread_ts,
                         channel=mention.channel,
+                        memories=await get_memories(mention.user),
+                        slack_user_metadata=await get_user_metadata(mention.user),
                         user_id=mention.user,
+                        usage_limits=UsageLimits(output_tokens_limit=9_000),
                     ),
                     user_prompt=user_prompt(mention),
-                    )
+                )
+
             await post_response(
                 client,
                 mention.channel,
@@ -239,8 +204,7 @@ async def respond(mention: Mention,
                 client,
                 mention.channel,
                 mention.thread_ts if mention.thread_ts else mention.ts,
-                "I experienced an issue trying to respond."
-                + " I will try again."
+                "I experienced an issue trying to respond." + " I will try again."
                 if mention.attempts < MAX_ATTEMPTS
                 else " I give up. Sorry.",
             )

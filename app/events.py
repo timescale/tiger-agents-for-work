@@ -94,6 +94,7 @@ async def initialize(
         tasks.create_task(agent_worker(app, pool, worker_id, bot_info))
 
     app.event("app_mention")(event_handler)
+
     @app.event("message")
     async def handle_message(ack):
         await ack()

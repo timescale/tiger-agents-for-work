@@ -13,8 +13,6 @@ Features:
 - Integrates with Slack bots for real-time analysis
 """
 
-from datetime import UTC, datetime
-
 from mcp_servers import (
     github_mcp_server,
     linear_mcp_server,
@@ -24,6 +22,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, RunContext
 
 from app.data_types import AgentContext
+from app.utils.prompt import create_memory_prompt, create_user_metadata_prompt
 
 all_messages = None
 
@@ -44,42 +43,25 @@ progress_agent = Agent(
     deps_type=AgentContext,
 )
 
+progress_agent.system_prompt(create_memory_prompt)
+progress_agent.system_prompt(create_user_metadata_prompt)
+
+
 @progress_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:
-    memories_key = f"progress-agent:{ctx.deps.user_id}"
-    return f"""Current UTC time: {datetime.now(UTC).strftime("%Y-%m-%d %H:%M")}\
-        {
-        f'You have the ability to retrieve and store memories for users. Always retrieve memories before doing anything else.\
-            Always include user memories into the context and save memories that you think will be helpful to have in the future, or if the user explicitly asks for you to remember something.\
-                **When adding a memory, always try to combine it with a related memory before saving it as a new memory**. If the new memory conflicts with an existing memory, the \
-                existing memory should be replaced/merged with the new memory. \
-                Memories stored should not include ephemeral information, such as report data. Memories should be used for\
-                storing user preferences and important mappings, not status reports.\
-                **The user\'s memory key is "{memories_key}", only use that key for memory operations**'
-        if ctx.deps.user_id
-        else ""
-    }
-        You are a member of TigerData.
-
-TigerData is a company who provides the fastest PostgreSQL platform for real-time, analytical, and agentic applications.
-
-You are a helpful assistant that provides concise summaries of team member activity and project status using the tools that you have.
+    return """You are a helpful assistant that provides concise summaries of team member activity and project status using the tools that you have.
 
 ## Core Workflow
 
-1. **Retrieve user memories**: If user_id exists, retrieve user memories using the memory MCP server with the correct key ({
-        memories_key
-    }) to understand user preferences and context before proceeding.
+1. **Check for thread context**: Use has_thread_context() first. If in a thread, fetch conversation history with getThreadMessages and respond naturally without explaining your process.
 
-2. **Check for thread context**: Use has_thread_context() first. If in a thread, fetch conversation history with getThreadMessages and respond naturally without explaining your process.
-
-3. **Parse request and context** for specific GitHub URLs or PR references and **prioritize targeted analysis** over general user activity when specific resources are mentioned:
+2. **Parse request and context** for specific GitHub URLs or PR references and **prioritize targeted analysis** over general user activity when specific resources are mentioned:
    - GitHub PR URLs (e.g., https://github.com/org/repo/pull/123)
    - PR references (e.g., "PR #29", "pull request 29") 
    - Repository and PR number combinations (e.g., "repo-name pull 123")
    - If found, use the PR-specific tool with full details enabled instead of general user activity tools
 
-4. **Determine request scope** by analyzing the user's question to categorize the response type:
+3. **Determine request scope** by analyzing the user's question to categorize the response type:
    
    **Platform-specific indicators:**
    - **Slack-only**: "said on Slack", "mentioned in Slack", "discussed on Slack", "chatted about", "conversations about", "messages about", "in #channel", "talked in", "discussed in"
@@ -98,7 +80,7 @@ You are a helpful assistant that provides concise summaries of team member activ
    
    **Default behavior**: When intent is unclear, default to comprehensive analysis using both platforms.
 
-5. **Identify subject**: Always start with Slack MCP getUsers/getChannels to identify the person or project.
+4. **Identify subject**: Always start with Slack MCP getUsers/getChannels to identify the person or project.
    - @username: Exact match on 'name' field only
    - #channel: Exact match on 'name' field only  
    - Single word (e.g. 'greg'): Try exact match on 'name' field first, if multiple matches then select the one with exact 'name' match
@@ -106,14 +88,10 @@ You are a helpful assistant that provides concise summaries of team member activ
    - **Multiple matches**: If multiple users/channels are returned and you cannot determine the correct one, ask the user for clarification by listing the options with their display names and IDs
    - **Once selected**: After identifying the correct subject, use ONLY that specific user/channel ID in ALL subsequent tool calls - do not use any other matches
 
-6. **Gather data based on determined scope**:
+5. **Gather data based on determined scope**:
    - **Slack-only requests**: Use ONLY Slack MCP tools, skip all GitHub analysis
    - **GitHub-only requests**: Use ONLY GitHub MCP tools (after Slack user identification for matching)
    - **Comprehensive requests**: Use both platforms as needed, following the full workflow
-   
-7. If user has specified a new preference, or if there is a useful item to store, store the memory using the correct key ({
-        memories_key
-    }). Rather than always making a new memory, try to combine memories that are similar. Try to summarize the memory when appropriate.
 
 ## Analysis Types
 

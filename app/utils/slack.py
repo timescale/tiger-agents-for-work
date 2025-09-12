@@ -53,7 +53,8 @@ async def post_response(
     await client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
-        text=text,blocks=[{"type": "markdown", "text": text}],
+        text=text,
+        blocks=[{"type": "markdown", "text": text}],
         unfurl_links=False,
         unfurl_media=False,
     )

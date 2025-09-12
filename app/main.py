@@ -9,6 +9,7 @@ from dotenv import find_dotenv, load_dotenv
 # Enable remote debugging if DEBUG environment variable is set
 if os.getenv("DEBUG", "false").lower() == "true":
     import debugpy
+
     debugpy.listen(("0.0.0.0", 5678))
     print("🐛 Debug server started on port 5678. Waiting for debugger to attach...")
     if os.getenv("DEBUG_WAIT_FOR_ATTACH", "false").lower() == "true":
@@ -30,12 +31,12 @@ logfire.configure(
     service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
     service_version=__version__,
     scrubbing=False,
-    min_level="info"
+    min_level="info",
 )
-#logfire.instrument_psycopg()
+# logfire.instrument_psycopg()
 logfire.instrument_pydantic_ai()
-#logfire.instrument_mcp()
-#logfire.instrument_httpx()
+# logfire.instrument_mcp()
+# logfire.instrument_httpx()
 # logfire.instrument_system_metrics(
 #     {
 #         "process.cpu.time": ["user", "system"],
@@ -65,6 +66,7 @@ def exception_handler(_, context):
 
 async def configure_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
+
 
 async def reset_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
@@ -109,7 +111,6 @@ async def main() -> None:
             async with asyncio.TaskGroup() as tasks:
                 await initialize(app, pool, tasks, bot_info, num_agent_workers=5)
                 tasks.create_task(handler.start_async())
-                # tasks.create_task(respond_worker(pool, slack_client, bot_info))
         except* Exception as eg:
             for error in eg.exceptions:
                 logfire.exception("Task failed", error=error)

@@ -2,14 +2,16 @@ from mcp_servers import salesforce_mcp_server
 from pydantic_ai import Agent, RunContext
 
 from app.data_types import AgentContext
+from app.utils.prompt import create_memory_prompt
 
 sales_agent = Agent(
     "anthropic:claude-sonnet-4-20250514",
-    toolsets=[
-        salesforce_mcp_server()
-    ],
+    toolsets=[salesforce_mcp_server()],
     deps_type=AgentContext,
 )
+
+sales_agent.system_prompt(create_memory_prompt)
+
 
 @sales_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:
