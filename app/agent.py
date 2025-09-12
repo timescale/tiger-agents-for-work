@@ -60,7 +60,3 @@ async def run_agent(
                 await delete_event(pool, agent_event)
         except Exception as e:
             logfire.exception("Error processing agent event", error=e)
-    # create the agent
-    # run the agent
-    # respond to the event
-    # delete the event

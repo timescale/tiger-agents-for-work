@@ -4,130 +4,43 @@ An intelligent orchestrator agent for TigerData that provides comprehensive assi
 
 ## Architecture
 
-Tiger Agent implements an **orchestrator + sub-agent architecture** where the main `eon` agent serves as an intelligent router that delegates tasks to specialized sub-agents based on the nature of incoming requests.
-
-### Orchestrator Agent: Eon
-
-The **Eon** agent is the primary entry point that:
-
-- Receives questions and requests from Slack
-- Analyzes the intent and context of each request
-- Routes queries to the most appropriate sub-agent
-- Provides fallback responses using general knowledge
-- Maintains conversation context and user session data
-
-Sub-agents are accessed via **tool definitions** on the orchestrator agent, allowing Eon to seamlessly invoke specialized capabilities as needed.
-
-### Sub-Agents
-
-#### 1. Progress Agent (`progress_agent_tool`)
-
-**Purpose**: Team activity tracking and project management insights
-
-**Capabilities**:
-
-- Individual contributor progress summaries
-- Project status reports and timeline analysis
-- Cross-platform collaboration insights (Slack → GitHub → Linear)
-- "Snooper of the Week" reports with team highlights
-- Memory storage for user preferences and context
-
-**Data Sources**: Slack conversations, GitHub repositories, Linear issues, user memory system
-
-**Use Cases**: 
-
-- "What has @john been working on this week?"
-- "Generate a progress report for the authentication project"
-- "Create a snooper of the week report"
-
-#### 2. Documentation Agent (`docs_agent_tool`)
-
-**Purpose**: Technical documentation and platform expertise
-
-**Capabilities**:
-
-- PostgreSQL, TimescaleDB, and TigerCloud documentation search
-- Feature explanations with direct documentation quotes
-- Configuration guidance and best practices
-- SQL syntax help and performance optimization advice
-- Confidence levels when documentation is incomplete
-
-**Data Sources**: Official documentation repositories, technical guides, API references
-
-**Use Cases**:
-
-- "How do I configure continuous aggregates in TimescaleDB?"
-- "What are the best practices for PostgreSQL indexing?"
-- "Show me the API for creating hypertables"
-
-#### 3. Sales Agent (`sales_agent_tool`)
-
-**Purpose**: Customer support and sales insights from historical data
-
-**Capabilities**:
-
-- Semantic search through Salesforce support case summaries
-- Historical problem resolution lookup
-- Customer issue pattern identification
-- Sales team insights from support trends
-- Case-specific details with direct Salesforce links
-
-**Data Sources**: Salesforce support cases, customer interaction history, case summaries with embeddings
-
-**Use Cases**:
-
-- "How have we handled database connection issues in the past?"
-- "Find similar customer problems to this current issue"
-- "What are the most common support requests this quarter?"
-
-## Project Structure
-
 ```
-tiger-agent/
-├── app/
-│   ├── __init__.py                     # Package constants (AGENT_NAME)
-│   ├── main.py                         # Application entry point and worker setup
-│   ├── mcp_servers.py                  # MCP server configurations and factories
-│   ├── events/                         # Slack event handlers
-│   ├── agents/                         # Agent implementations
-│   │   ├── types.py                    # Shared type definitions (AgentContext, Mention, BotInfo)
-│   │   ├── eon.py                      # Main orchestrator agent with sub-agent tools
-│   │   ├── progress.py                 # Progress tracking and team analytics agent
-│   │   ├── docs.py                     # Documentation and technical support agent
-│   │   └── sales.py                    # Sales and customer support agent
-│   └── utils/                          # Utility modules
-│       ├── db.py                       # Database operations (mentions, cleanup)
-│       └── slack.py                    # Slack API utilities (reactions, messaging)
-├── migrations/                         # Database schema migrations
-│   └── runner.py                       # Migration execution logic
-├── pyproject.toml                      # Project dependencies and configuration
-├── uv.lock                             # Lock file for dependencies
-└── README.md                           # This file
+                    ┌─────────────────────────┐
+                    │                         │
+                    │     EON AGENT         │
+                    │   (Orchestrator)        │
+                    │                         │
+                    │ • Routes requests       │
+                    │ • Maintains context     │
+                    │ • Fallback responses    │
+                    │                         │
+                    └─────────┬───────────────┘
+                              │
+            ┌─────────────────┼─────────────────┐
+            │                 │                 │
+    ┌───────▼──────┐ ┌────────▼────────┐ ┌─────▼──────┐
+    │              │ │                 │ │            │
+    │   PROGRESS   │ │      DOCS       │ │    SALES   │
+    │     AGENT    │ │    AGENT        │ │   AGENT    │
+    │              │ │                 │ │            │
+    └───────┬──────┘ └────────┬────────┘ └─────┬──────┘
+            │                 │                │
+    ┌───────▼──────┐ ┌────────▼────────┐ ┌─────▼──────┐
+    │ Team activity│ │PostgreSQL docs  │ │Salesforce  │
+    │ GitHub repos │ │TimescaleDB docs │ │support data│
+    │ Linear issues│ │TigerCloud docs  │ │Customer    │
+    │ Slack convos │ │API references   │ │insights    │
+    └──────────────┘ └─────────────────┘ └────────────┘
 ```
 
-### Cross-Platform Integration
+### Agent Capabilities
 
-- **Slack**: Real-time messaging and conversation context
-- **GitHub**: Code repositories, pull requests, and commit history
-- **Linear**: Project management and issue tracking  
-- **Salesforce**: Customer support cases and sales data
-- **Memory System**: User preferences and conversation context
-
-### Conversation Context Management
-
-- Thread-aware responses in Slack
-- User timezone handling
-- Session persistence across interactions
-- Memory storage for user preferences
+**eon**: Primary entry point from Slack that routes requests to specialized sub-agents
+**progress**: Team tracking - "What has @john been working on?" | Project reports | Cross-platform insights  
+**docs**: Technical expertise - PostgreSQL/TimescaleDB help | Configuration guidance | API references
+**sales**: Customer support - Salesforce data search | Support ticket insights | Customer history
 
 ## Getting Started
-
-### Prerequisites
-
-- Python 3.13+
-- PostgreSQL database
-- Required MCP servers running (GitHub, Slack, Linear, Salesforce, Memory)
-- Environment variables configured
 
 ### Installation
 
@@ -146,49 +59,98 @@ uv run python -m migrations.runner
 uv run python -m app.main
 ```
 
-### Configuration
+### Environment Variables
 
-The agent requires several MCP servers to be running:
+First, initialize your environment configuration:
 
-- `GITHUB_MCP_SERVER_URL`: GitHub integration
-- `SLACK_MCP_SERVER_URL`: Slack API access  
-- `LINEAR_MCP_SERVER_URL`: Linear project management
-- `SALESFORCE_MCP_SERVER_URL`: Customer support data
-- `MEMORY_MCP_SERVER_URL`: User memory and preferences
-
-## Usage Examples
-
-### Progress Tracking
-
+```bash
+cp .env.sample .env
 ```
-@eon What has the team been working on this week?
+
+#### Required Variables
+
+**Slack Integration** (Always Required):
+```bash
+SLACK_BOT_TOKEN=xoxb-your_bot_token_here
+SLACK_APP_TOKEN=xapp-your_app_token_here
+SLACK_DOMAIN=your_workspace_domain
 ```
-→ Routes to `progress_agent_tool` for comprehensive team activity summary
 
-### Technical Support  
-
+**Core Services** (Always Required):
+```bash
+ANTHROPIC_API_KEY=sk-ant-your_anthropic_api_key_here
+LOGFIRE_TOKEN=pylf_your_logfire_token_here
 ```
-@eon How do I optimize query performance in TimescaleDB?
+
+#### MCP Server Tokens
+
+Depending on which MCP servers you have running, you'll need the corresponding API tokens:
+
+**GitHub MCP Server** (if not disabled):
+```bash
+GITHUB_TOKEN=ghp_your_github_token_here
 ```
-→ Routes to `docs_agent_tool` for documentation-backed technical guidance
 
-### Customer Support
-
+**Linear MCP Server** (if not disabled):
+```bash
+LINEAR_API_KEY=lin_api_your_linear_api_key_here
 ```
-@eon Has anyone reported similar database connection errors before?
+
+#### Optional: Disable MCP Servers
+
+Set any of these variables to any value to disable the corresponding MCP server:
+
+```bash
+DISABLE_DOCS_MCP_SERVER=1          # Disable documentation server
+DISABLE_GITHUB_MCP_SERVER=1        # Disable GitHub integration
+DISABLE_LINEAR_MCP_SERVER=1        # Disable Linear integration  
+DISABLE_MEMORY_MCP_SERVER=1        # Disable user memory
+DISABLE_SALESFORCE_MCP_SERVER=1    # Disable Salesforce integration
+DISABLE_SLACK_MCP_SERVER=1         # Disable Slack MCP server
 ```
-→ Routes to `sales_agent_tool` for historical support case analysis
 
-## Development
+**Note**: Database variables (`PGHOST`, `PGDATABASE`, etc.) are pre-configured for the Docker setup and typically don't need modification.
 
-### Adding New Sub-Agents
+## Docker Deployment
 
-1. Create a new agent file in `app/agents/`
-2. Implement the agent with appropriate MCP server toolsets
-3. Create a query function that accepts `message` and `AgentContext`
-4. Add a tool definition to the `eon_agent` in `eon.py`
-5. Update the system prompt with tool selection guidelines
+### Quick Start
 
-### Testing
+Use the provided startup script for intelligent container management:
 
-The system includes comprehensive logging via Logfire for monitoring agent interactions and performance analysis.
+```bash
+./start.sh
+```
+
+This script will:
+1. Build all Docker images
+2. Start core services (app, database, Slack ingest)
+3. Conditionally start MCP servers based on your `DISABLE_*` environment variables
+
+### Manual Docker Commands
+
+```bash
+# Build and start all services
+docker-compose build
+docker-compose up -d
+
+# Start only core services
+docker-compose up -d app db tiger-slack-ingest
+
+# Start specific MCP servers
+docker-compose up -d tiger-slack-mcp tiger-memory-mcp
+
+# View logs
+docker-compose logs -f app
+```
+
+### MCP Server Management
+
+The `DISABLE_*` environment variables control both:
+- **Application behavior**: The agent won't attempt to connect to disabled servers
+- **Docker container creation**: The `./start.sh` script won't start disabled server containers
+
+For example, setting `DISABLE_GITHUB_MCP_SERVER=1` will:
+- Skip starting the `tiger-github-mcp` container
+- Make the agent return `None` when trying to access GitHub functionality
+
+This allows you to run only the MCP servers you need, reducing resource usage and avoiding API token requirements for unused services.

@@ -34,7 +34,9 @@ slack_mcp_server_url = os.environ.get(
 )
 
 
-def github_mcp_server() -> MCPServer:
+def github_mcp_server() -> MCPServer | None:
+    if os.environ.get("DISABLE_GITHUB_MCP_SERVER"):
+        return None
     global _github_server_instance
     if _github_server_instance is None:
         _github_server_instance = MCPServerStreamableHTTP(
@@ -52,7 +54,9 @@ def slack_mcp_server() -> MCPServer:
     return _slack_server_instance
 
 
-def docs_mcp_server() -> MCPServer:
+def docs_mcp_server() -> MCPServer | None:
+    if os.environ.get("DISABLE_DOCS_MCP_SERVER"):
+        return None
     global _docs_server_instance
     if _docs_server_instance is None:
         _docs_server_instance = MCPServerStreamableHTTP(
@@ -61,7 +65,9 @@ def docs_mcp_server() -> MCPServer:
     return _docs_server_instance
 
 
-def salesforce_mcp_server() -> MCPServer:
+def salesforce_mcp_server() -> MCPServer | None:
+    if os.environ.get("DISABLE_SALESFORCE_MCP_SERVER"):
+        return None
     global _salesforce_server_instance
     if _salesforce_server_instance is None:
         _salesforce_server_instance = MCPServerStreamableHTTP(
@@ -70,7 +76,9 @@ def salesforce_mcp_server() -> MCPServer:
     return _salesforce_server_instance
 
 
-def linear_mcp_server() -> MCPServer:
+def linear_mcp_server() -> MCPServer | None:
+    if os.environ.get("DISABLE_LINEAR_MCP_SERVER"):
+        return None
     global _linear_server_instance
     if _linear_server_instance is None:
         _linear_server_instance = MCPServerStreamableHTTP(
@@ -79,7 +87,9 @@ def linear_mcp_server() -> MCPServer:
     return _linear_server_instance
 
 
-def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
+def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer | None:
+    if os.environ.get("DISABLE_MEMORY_MCP_SERVER"):
+        return None
     global _memory_server_instance
     if _memory_server_instance is None:
 

@@ -4,7 +4,7 @@ import random
 
 import logfire
 from psycopg_pool import AsyncConnectionPool
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
 from slack_sdk.web.async_client import AsyncWebClient
 from utils.db import (
@@ -14,6 +14,7 @@ from utils.db import (
 
 from app import AGENT_NAME
 from app.agents.docs import query_docs
+from app.agents.filtering_agent import FilteringAgent
 from app.agents.progress import add_message
 from app.agents.sales import query_sales_support
 from app.data_types import AgentContext, BotInfo, Mention
@@ -77,7 +78,7 @@ Respond in valid Markdown format, following these rules:
 - For bullet points, you MUST ONLY use asterisks (*), not dashes (-), pluses (+), or any other character.
 """
 
-eon_agent = Agent(
+eon_agent = FilteringAgent(
     EON_MODEL,
     deps_type=AgentContext,
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
