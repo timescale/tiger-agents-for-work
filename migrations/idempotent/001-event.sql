@@ -20,8 +20,8 @@ $func$ language sql volatile security invoker
 -- agent.claim_event
 create or replace function agent.claim_event
 ( _max_attempts int4 default 3
-, _invisible_for interval default interval '1m'
-) returns agent.event
+, _invisible_for interval default interval '10m'
+) returns setof agent.event
 as $func$
     with x as
     (
