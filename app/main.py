@@ -109,7 +109,12 @@ async def main() -> None:
         bot_info = await slack_client.auth_test()
     
         async def respond(event: Event):
-            pass
+            await asyncio.sleep(45)
+            channel = event.event["channel"]
+            ts = event.event["ts"]
+            text = event.event["text"]
+            await app.client.chat_postMessage(channel=channel, thread_ts=ts, text=f"echo: {text}")
+            logfire.info(f"responded to event {event.id}")
     
         bot = BotHarness(app, pool, respond)
 

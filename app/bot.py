@@ -75,14 +75,14 @@ class BotHarness:
         ):
             await cur.execute("select agent.delete_expired_events()")
 
-    @logfire.instrument("process_event", extract_args=False)
     async def _process_event(self, event: Event):
-        try:
-            await self._event_processor(event)
-            await self._delete_event(event)
-        except Exception as e:
-            logfire.exception("event processing failed", event_id=event.id, error=e)
-            # Event remains in database for retry
+        with logfire.span("process_event", event_id=event.id) as _:
+            try:
+                await self._event_processor(event)
+                await self._delete_event(event)
+            except Exception as e:
+                logfire.exception("event processing failed", event_id=event.id, error=e)
+                # Event remains in database for retry
 
     @logfire.instrument("process_events", extract_args=False)
     async def _process_events(self):
