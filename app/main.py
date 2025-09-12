@@ -6,6 +6,8 @@ from typing import Any
 import logfire
 from dotenv import find_dotenv, load_dotenv
 
+load_dotenv(dotenv_path=find_dotenv(usecwd=True))
+
 # Enable remote debugging if DEBUG environment variable is set
 if os.getenv("DEBUG", "false").lower() == "true":
     import debugpy
@@ -16,6 +18,7 @@ if os.getenv("DEBUG", "false").lower() == "true":
         debugpy.wait_for_client()  # Uncomment to wait for debugger before starting
 
 from events import initialize
+from app.bot import BotHarness
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
@@ -23,9 +26,7 @@ from slack_bolt.app.async_app import AsyncApp
 
 from migrations.runner import migrate_db
 
-from . import AGENT_NAME, __version__
-
-load_dotenv(dotenv_path=find_dotenv(usecwd=True))
+from app import AGENT_NAME, __version__
 
 logfire.configure(
     service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
@@ -33,7 +34,7 @@ logfire.configure(
     scrubbing=False,
     min_level="info",
 )
-# logfire.instrument_psycopg()
+logfire.instrument_psycopg()
 logfire.instrument_pydantic_ai()
 # logfire.instrument_mcp()
 # logfire.instrument_httpx()
@@ -106,10 +107,13 @@ async def main() -> None:
         handler = AsyncSocketModeHandler(app, slack_app_token)
         slack_client = app.client
         bot_info = await slack_client.auth_test()
+    
+        bot = BotHarness(app, pool)
 
         try:
             async with asyncio.TaskGroup() as tasks:
-                await initialize(app, pool, tasks, bot_info, num_agent_workers=5)
+                #await initialize(app, pool, tasks, bot_info, num_agent_workers=5)
+                await bot.run(tasks, 5)
                 tasks.create_task(handler.start_async())
         except* Exception as eg:
             for error in eg.exceptions:
