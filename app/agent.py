@@ -1,4 +1,3 @@
-
 import logfire
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -18,19 +17,19 @@ async def claim_event(pool: AsyncConnectionPool) -> Mention | None:
         result = await cur.fetchone()
         if result is None or result.get("id") is None:
             return None
-        
+
         event = result.get("event")
-        
+
         return Mention(
-            attempts = result.get("attempts"),
-            channel = event.get("channel"),
-            id = result.get("id"),
-            text = event.get("text"),
-            thread_ts = event.get("thread_ts"),
-            ts = event.get("ts"),
-            tz = "UTC", # todo!
-            user = event.get("user"),
-            vt = result.get("vt"),
+            attempts=result.get("attempts"),
+            channel=event.get("channel"),
+            id=result.get("id"),
+            text=event.get("text"),
+            thread_ts=event.get("thread_ts"),
+            ts=event.get("ts"),
+            tz="UTC",  # todo!
+            user=event.get("user"),
+            vt=result.get("vt"),
         )
 
 
@@ -43,7 +42,10 @@ async def delete_event(pool: AsyncConnectionPool, event: Mention) -> None:
     ):
         await cur.execute("select agent.delete_event(%s)", (event.id,))
 
-async def run_agent(app: AsyncApp, pool: AsyncConnectionPool, bot_info: BotInfo) -> None:
+
+async def run_agent(
+    app: AsyncApp, pool: AsyncConnectionPool, bot_info: BotInfo
+) -> None:
     agent_event = await claim_event(pool)
 
     if not agent_event:
@@ -51,8 +53,9 @@ async def run_agent(app: AsyncApp, pool: AsyncConnectionPool, bot_info: BotInfo)
 
     with logfire.span("Handling App Mention"):
         try:
-            
-            success = await respond(mention=agent_event, client=app.client, bot_info=bot_info)
+            success = await respond(
+                mention=agent_event, client=app.client, bot_info=bot_info
+            )
             if success:
                 await delete_event(pool, agent_event)
         except Exception as e:

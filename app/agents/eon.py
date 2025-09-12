@@ -83,28 +83,28 @@ eon_agent = Agent(
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
     toolsets=[slack_mcp_server(), memory_mcp_server()],
 )
-    
+
+
 @eon_agent.system_prompt
 def add_bot_user_id(ctx: RunContext[AgentContext]) -> str:
     return f"Your Slack user ID is {ctx.deps.bot_user_id}."
 
+
 eon_agent.system_prompt(create_memory_prompt)
 eon_agent.system_prompt(create_user_metadata_prompt)
 
+
 @eon_agent.tool
-async def progress_agent_tool(
-    ctx: RunContext[AgentContext],
-    message: str
-) -> str:
+async def progress_agent_tool(ctx: RunContext[AgentContext], message: str) -> str:
     """Create progress summaries for team members and projects using Slack, GitHub, Linear, and memory data.
-    
+
     This tool provides comprehensive analysis of individual contributor activity and project status by:
     - Analyzing Slack conversations and GitHub activity
     - Supporting exact matching with @username and #channel prefixes
     - Providing both individual contributor and project/channel summaries
     - Creating "Snooper of the Week" reports with highlights across teams
     - Integrating data from Slack, GitHub, Linear, and user memory systems
-    
+
     Use this tool for progress updates, team activity summaries, project status reports, and cross-platform collaboration insights."""
     result = await add_message(
         message=message,
@@ -114,19 +114,16 @@ async def progress_agent_tool(
 
 
 @eon_agent.tool
-async def docs_agent_tool(
-    ctx: RunContext[AgentContext],
-    message: str
-) -> str:
+async def docs_agent_tool(ctx: RunContext[AgentContext], message: str) -> str:
     """Query comprehensive documentation for PostgreSQL, TimescaleDB, and TigerCloud platform.
-    
+
     This tool provides expert assistance with technical documentation by:
     - Searching through PostgreSQL, TimescaleDB, and TigerCloud documentation
     - Providing direct quotes and references from official documentation
     - Offering expert guidance on database concepts, features, and best practices
     - Handling queries about SQL syntax, performance optimization, and platform-specific features
     - Providing confidence levels when documentation is incomplete or unavailable
-    
+
     Use this tool for technical questions, feature explanations, configuration guidance, troubleshooting help, and best practices related to the PostgreSQL ecosystem and TigerCloud platform."""
     result = await query_docs(
         message=message,
@@ -136,12 +133,9 @@ async def docs_agent_tool(
 
 
 @eon_agent.tool
-async def sales_agent_tool(
-    ctx: RunContext[AgentContext],
-    message: str
-) -> str:
+async def sales_agent_tool(ctx: RunContext[AgentContext], message: str) -> str:
     """Search historical Salesforce support cases and customer data to provide sales and support insights.
-    
+
     This tool provides access to comprehensive customer support history and sales data by:
     - Performing semantic searches through historical Salesforce support cases
     - Finding solutions to customer problems based on past successful resolutions
@@ -149,7 +143,7 @@ async def sales_agent_tool(
     - Identifying patterns in customer issues and support trends
     - Providing context about customer interactions and case histories
     - Generating insights for sales teams based on support case data
-    
+
     Use this tool for customer support questions, troubleshooting based on historical cases, sales insights from support data, and understanding common customer issues and their resolutions."""
     result = await query_sales_support(
         message=message,
@@ -170,9 +164,8 @@ def user_prompt(mention: Mention) -> str:
     lines.append(f"Q: {mention.text}")
     return "\n".join(lines)
 
-async def respond(mention: Mention,
-    client: AsyncWebClient, bot_info: BotInfo
-) -> bool:
+
+async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -> bool:
     with logfire.span("respond") as span:
         span.set_attributes({"channel": mention.channel, "user": mention.user})
         try:
@@ -189,11 +182,11 @@ async def respond(mention: Mention,
                         memories=await get_memories(mention.user),
                         slack_user_metadata=await get_user_metadata(mention.user),
                         user_id=mention.user,
-                        usage_limits=UsageLimits(output_tokens_limit=9_000)
+                        usage_limits=UsageLimits(output_tokens_limit=9_000),
                     ),
                     user_prompt=user_prompt(mention),
                 )
-            
+
             await post_response(
                 client,
                 mention.channel,
@@ -211,8 +204,7 @@ async def respond(mention: Mention,
                 client,
                 mention.channel,
                 mention.thread_ts if mention.thread_ts else mention.ts,
-                "I experienced an issue trying to respond."
-                + " I will try again."
+                "I experienced an issue trying to respond." + " I will try again."
                 if mention.attempts < MAX_ATTEMPTS
                 else " I give up. Sorry.",
             )

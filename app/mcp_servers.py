@@ -33,44 +33,56 @@ slack_mcp_server_url = os.environ.get(
     "SLACK_MCP_SERVER_URL", "http://tiger-slack-mcp-server/mcp"
 )
 
+
 def github_mcp_server() -> MCPServer:
     global _github_server_instance
     if _github_server_instance is None:
-        _github_server_instance = MCPServerStreamableHTTP(url=github_mcp_server_url, tool_prefix="github")
+        _github_server_instance = MCPServerStreamableHTTP(
+            url=github_mcp_server_url, tool_prefix="github"
+        )
     return _github_server_instance
 
 
 def slack_mcp_server() -> MCPServer:
     global _slack_server_instance
     if _slack_server_instance is None:
-        _slack_server_instance = MCPServerStreamableHTTP(url=slack_mcp_server_url, tool_prefix="slack")
+        _slack_server_instance = MCPServerStreamableHTTP(
+            url=slack_mcp_server_url, tool_prefix="slack"
+        )
     return _slack_server_instance
 
 
 def docs_mcp_server() -> MCPServer:
     global _docs_server_instance
     if _docs_server_instance is None:
-        _docs_server_instance = MCPServerStreamableHTTP(url=docs_mcp_server_url, tool_prefix="docs")
+        _docs_server_instance = MCPServerStreamableHTTP(
+            url=docs_mcp_server_url, tool_prefix="docs"
+        )
     return _docs_server_instance
 
 
 def salesforce_mcp_server() -> MCPServer:
     global _salesforce_server_instance
     if _salesforce_server_instance is None:
-        _salesforce_server_instance = MCPServerStreamableHTTP(url=salesforce_mcp_server_url, tool_prefix="salesforce")
+        _salesforce_server_instance = MCPServerStreamableHTTP(
+            url=salesforce_mcp_server_url, tool_prefix="salesforce"
+        )
     return _salesforce_server_instance
 
 
 def linear_mcp_server() -> MCPServer:
     global _linear_server_instance
     if _linear_server_instance is None:
-        _linear_server_instance = MCPServerStreamableHTTP(url=linear_mcp_server_url, tool_prefix="linear")
+        _linear_server_instance = MCPServerStreamableHTTP(
+            url=linear_mcp_server_url, tool_prefix="linear"
+        )
     return _linear_server_instance
 
 
 def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
     global _memory_server_instance
     if _memory_server_instance is None:
+
         async def process_memory_tool_calls(
             ctx: RunContext[Any],
             call_tool: CallToolFunc,
@@ -78,15 +90,18 @@ def memory_mcp_server(key_prefix: str = AGENT_NAME) -> MCPServer:
             tool_args: dict[str, Any],
         ) -> ToolResult:
             if name in ["forget", "remember", "update"] and (
-                not hasattr(ctx.deps, "user_id") or not ctx.deps.user_id
+                not hasattr(ctx.deps, "user_id")
+                or not ctx.deps.user_id
                 or tool_args.get("key") != f"{key_prefix}:{ctx.deps.user_id}"
             ):
-                return "Tried altering memories for a different user which is not allowed"
+                return (
+                    "Tried altering memories for a different user which is not allowed"
+                )
             return await call_tool(name, tool_args, None)
-        
+
         _memory_server_instance = MCPServerStreamableHTTP(
             url=memory_mcp_server_url,
             tool_prefix="memory",
-            process_tool_call=process_memory_tool_calls
+            process_tool_call=process_memory_tool_calls,
         )
     return _memory_server_instance

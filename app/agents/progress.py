@@ -13,7 +13,6 @@ Features:
 - Integrates with Slack bots for real-time analysis
 """
 
-
 from mcp_servers import (
     github_mcp_server,
     linear_mcp_server,
@@ -46,6 +45,7 @@ progress_agent = Agent(
 
 progress_agent.system_prompt(create_memory_prompt)
 progress_agent.system_prompt(create_user_metadata_prompt)
+
 
 @progress_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:

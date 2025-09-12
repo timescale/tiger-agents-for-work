@@ -1,4 +1,3 @@
-
 import logfire
 from psycopg_pool import AsyncConnectionPool
 
@@ -6,6 +5,7 @@ from psycopg_pool import AsyncConnectionPool
 MAX_ATTEMPTS = 3  # only attempt to answer a mention up to this many times
 TIMEOUT_MINUTES = 60  # give up on mentions older than this
 INVISIBLE_MINUTES = 10  # how long we give an LLM to work on it before another can try
+
 
 async def delete_expired_mentions(pool: AsyncConnectionPool) -> None:
     """Deletes any mention that has expired"""

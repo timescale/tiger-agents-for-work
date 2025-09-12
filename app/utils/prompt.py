@@ -21,13 +21,13 @@ async def create_memory_prompt(ctx: RunContext[AgentContext]) -> str:
 
     The current memories for this user are:
     {"I was unable to retrieve your memories" if memories is None else "\n".join(f"ID {m.id} - {m.content}" for m in memories)}
-    """
-    )
+    """)
+
 
 async def create_user_metadata_prompt(ctx: RunContext[AgentContext]) -> str:
     try:
         user = ctx.deps.slack_user_metadata
-        
+
         if user is not None and user.tz is not None:
             timezone = ZoneInfo(user.tz)
         else:
@@ -35,4 +35,4 @@ async def create_user_metadata_prompt(ctx: RunContext[AgentContext]) -> str:
     except ZoneInfoNotFoundError:
         timezone = ZoneInfo("UTC")
     return f"""User's Slack metadata: {user.model_dump_json(exclude={"tz"})}\n
-        User's current time: {datetime.now(timezone).strftime('%Y-%m-%d %H:%M:%S%z')}"""
+        User's current time: {datetime.now(timezone).strftime("%Y-%m-%d %H:%M:%S%z")}"""

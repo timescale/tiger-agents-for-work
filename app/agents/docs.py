@@ -6,13 +6,12 @@ from app.utils.prompt import create_memory_prompt
 
 docs_agent = Agent(
     "anthropic:claude-sonnet-4-20250514",
-    toolsets=[
-        docs_mcp_server()
-    ],
+    toolsets=[docs_mcp_server()],
     deps_type=AgentContext,
 )
 
 docs_agent.system_prompt(create_memory_prompt)
+
 
 @docs_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:
