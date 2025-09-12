@@ -19,8 +19,9 @@ from mcp_servers import (
     slack_mcp_server,
 )
 from pydantic import BaseModel
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 
+from app.agents.filtering_agent import FilteringAgent
 from app.data_types import AgentContext
 from app.utils.prompt import create_memory_prompt, create_user_metadata_prompt
 
@@ -32,7 +33,7 @@ class ProgressSummary(BaseModel):
 
 
 # Create the PydanticAI agent
-progress_agent = Agent(
+progress_agent = FilteringAgent(
     "anthropic:claude-sonnet-4-20250514",
     output_type=ProgressSummary,
     toolsets=[

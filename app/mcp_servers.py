@@ -45,7 +45,7 @@ def github_mcp_server() -> MCPServer | None:
     return _github_server_instance
 
 
-def slack_mcp_server() -> MCPServer | None:
+def slack_mcp_server() -> MCPServer:
     global _slack_server_instance
     if _slack_server_instance is None:
         _slack_server_instance = MCPServerStreamableHTTP(

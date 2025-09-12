@@ -1,10 +1,11 @@
 from mcp_servers import docs_mcp_server
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 
+from app.agents.filtering_agent import FilteringAgent
 from app.data_types import AgentContext
 from app.utils.prompt import create_memory_prompt
 
-docs_agent = Agent(
+docs_agent = FilteringAgent(
     "anthropic:claude-sonnet-4-20250514",
     toolsets=[docs_mcp_server()],
     deps_type=AgentContext,
