@@ -36,11 +36,8 @@ An intelligent orchestrator agent for TigerData that provides comprehensive assi
 ### Agent Capabilities
 
 **eon**: Primary entry point from Slack that routes requests to specialized sub-agents
-
 **progress**: Team tracking - "What has @john been working on?" | Project reports | Cross-platform insights  
-
 **docs**: Technical expertise - PostgreSQL/TimescaleDB help | Configuration guidance | API references
-
 **sales**: Customer support - Salesforce data search | Support ticket insights | Customer history
 
 ## Getting Started

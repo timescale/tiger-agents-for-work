@@ -9,34 +9,31 @@ fi
 echo "Building services..."
 docker-compose build
 
-# Always start core services
-echo "Starting core services..."
-docker-compose up -d app db tiger-slack-ingest tiger-slack-mcp
+# Build profile arguments based on DISABLE_* variables
+PROFILES=""
 
-# Conditionally start MCP servers based on DISABLE_* environment variables
 if [ -z "$DISABLE_DOCS_MCP_SERVER" ]; then
-    echo "Starting docs MCP server..."
-    docker-compose up -d tiger-docs-mcp
+    PROFILES="$PROFILES --profile docs-mcp"
 fi
 
 if [ -z "$DISABLE_GITHUB_MCP_SERVER" ]; then
-    echo "Starting GitHub MCP server..."
-    docker-compose up -d tiger-github-mcp
+    PROFILES="$PROFILES --profile github-mcp"
 fi
 
 if [ -z "$DISABLE_LINEAR_MCP_SERVER" ]; then
-    echo "Starting Linear MCP server..."
-    docker-compose up -d tiger-linear-mcp
+    PROFILES="$PROFILES --profile linear-mcp"
 fi
 
 if [ -z "$DISABLE_MEMORY_MCP_SERVER" ]; then
-    echo "Starting memory MCP server..."
-    docker-compose up -d tiger-memory-mcp
+    PROFILES="$PROFILES --profile memory-mcp"
 fi
 
 if [ -z "$DISABLE_SALESFORCE_MCP_SERVER" ]; then
-    echo "Starting Salesforce MCP server..."
-    docker-compose up -d tiger-salesforce-mcp
+    PROFILES="$PROFILES --profile salesforce-mcp"
 fi
+
+# Start services with the constructed profiles
+echo "Starting services with profiles: $PROFILES"
+docker-compose $PROFILES up -d
 
 echo "Services started successfully!"
