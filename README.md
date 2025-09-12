@@ -113,3 +113,47 @@ DISABLE_SLACK_MCP_SERVER=1         # Disable Slack MCP server
 ```
 
 **Note**: Database variables (`PGHOST`, `PGDATABASE`, etc.) are pre-configured for the Docker setup and typically don't need modification.
+
+## Docker Deployment
+
+### Quick Start
+
+Use the provided startup script for intelligent container management:
+
+```bash
+./start.sh
+```
+
+This script will:
+1. Build all Docker images
+2. Start core services (app, database, Slack ingest)
+3. Conditionally start MCP servers based on your `DISABLE_*` environment variables
+
+### Manual Docker Commands
+
+```bash
+# Build and start all services
+docker-compose build
+docker-compose up -d
+
+# Start only core services
+docker-compose up -d app db tiger-slack-ingest
+
+# Start specific MCP servers
+docker-compose up -d tiger-slack-mcp tiger-memory-mcp
+
+# View logs
+docker-compose logs -f app
+```
+
+### MCP Server Management
+
+The `DISABLE_*` environment variables control both:
+- **Application behavior**: The agent won't attempt to connect to disabled servers
+- **Docker container creation**: The `./start.sh` script won't start disabled server containers
+
+For example, setting `DISABLE_GITHUB_MCP_SERVER=1` will:
+- Skip starting the `tiger-github-mcp` container
+- Make the agent return `None` when trying to access GitHub functionality
+
+This allows you to run only the MCP servers you need, reducing resource usage and avoiding API token requirements for unused services.
