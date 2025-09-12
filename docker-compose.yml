@@ -86,7 +86,7 @@ services:
       - .env
 
   tiger-slack-mcp:
-    image: ghcr.io/timescale/tiger-slack/mcp:v0.3
+    image: ghcr.io/timescale/tiger-slack/mcp:v0.4
     container_name: tiger-slack-mcp
     ports:
       - "5560:3001"
