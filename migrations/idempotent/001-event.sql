@@ -76,3 +76,36 @@ as $func$
     ;
 $func$ language sql volatile security invoker
 ;
+
+
+-----------------------------------------------------------------------
+-- agent.delete_expired_events
+create or replace function agent.delete_expired_events
+( _max_attempts int default 3
+, _max_vt_age interval default interval '1h'
+) returns void
+as $func$
+    with d as
+    (
+        delete from agent.event e
+        where e.attempts >= _max_attempts
+        or e.vt <= (now() - _max_vt_age)
+        returning *
+    )
+    insert into agent.event_hist
+    ( id
+    , event_ts
+    , attempts
+    , vt
+    , event
+    )
+    select
+      d.id
+    , d.event_ts
+    , d.attempts
+    , d.vt
+    , d.event
+    from d
+    ;
+$func$ language sql volatile security invoker
+;
