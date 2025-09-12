@@ -7,7 +7,7 @@ An intelligent orchestrator agent for TigerData that provides comprehensive assi
 ```
                     ┌─────────────────────────┐
                     │                         │
-                    │    🎯 EON AGENT         │
+                    │     EON AGENT         │
                     │   (Orchestrator)        │
                     │                         │
                     │ • Routes requests       │
@@ -20,8 +20,8 @@ An intelligent orchestrator agent for TigerData that provides comprehensive assi
             │                 │                 │
     ┌───────▼──────┐ ┌────────▼────────┐ ┌─────▼──────┐
     │              │ │                 │ │            │
-    │   📊 PROGRESS │ │   📚 DOCS       │ │ 💼 SALES   │
-    │     AGENT     │ │    AGENT        │ │   AGENT    │
+    │   PROGRESS   │ │      DOCS       │ │    SALES   │
+    │     AGENT    │ │    AGENT        │ │   AGENT    │
     │              │ │                 │ │            │
     └───────┬──────┘ └────────┬────────┘ └─────┬──────┘
             │                 │                │
@@ -35,13 +35,13 @@ An intelligent orchestrator agent for TigerData that provides comprehensive assi
 
 ### Agent Capabilities
 
-**🎯 EON (Orchestrator)**: Primary entry point from Slack that routes requests to specialized sub-agents
+**eon**: Primary entry point from Slack that routes requests to specialized sub-agents
 
-**📊 PROGRESS**: Team tracking - "What has @john been working on?" | Project reports | Cross-platform insights  
+**progress**: Team tracking - "What has @john been working on?" | Project reports | Cross-platform insights  
 
-**📚 DOCS**: Technical expertise - PostgreSQL/TimescaleDB help | Configuration guidance | API references
+**docs**: Technical expertise - PostgreSQL/TimescaleDB help | Configuration guidance | API references
 
-**💼 SALES**: Customer support - Salesforce data search | Support ticket insights | Customer history
+**sales**: Customer support - Salesforce data search | Support ticket insights | Customer history
 
 ## Getting Started
 
