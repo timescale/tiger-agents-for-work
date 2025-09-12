@@ -88,13 +88,8 @@ eon_agent = Agent(
 def add_bot_user_id(ctx: RunContext[AgentContext]) -> str:
     return f"Your Slack user ID is {ctx.deps.bot_user_id}."
 
-@eon_agent.system_prompt
-async def memory_prompt(ctx: RunContext[AgentContext]) -> str:
-    return await create_memory_prompt(ctx)
-
-@eon_agent.system_prompt
-async def add_user_metadata(ctx: RunContext[AgentContext]) -> str:
-    return await create_user_metadata_prompt(ctx)
+eon_agent.system_prompt(create_memory_prompt)
+eon_agent.system_prompt(create_user_metadata_prompt)
 
 @eon_agent.tool
 async def progress_agent_tool(
