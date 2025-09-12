@@ -18,7 +18,7 @@ if os.getenv("DEBUG", "false").lower() == "true":
         debugpy.wait_for_client()  # Uncomment to wait for debugger before starting
 
 from events import initialize
-from app.bot import BotHarness
+from app.bot import BotHarness, Event
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
@@ -108,7 +108,10 @@ async def main() -> None:
         slack_client = app.client
         bot_info = await slack_client.auth_test()
     
-        bot = BotHarness(app, pool)
+        async def respond(event: Event):
+            pass
+    
+        bot = BotHarness(app, pool, respond)
 
         try:
             async with asyncio.TaskGroup() as tasks:
