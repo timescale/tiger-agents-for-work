@@ -2,6 +2,7 @@ from mcp_servers import docs_mcp_server
 from pydantic_ai import Agent, RunContext
 
 from app.data_types import AgentContext
+from app.utils.prompt import create_memory_prompt, create_user_metadata_prompt
 
 docs_agent = Agent(
     "anthropic:claude-sonnet-4-20250514",
@@ -10,6 +11,14 @@ docs_agent = Agent(
     ],
     deps_type=AgentContext,
 )
+
+@docs_agent.system_prompt
+async def memory_prompt(ctx: RunContext[AgentContext]) -> str:
+    return await create_memory_prompt(ctx)
+
+@docs_agent.system_prompt
+async def add_user_metadata(ctx: RunContext[AgentContext]) -> str:
+    return await create_user_metadata_prompt(ctx)
 
 @docs_agent.system_prompt
 def get_system_prompt(ctx: RunContext[AgentContext]) -> str:

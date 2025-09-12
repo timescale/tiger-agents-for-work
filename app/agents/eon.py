@@ -1,10 +1,6 @@
 import asyncio
-import json
 import os
 import random
-from datetime import datetime
-from textwrap import dedent
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import logfire
 from psycopg_pool import AsyncConnectionPool
@@ -20,8 +16,10 @@ from app import AGENT_NAME
 from app.agents.docs import query_docs
 from app.agents.progress import add_message
 from app.agents.sales import query_sales_support
-from app.data_types import AgentContext, BotInfo, Mention, SlackUser
+from app.data_types import AgentContext, BotInfo, Mention
 from app.mcp_servers import memory_mcp_server, slack_mcp_server
+from app.utils.mcp import get_memories, get_user_metadata
+from app.utils.prompt import create_memory_prompt, create_user_metadata_prompt
 from app.utils.slack import (
     post_response,
     react_to_mention,
@@ -88,45 +86,18 @@ eon_agent = Agent(
     system_prompt=SYSTEM_PROMPT.format(bot_name=AGENT_NAME),
     toolsets=[slack_mcp_server(), _memory_mcp_server],
 )
-
-@eon_agent.system_prompt
-async def add_user_metadata(ctx: RunContext[AgentContext]) -> str:
-    try:
-        result = await _slack_mcp_server.direct_call_tool("getUsers", { "keyword": ctx.deps.user_id, "includeTimezone": True })
-        user: SlackUser = result["results"][0] if result["results"] else None
-        
-        if user is not None and user["tz"] is not None:
-            timezone = ZoneInfo(user["tz"])
-            user.pop("tz")
-        else:
-            timezone = ZoneInfo("UTC")
-    except ZoneInfoNotFoundError:
-        timezone = ZoneInfo("UTC")
-    return f"""User's Slack metadata: {json.dumps(user)}\n
-        User's current time: {datetime.now(timezone).strftime('%Y-%m-%d %H:%M:%S%z')}"""
     
-
 @eon_agent.system_prompt
 def add_bot_user_id(ctx: RunContext[AgentContext]) -> str:
     return f"Your Slack user ID is {ctx.deps.bot_user_id}."
 
 @eon_agent.system_prompt
 async def memory_prompt(ctx: RunContext[AgentContext]) -> str:
-    result = await _memory_mcp_server.direct_call_tool("getMemories", {"key": f"{AGENT_NAME}:{ctx.deps.user_id}"}, None)
-    memories = result["memories"] if isinstance(result, dict) and "memories" in result else []
-    return dedent(f"""\
-    You have memory tools which may be used to store and retrieve important notes about the user.
-    User-specific memories use a key of the format `{AGENT_NAME}:<USER_ID>`.
-    The key for this user is `{AGENT_NAME}:{ctx.deps.user_id}`. You MUST use this key if you choose to store/retrieve memories about this user.
-    Assume the newest memory is most accurate and supersedes older conflicting memories.
-    When a newer memory conflicts with an older memory, either delete or update the older memory.
-    Prefer to update an existing memory over creating a new one if the existing memory is very relevant.
-    If there are redundant memories, update one with the semantic sum of the two and remove the other.
+    return await create_memory_prompt(ctx)
 
-    The current memories for this user are:
-    {"\n".join(f"ID {m['id']} - {m['content']}" for m in memories)}
-    """
-    )
+@eon_agent.system_prompt
+async def add_user_metadata(ctx: RunContext[AgentContext]) -> str:
+    return await create_user_metadata_prompt(ctx)
 
 @eon_agent.tool
 async def progress_agent_tool(
@@ -214,7 +185,6 @@ async def respond(mention: Mention,
         span.set_attributes({"channel": mention.channel, "user": mention.user})
         try:
             await react_to_mention(client, mention, "spinthinking")
-        
             async with eon_agent as agent:
                 # Slack messages are limited to 40k chars and 1 token ~= 4 chars
                 # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
@@ -224,6 +194,8 @@ async def respond(mention: Mention,
                         bot_user_id=bot_info["user_id"],
                         thread_ts=mention.thread_ts,
                         channel=mention.channel,
+                        memories=await get_memories(mention.user),
+                        slack_user_metadata=await get_user_metadata(mention.user),
                         user_id=mention.user,
                         usage_limits=UsageLimits(output_tokens_limit=9_000)
                     ),

@@ -51,7 +51,7 @@ services:
         condition: service_healthy
 
   tiger-github-mcp:
-    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-gh-mcp-server
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-gh-mcp-server:latest
     container_name: tiger-gh-mcp
     env_file:
       - .env
@@ -59,7 +59,7 @@ services:
       - "5556:3001"
 
   tiger-linear-mcp:
-    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-linear-mcp-server
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-linear-mcp-server:latest
     container_name: tiger-linear-mcp
     env_file:
       - .env
@@ -67,7 +67,7 @@ services:
       - "5557:3001"
 
   tiger-memory-mcp:
-    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-memory-mcp-server
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-memory-mcp-server:latest
     container_name: tiger-memory-mcp
     env_file:
       - .env
@@ -78,7 +78,7 @@ services:
         condition: service_healthy
 
   tiger-salesforce-mcp:
-    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-salesforce-mcp-server
+    image: 142548018081.dkr.ecr.us-east-1.amazonaws.com/tiger-salesforce-mcp-server:latest
     container_name: tiger-salesforce-mcp
     ports:
       - "5559:3001"
