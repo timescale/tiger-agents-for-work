@@ -9,21 +9,22 @@ Tiger Agent implements a sophisticated event-driven architecture for processing 
 ### 1. Event Flow Pipeline
 
 ```
-Slack Event → BotHarness._on_event → Database Storage → Queue Signal → Worker Pool → Event Processing
+Slack Event → AgentHarness._on_event → Database Storage → Queue Signal → Worker Pool → Event Processing
 ```
 
 **Key Files:**
-- `app/bot.py` - Core event processing logic
-- `app/main.py` - Application bootstrap and worker configuration
-- `migrations/` - Database schema and stored procedures
+- `tiger_agent/harness.py` - Core event processing logic (AgentHarness)
+- `tiger_agent/main.py` - Application bootstrap and TaskGroup orchestration
+- `tiger_agent/migrations/` - Database schema and stored procedures
 
 ### 2. Core Components
 
-#### BotHarness Class (`app/bot.py`)
+#### AgentHarness Class (`tiger_agent/harness.py`)
 
-**Purpose:** Central orchestrator that manages the entire event lifecycle from Slack webhooks to completion.
+**Purpose:** Central orchestrator that manages the entire event lifecycle from Slack webhooks to completion, including TaskGroup coordination and Slack handler management.
 
 **Key Methods:**
+- `run(app_token, task_group, num_workers)` - Main entry point that sets up workers and Slack handler
 - `_on_event()` - Acknowledges Slack events and triggers processing
 - `_process_event()` - Claims and processes individual events from the database
 - `_worker()` - Worker loop that waits for triggers and processes events
@@ -42,7 +43,20 @@ Slack Event → BotHarness._on_event → Database Storage → Queue Signal → W
 
 ## Design Decisions & Benefits
 
-### 1. Hybrid Queue-Database Architecture
+### 1. TaskGroup Concurrency Management
+
+**Design Choice:**
+- Uses `asyncio.TaskGroup` for coordinated lifecycle management
+- AgentHarness manages both worker pool and Slack WebSocket handler
+- Single entry point (`harness.run()`) creates all concurrent tasks
+
+**Benefits:**
+- **Unified Lifecycle:** All tasks start/stop together with proper error propagation
+- **Exception Handling:** Any task failure cancels all related tasks gracefully
+- **Resource Cleanup:** TaskGroup ensures proper cleanup on shutdown
+- **Simplified Architecture:** Single orchestration point reduces complexity
+
+### 2. Hybrid Queue-Database Architecture
 
 **Design Choice:**
 - Events stored in PostgreSQL for persistence
@@ -59,7 +73,7 @@ Slack Event → BotHarness._on_event → Database Storage → Queue Signal → W
 
 ### 2. Worker Pool with Bounded Concurrency
 
-**Configuration:** 5 concurrent workers (configurable via `main.py:116`)
+**Configuration:** 5 concurrent workers (configurable via `main.py:112`)
 
 **Benefits:**
 - **Resource Control:** Prevents database connection exhaustion during event spikes
@@ -71,6 +85,7 @@ Slack Event → BotHarness._on_event → Database Storage → Queue Signal → W
 # One signal per event, multiple workers compete for processing
 await self._trigger.put(True)  # Signal workers
 ```
+
 
 ### 3. Database-Level Concurrency Control
 
@@ -150,7 +165,8 @@ timeout = 60.0 + jitter
 
 ## Configuration
 
-**Worker Count:** `main.py:116` - Currently set to 5 workers
+**Worker Count:** `main.py:112` - Currently set to 5 workers
+**TaskGroup Integration:** `harness.py:159-177` - Uses TaskGroup for coordinated lifecycle management
 **Retry Limits:** `agent.claim_event()` - 3 attempts max, 10-minute visibility timeout
 **Cleanup:** `agent.delete_expired_events()` - 1-hour maximum age for stale events
 **Polling:** 60-second timeout with ±15 second jitter
