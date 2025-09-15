@@ -13,16 +13,14 @@ Features:
 - Integrates with Slack bots for real-time analysis
 """
 
-from mcp_servers import (
-    github_mcp_server,
-    linear_mcp_server,
-    slack_mcp_server,
-)
+
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
 from tiger_agent.agents.data_types import AgentContext
 from tiger_agent.agents.filtering_agent import FilteringAgent
+from tiger_agent.agents.mcp_servers import github_mcp_server, linear_mcp_server, \
+    slack_mcp_server
 from tiger_agent.agents.prompt import create_memory_prompt, create_user_metadata_prompt
 
 all_messages = None

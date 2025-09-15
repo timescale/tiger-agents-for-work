@@ -6,9 +6,11 @@ from typing import Any
 import logfire
 from dotenv import find_dotenv, load_dotenv
 
-from tiger_agent import Event, AgentHarness
+from tiger_agent import AgentHarness
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
+
+from tiger_agent.agents import eon
 
 # Enable remote debugging if DEBUG environment variable is set
 if os.getenv("DEBUG", "false").lower() == "true":
@@ -105,15 +107,7 @@ async def main() -> None:
 
         handler = AsyncSocketModeHandler(app, slack_app_token)
 
-        async def echo(event: Event):
-            await asyncio.sleep(45)
-            channel = event.event["channel"]
-            ts = event.event["ts"]
-            text = event.event["text"]
-            await app.client.chat_postMessage(channel=channel, thread_ts=ts, text=f"echo: {text}")
-            logfire.info(f"responded to event {event.id}")
-
-        harness = AgentHarness(app, pool, echo)
+        harness = AgentHarness(app, pool, eon.respond)
 
         try:
             async with asyncio.TaskGroup() as tasks:

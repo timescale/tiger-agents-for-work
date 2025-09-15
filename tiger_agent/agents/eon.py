@@ -6,9 +6,9 @@ from pydantic_ai.usage import UsageLimits
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
-
+from tiger_agent import Event, EventContext
 from tiger_agent.agents import AGENT_NAME
-from tiger_agent.agents.data_types import AgentContext, Mention, BotInfo
+from tiger_agent.agents.data_types import AgentContext, Mention
 from tiger_agent.agents.docs import query_docs
 from tiger_agent.agents.filtering_agent import FilteringAgent
 from tiger_agent.agents.mcp import get_memories, get_user_metadata
@@ -174,8 +174,20 @@ async def post_response(
         unfurl_media=False,
     )
 
-
-async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -> bool:
+async def respond(ctx: EventContext, event: Event) -> None:
+    if event.event.get("type") != "app_mention":
+        logfire.warning("only app_mention events are handled", event=event)
+    mention = Mention(
+        id=event.id,
+        ts=event.event["ts"],
+        channel=event.event["channel"],
+        user=event.event["user"],
+        text=event.event["text"],
+        thread_ts=event.event.get("thread_ts"),
+        attempts=event.attempts,
+        vt=event.vt
+    )
+    client = ctx.app.client
     with logfire.span("respond") as span:
         span.set_attributes({"channel": mention.channel, "user": mention.user})
         try:
@@ -186,7 +198,7 @@ async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -
                 # https://api.slack.com/methods/chat.postMessage#truncating
                 response = await agent.run(
                     deps=AgentContext(
-                        bot_user_id=bot_info["user_id"],
+                        bot_user_id=ctx.bot_id,
                         thread_ts=mention.thread_ts,
                         channel=mention.channel,
                         memories=await get_memories(mention.user),
@@ -205,7 +217,7 @@ async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -
             )
             await remove_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
             await add_reaction(client, channel=mention.channel, ts=mention.ts, emoji="white_check_mark")
-            return True
+            return
         except Exception as e:
             logfire.exception("respond failed", error=e)
             await remove_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
@@ -218,4 +230,4 @@ async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -
                 if mention.attempts < MAX_ATTEMPTS
                 else " I give up. Sorry.",
             )
-            return False
+            raise e
