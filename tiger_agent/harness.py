@@ -9,6 +9,7 @@ import logfire
 from psycopg.rows import class_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
+from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
@@ -156,7 +157,7 @@ class AgentHarness:
         self._bot_name: str = bot["name"]
         self._app_id: str = bot["app_id"]
     
-    async def run(self, task_group: TaskGroup, num_workers: int = 5):
+    async def run(self, app_token: str, task_group: TaskGroup, num_workers: int = 5):
         self._task_group = task_group
 
         await self._fetch_bot_info()
@@ -172,3 +173,6 @@ class AgentHarness:
             task_group.create_task(self._worker(worker_id))
 
         self.app.event("app_mention")(on_event)
+
+        handler = AsyncSocketModeHandler(self.app, app_token)
+        task_group.create_task(handler.start_async())
