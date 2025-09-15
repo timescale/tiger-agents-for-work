@@ -60,19 +60,10 @@ class Mention:
     ts: str
     channel: str
     user: str
-    tz: str | None
     text: str
     thread_ts: str | None
     attempts: int
     vt: datetime
-
-
-# See https://api.slack.com/methods/auth.test
-class BotInfo(TypedDict):
-    bot_id: str
-    team_id: str
-    user_id: str
-    user: str
 
 
 @dataclass

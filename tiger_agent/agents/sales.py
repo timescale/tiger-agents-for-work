@@ -1,8 +1,8 @@
-from mcp_servers import salesforce_mcp_server
 from pydantic_ai import RunContext
 
 from tiger_agent.agents.data_types import AgentContext
 from tiger_agent.agents.filtering_agent import FilteringAgent
+from tiger_agent.agents.mcp_servers import salesforce_mcp_server
 from tiger_agent.agents.prompt import create_memory_prompt
 
 sales_agent = FilteringAgent(

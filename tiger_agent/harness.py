@@ -16,6 +16,18 @@ from tiger_agent.migrations import runner
 
 
 @dataclass
+class EventContext:
+    app: AsyncApp
+    pool: AsyncConnectionPool
+    task_group: TaskGroup
+    bot_id: str
+    bot_name: str
+    team_id: str
+    team_name: str
+    app_id: str
+
+
+@dataclass
 class Event:
     id: int
     event_ts: datetime
@@ -23,12 +35,14 @@ class Event:
     vt: datetime
     event: dict[str, Any]
 
+
 # Type alias for event processing callback
-EventProcessor = Callable[[Event], Awaitable[None]]
+EventProcessor = Callable[[EventContext, Event], Awaitable[None]]
 
 
 class AgentHarness:
     def __init__(self, app: AsyncApp, pool: AsyncConnectionPool, event_processor: EventProcessor):
+        self._task_group: TaskGroup | None = None
         self.app = app
         self.pool = pool
         self._trigger = asyncio.Queue()
@@ -78,10 +92,22 @@ class AgentHarness:
         ):
             await cur.execute("select agent.delete_expired_events()")
 
+    def _make_event_context(self) -> EventContext:
+        return EventContext(
+            self.app,
+            self.pool,
+            self._task_group,
+            self._bot_id,
+            self._bot_name,
+            self._team_id,
+            self._team_name,
+            self._app_id
+        )
+
     async def _process_event(self, event: Event):
         with logfire.span("process_event", event_id=event.id) as _:
             try:
-                await self._event_processor(event)
+                await self._event_processor(self._make_event_context(), event)
                 await self._delete_event(event)
             except Exception as e:
                 logfire.exception("event processing failed", event_id=event.id, error=e)
@@ -115,7 +141,26 @@ class AgentHarness:
             except QueueShutDown:
                 return
 
+    @logfire.instrument("fetch_bot_info", extract_args=False)
+    async def _fetch_bot_info(self):
+        resp = await self.app.client.auth_test()
+        assert isinstance(resp.data, dict), "resp.data must be a dict"
+        assert resp.data["ok"] == True, "slack auth_test failed"
+        self._bot_id: str = resp.data['bot_id']
+        self._team_id: str = resp.data["team_id"]
+        self._team_name: str = resp.data["team"]
+        resp = await self.app.client.bots_info(bot=self._bot_id, team_id=self._team_id)
+        assert isinstance(resp.data, dict), "resp.data must be a dict"
+        assert resp.data["ok"] == True, "slack bot_info failed"
+        bot = resp.data["bot"]
+        self._bot_name: str = bot["name"]
+        self._app_id: str = bot["app_id"]
+    
     async def run(self, task_group: TaskGroup, num_workers: int = 5):
+        self._task_group = task_group
+
+        await self._fetch_bot_info()
+        
         async with self.pool.connection() as con:
             await runner.migrate_db(con)
         

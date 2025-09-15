@@ -6,7 +6,7 @@ from typing import Any
 import logfire
 from dotenv import find_dotenv, load_dotenv
 
-from tiger_agent import Event, AgentHarness
+from tiger_agent import Event, AgentHarness, EventContext
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
@@ -15,8 +15,6 @@ from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
-
-import tiger_agent
 
 
 logfire.configure(
@@ -54,6 +52,15 @@ async def reset_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
 
 
+# our slackbot will just echo messages back
+async def echo(ctx: EventContext, event: Event):
+    channel = event.event["channel"]
+    ts = event.event["ts"]
+    text = event.event["text"]
+    await ctx.app.client.chat_postMessage(channel=channel, thread_ts=ts, text=f"echo: {text}")
+    logfire.info(f"responded to event {event.id}")
+
+
 async def main() -> None:
     slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
     assert slack_bot_token is not None, (
@@ -87,15 +94,6 @@ async def main() -> None:
 
         # use the websocket handler
         handler = AsyncSocketModeHandler(app, slack_app_token)
-
-        # our slackbot will just echo messages back after a 45 second delay
-        async def echo(event: Event):
-            await asyncio.sleep(45)
-            channel = event.event["channel"]
-            ts = event.event["ts"]
-            text = event.event["text"]
-            await app.client.chat_postMessage(channel=channel, thread_ts=ts, text=f"echo: {text}")
-            logfire.info(f"responded to event {event.id}")
 
         # create the agent harness
         harness = AgentHarness(app, pool, echo)
