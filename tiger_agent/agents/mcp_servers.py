@@ -4,7 +4,6 @@ from typing import Any
 from pydantic_ai import RunContext
 from pydantic_ai.mcp import CallToolFunc, MCPServer, MCPServerStreamableHTTP, ToolResult
 
-from app import AGENT_NAME
 
 # Local instances cache
 _github_server_instance: MCPServer | None = None

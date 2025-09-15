@@ -6,6 +6,8 @@ from typing import Any
 import logfire
 from dotenv import find_dotenv, load_dotenv
 
+from tiger_agent import Event, AgentHarness
+
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
 # Enable remote debugging if DEBUG environment variable is set
@@ -17,20 +19,18 @@ if os.getenv("DEBUG", "false").lower() == "true":
     if os.getenv("DEBUG_WAIT_FOR_ATTACH", "false").lower() == "true":
         debugpy.wait_for_client()  # Uncomment to wait for debugger before starting
 
-from events import initialize
-from app.bot import BotHarness, Event
+
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
-from migrations.runner import migrate_db
+import tiger_agent
 
-from app import AGENT_NAME, __version__
 
 logfire.configure(
-    service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
-    service_version=__version__,
+    service_name=os.getenv("SERVICE_NAME", os.getenv("SERVICE_NAME")),
+    service_version=tiger_agent.__version__,
     scrubbing=False,
     min_level="info",
 )
@@ -52,6 +52,8 @@ logfire.instrument_pydantic_ai()
 
 def shutdown_handler(signum: int, _frame: Any):
     signame = signal.Signals(signum).name
+    loop = asyncio.get_running_loop()
+    loop.stop()
     logfire.info(f"Received {signame}, exiting")
     exit(0)
 
@@ -90,14 +92,11 @@ async def main() -> None:
     loop.set_exception_handler(exception_handler)
 
     async with AsyncConnectionPool(
-        check=AsyncConnectionPool.check_connection,
-        configure=configure_database_connection,
-        reset=reset_database_connection,
+            check=AsyncConnectionPool.check_connection,
+            configure=configure_database_connection,
+            reset=reset_database_connection,
     ) as pool:
         await pool.wait()
-
-        async with pool.connection() as con:
-            await migrate_db(con)
 
         app = AsyncApp(
             token=slack_bot_token,
@@ -105,23 +104,20 @@ async def main() -> None:
         )
 
         handler = AsyncSocketModeHandler(app, slack_app_token)
-        slack_client = app.client
-        bot_info = await slack_client.auth_test()
-    
-        async def respond(event: Event):
+
+        async def echo(event: Event):
             await asyncio.sleep(45)
             channel = event.event["channel"]
             ts = event.event["ts"]
             text = event.event["text"]
             await app.client.chat_postMessage(channel=channel, thread_ts=ts, text=f"echo: {text}")
             logfire.info(f"responded to event {event.id}")
-    
-        bot = BotHarness(app, pool, respond)
+
+        harness = AgentHarness(app, pool, echo)
 
         try:
             async with asyncio.TaskGroup() as tasks:
-                #await initialize(app, pool, tasks, bot_info, num_agent_workers=5)
-                await bot.run(tasks, 5)
+                await harness.run(tasks, 5)
                 tasks.create_task(handler.start_async())
         except* Exception as eg:
             for error in eg.exceptions:

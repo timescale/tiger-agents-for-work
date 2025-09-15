@@ -21,9 +21,9 @@ from mcp_servers import (
 from pydantic import BaseModel
 from pydantic_ai import RunContext
 
-from app.agents.filtering_agent import FilteringAgent
-from app.data_types import AgentContext
-from app.utils.prompt import create_memory_prompt, create_user_metadata_prompt
+from tiger_agent.agents.data_types import AgentContext
+from tiger_agent.agents.filtering_agent import FilteringAgent
+from tiger_agent.agents.prompt import create_memory_prompt, create_user_metadata_prompt
 
 all_messages = None
 

@@ -4,7 +4,7 @@ from typing import Any, TypeVar
 from pydantic_ai import Agent
 from pydantic_ai.toolsets.abstract import AbstractToolset
 
-from app.utils.util import prune
+from tiger_agent.agents.util import prune
 
 AgentDepsT = TypeVar("AgentDepsT")
 

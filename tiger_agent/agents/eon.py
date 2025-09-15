@@ -1,43 +1,25 @@
-import asyncio
 import os
-import random
 
 import logfire
-from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import RunContext
 from pydantic_ai.usage import UsageLimits
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
-from utils.db import (
-    MAX_ATTEMPTS,
-    delete_expired_mentions,
-)
 
-from app import AGENT_NAME
-from app.agents.docs import query_docs
-from app.agents.filtering_agent import FilteringAgent
-from app.agents.progress import add_message
-from app.agents.sales import query_sales_support
-from app.data_types import AgentContext, BotInfo, Mention
-from app.mcp_servers import memory_mcp_server, slack_mcp_server
-from app.utils.mcp import get_memories, get_user_metadata
-from app.utils.prompt import create_memory_prompt, create_user_metadata_prompt
-from app.utils.slack import (
-    post_response,
-    react_to_mention,
-    remove_reaction_from_mention,
-)
+
+from tiger_agent.agents import AGENT_NAME
+from tiger_agent.agents.data_types import AgentContext, Mention, BotInfo
+from tiger_agent.agents.docs import query_docs
+from tiger_agent.agents.filtering_agent import FilteringAgent
+from tiger_agent.agents.mcp import get_memories, get_user_metadata
+from tiger_agent.agents.mcp_servers import slack_mcp_server, memory_mcp_server
+from tiger_agent.agents.progress import add_message
+from tiger_agent.agents.prompt import create_memory_prompt, create_user_metadata_prompt
+from tiger_agent.agents.sales import query_sales_support
 
 EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-20250514")
-WORKER_SLEEP_SECONDS = 60  # how long the worker sleeps between iterations
-WORKER_MIN_JITTER_SECONDS = -15
-WORKER_MAX_JITTER_SECONDS = 15
 
-
-assert WORKER_SLEEP_SECONDS >= 60
-assert WORKER_MIN_JITTER_SECONDS < WORKER_MAX_JITTER_SECONDS
-assert WORKER_SLEEP_SECONDS - WORKER_MIN_JITTER_SECONDS > 10
-assert WORKER_SLEEP_SECONDS + WORKER_MAX_JITTER_SECONDS < WORKER_SLEEP_SECONDS * 2
-
+MAX_ATTEMPTS = 3
 
 SYSTEM_PROMPT = """\
 You are {bot_name}, a member of TigerData.
@@ -166,11 +148,38 @@ def user_prompt(mention: Mention) -> str:
     return "\n".join(lines)
 
 
+async def add_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: str):
+    try:
+        await client.reactions_add(channel=channel, timestamp=ts, name=emoji)
+    except SlackApiError:
+        pass
+
+
+async def remove_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: str):
+    try:
+        await client.reactions_remove(channel=channel, timestamp=ts, name=emoji)
+    except SlackApiError:
+        pass
+
+
+async def post_response(
+        client: AsyncWebClient, channel: str, thread_ts: str, text: str
+) -> None:
+    await client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=text,
+        blocks=[{"type": "markdown", "text": text}],
+        unfurl_links=False,
+        unfurl_media=False,
+    )
+
+
 async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -> bool:
     with logfire.span("respond") as span:
         span.set_attributes({"channel": mention.channel, "user": mention.user})
         try:
-            await react_to_mention(client, mention, "spinthinking")
+            await add_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
             async with eon_agent as agent:
                 # Slack messages are limited to 40k chars and 1 token ~= 4 chars
                 # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
@@ -183,8 +192,8 @@ async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -
                         memories=await get_memories(mention.user),
                         slack_user_metadata=await get_user_metadata(mention.user),
                         user_id=mention.user,
-                        usage_limits=UsageLimits(output_tokens_limit=9_000),
                     ),
+                    usage_limits=UsageLimits(output_tokens_limit=9_000),
                     user_prompt=user_prompt(mention),
                 )
 
@@ -194,13 +203,13 @@ async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -
                 mention.thread_ts if mention.thread_ts else mention.ts,
                 response.output,
             )
-            await remove_reaction_from_mention(client, mention, "spinthinking")
-            await react_to_mention(client, mention, "white_check_mark")
+            await remove_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
+            await add_reaction(client, channel=mention.channel, ts=mention.ts, emoji="white_check_mark")
             return True
         except Exception as e:
             logfire.exception("respond failed", error=e)
-            await remove_reaction_from_mention(client, mention, "spinthinking")
-            await react_to_mention(client, mention, "x")
+            await remove_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
+            await add_reaction(client, channel=mention.channel, ts=mention.ts, emoji="x")
             await post_response(
                 client,
                 mention.channel,
@@ -210,18 +219,3 @@ async def respond(mention: Mention, client: AsyncWebClient, bot_info: BotInfo) -
                 else " I give up. Sorry.",
             )
             return False
-
-
-async def respond_worker(
-    pool: AsyncConnectionPool, client: AsyncWebClient, bot_info: BotInfo
-) -> None:
-    while True:
-        with logfire.span("respond_worker"):
-            while await respond(
-                pool, client, bot_info
-            ):  # while we are being successful, continue
-                pass
-            await delete_expired_mentions(pool)
-        jitter = random.randint(WORKER_MIN_JITTER_SECONDS, WORKER_MAX_JITTER_SECONDS)
-        delay = WORKER_SLEEP_SECONDS + jitter
-        await asyncio.sleep(delay)

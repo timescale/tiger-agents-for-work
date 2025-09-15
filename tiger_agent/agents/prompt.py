@@ -4,8 +4,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic_ai import RunContext
 
-from app import AGENT_NAME
-from app.data_types import AgentContext
+from tiger_agent.agents.data_types import AgentContext
 
 
 async def create_memory_prompt(ctx: RunContext[AgentContext]) -> str:

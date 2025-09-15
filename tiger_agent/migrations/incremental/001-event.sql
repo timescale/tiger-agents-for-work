@@ -9,6 +9,7 @@ create table agent.event
 , vt timestamptz not null default now() -- visibility threshold
 , event jsonb
 );
+create index on agent.event (vt, attempts);
 
 -----------------------------------------------------------------------
 -- agent.event_hist
