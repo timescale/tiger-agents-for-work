@@ -6,7 +6,7 @@ import logfire
 from psycopg import AsyncConnection, AsyncCursor
 from semver import Version
 
-from app import __version__
+from tiger_agent import __version__
 
 SHARED_LOCK_KEY = 31321898691465844
 MAX_LOCK_ATTEMPTS = 10
@@ -171,10 +171,10 @@ async def main():
     # Load environment variables
     load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
-    from app import AGENT_NAME
+    service_name = os.environ.get("SERVICE_NAME")
     
     logfire.configure(
-        service_name=os.getenv("SERVICE_NAME", AGENT_NAME),
+        service_name=os.getenv("SERVICE_NAME", service_name),
         service_version=__version__,
         scrubbing=False,
         min_level="info",

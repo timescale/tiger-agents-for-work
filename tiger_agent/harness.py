@@ -12,6 +12,9 @@ from psycopg_pool import AsyncConnectionPool
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
+from tiger_agent.migrations import runner
+
+
 @dataclass
 class Event:
     id: int
@@ -24,7 +27,7 @@ class Event:
 EventProcessor = Callable[[Event], Awaitable[None]]
 
 
-class BotHarness:
+class AgentHarness:
     def __init__(self, app: AsyncApp, pool: AsyncConnectionPool, event_processor: EventProcessor):
         self.app = app
         self.pool = pool
@@ -67,7 +70,7 @@ class BotHarness:
             await cur.execute("select agent.delete_event(%s)", (event.id,))
 
     @logfire.instrument("delete_expired_events", extract_args=False)
-    async def delete_expired_events(self) -> None:
+    async def _delete_expired_events(self) -> None:
         async with (
             self.pool.connection() as con,
             con.transaction() as _,
@@ -97,7 +100,7 @@ class BotHarness:
         async def worker_run(reason: str):
             with logfire.span("worker_run", worker_id=worker_id, reason=reason) as _:
                 await self._process_events()
-                await self.delete_expired_events()
+                await self._delete_expired_events()
         
         # initial staggering of workers
         await asyncio.sleep(random.randint(0, 30))
@@ -113,6 +116,9 @@ class BotHarness:
                 return
 
     async def run(self, task_group: TaskGroup, num_workers: int = 5):
+        async with self.pool.connection() as con:
+            await runner.migrate_db(con)
+        
         async def on_event(ack: AsyncAck, event: dict[str, Any]):
             await self._on_event(ack, event)
         
@@ -121,6 +127,3 @@ class BotHarness:
             task_group.create_task(self._worker(worker_id))
 
         self.app.event("app_mention")(on_event)
-
-
-

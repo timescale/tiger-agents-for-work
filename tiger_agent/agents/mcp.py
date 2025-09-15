@@ -2,9 +2,9 @@ import os
 
 import logfire
 
-from app import AGENT_NAME
-from app.data_types import MemoriesResponse, Memory, SlackUserResult, SlackUsersResponse
-from app.mcp_servers import memory_mcp_server, slack_mcp_server
+from tiger_agent.agents.data_types import SlackUserResult, SlackUsersResponse, Memory, \
+    MemoriesResponse
+from tiger_agent.agents.mcp_servers import slack_mcp_server
 
 
 async def get_user_metadata(user_id: str) -> SlackUserResult | None:
