@@ -13,7 +13,6 @@ load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
-from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 
 
@@ -92,16 +91,12 @@ async def main() -> None:
             ignoring_self_events_enabled=False,
         )
 
-        # use the websocket handler
-        handler = AsyncSocketModeHandler(app, slack_app_token)
-
         # create the agent harness
         harness = AgentHarness(app, pool, echo)
 
         try:
             async with asyncio.TaskGroup() as tasks:
-                await harness.run(tasks, 5)
-                tasks.create_task(handler.start_async())
+                tasks.create_task(harness.run(slack_app_token, tasks, 5))
         except* Exception as eg:
             for error in eg.exceptions:
                 logfire.exception("Task failed", error=error)
