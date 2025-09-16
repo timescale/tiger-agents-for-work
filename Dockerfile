@@ -11,7 +11,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 
 FROM python:3.13-slim
-WORKDIR /app
+WORKDIR /tiger_agent
 
 # Turns off buffering for easier container logging
 ENV PYTHONUNBUFFERED=1
@@ -29,8 +29,7 @@ COPY --from=build /usr/local/lib/python3.13/site-packages /usr/local/lib/python3
 USER botuser
 
 COPY pyproject.toml ./
-COPY app ./app
-COPY migrations ./migrations
+COPY tiger_agent ./tiger_agent
 
 # Command to run the application
-CMD ["python", "-m", "app"]
+CMD ["python", "-m", "tiger_agent.main"]
