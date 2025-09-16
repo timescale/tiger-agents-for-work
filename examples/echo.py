@@ -3,8 +3,6 @@ import os
 
 import logfire
 from dotenv import find_dotenv, load_dotenv
-from psycopg_pool import AsyncConnectionPool
-from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent import AgentHarness, Event, EventContext
 
@@ -36,10 +34,8 @@ async def echo(ctx: EventContext, event: Event):
 async def main() -> None:
     # create the agent harness
     harness = AgentHarness(echo)
-
     # run the harness
-    async with asyncio.TaskGroup() as tasks:
-        tasks.create_task(harness.run(tasks))
+    await harness.run(num_workers=5)
 
 
 if __name__ == "__main__":

@@ -214,23 +214,22 @@ class AgentHarness:
         self._bot_name: str = bot["name"]
         self._app_id: str = bot["app_id"]
 
-    async def run(self, task_group: TaskGroup, num_workers: int = 5):
+    async def run(self, num_workers: int = 5):
         await self.pool.wait()
-        self._task_group = task_group
+        async with asyncio.TaskGroup() as tasks:
+            await self._fetch_bot_info()
 
-        await self._fetch_bot_info()
+            async with self.pool.connection() as con:
+                await runner.migrate_db(con)
 
-        async with self.pool.connection() as con:
-            await runner.migrate_db(con)
+            async def on_event(ack: AsyncAck, event: dict[str, Any]):
+                await self._on_event(ack, event)
 
-        async def on_event(ack: AsyncAck, event: dict[str, Any]):
-            await self._on_event(ack, event)
+            for worker_id in range(num_workers):
+                logger.info("creating worker", extra={"worker_id": worker_id})
+                tasks.create_task(self._worker(worker_id))
 
-        for worker_id in range(num_workers):
-            logger.info("creating worker", extra={"worker_id": worker_id})
-            task_group.create_task(self._worker(worker_id))
+            self.app.event("app_mention")(on_event)
 
-        self.app.event("app_mention")(on_event)
-
-        handler = AsyncSocketModeHandler(self.app, self._slack_app_token)
-        task_group.create_task(handler.start_async())
+            handler = AsyncSocketModeHandler(self.app)
+            tasks.create_task(handler.start_async())

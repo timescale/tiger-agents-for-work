@@ -60,8 +60,7 @@ async def main() -> None:
     harness = AgentHarness(respond)
 
     # run the harness
-    async with asyncio.TaskGroup() as tasks:
-        tasks.create_task(harness.run(tasks))
+    await harness.run(num_workers=5)
 
 
 if __name__ == "__main__":
