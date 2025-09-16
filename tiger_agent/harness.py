@@ -84,6 +84,7 @@ class AgentHarness:
         worker_sleep_seconds: int = 60,
         worker_min_jitter_seconds: int = -15,
         worker_max_jitter_seconds: int = 15,
+        slack_app_token: str | None = None,
     ):
         self._task_group: TaskGroup | None = None
         self.app = app if app is not None else _create_default_app()
@@ -93,6 +94,8 @@ class AgentHarness:
         self._worker_sleep_seconds = worker_sleep_seconds
         self._worker_min_jitter_seconds = worker_min_jitter_seconds
         self._worker_max_jitter_seconds = worker_max_jitter_seconds
+        self._slack_app_token = slack_app_token or os.getenv("SLACK_APP_TOKEN")
+        assert self._slack_app_token is not None, "no SLACK_APP_TOKEN found"
         assert worker_sleep_seconds > 0
         assert worker_sleep_seconds - worker_min_jitter_seconds > 0
         assert worker_max_jitter_seconds > worker_min_jitter_seconds
@@ -211,7 +214,7 @@ class AgentHarness:
         self._bot_name: str = bot["name"]
         self._app_id: str = bot["app_id"]
 
-    async def run(self, app_token: str, task_group: TaskGroup, num_workers: int = 5):
+    async def run(self, task_group: TaskGroup, num_workers: int = 5):
         await self.pool.wait()
         self._task_group = task_group
 
@@ -229,5 +232,5 @@ class AgentHarness:
 
         self.app.event("app_mention")(on_event)
 
-        handler = AsyncSocketModeHandler(self.app, app_token)
+        handler = AsyncSocketModeHandler(self.app, self._slack_app_token)
         task_group.create_task(handler.start_async())

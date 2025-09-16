@@ -11,10 +11,6 @@ from tiger_agent import AgentHarness, Event, EventContext
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
-
-from psycopg_pool import AsyncConnectionPool
-from slack_bolt.app.async_app import AsyncApp
-
 if os.getenv("LOGFIRE_TOKEN"):
     logfire.configure(
         service_name="simple_agent",
@@ -60,34 +56,12 @@ async def respond(ctx: EventContext, event: Event):
 
 
 async def main() -> None:
-    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
-    assert slack_bot_token is not None, (
-        "SLACK_BOT_TOKEN environment variable is missing!"
-    )
-    slack_app_token = os.getenv("SLACK_APP_TOKEN")
-    assert slack_app_token is not None, (
-        "SLACK_APP_TOKEN environment variable is missing!"
-    )
+    # create the agent harness
+    harness = AgentHarness(respond)
 
-    # create the pool of database connections
-    async with AsyncConnectionPool(
-        check=AsyncConnectionPool.check_connection,
-    ) as pool:
-        # wait for the connections to be ready
-        await pool.wait()
-
-        # create a slack app
-        app = AsyncApp(
-            token=slack_bot_token,
-            ignoring_self_events_enabled=False,
-        )
-
-        # create the agent harness
-        harness = AgentHarness(app, pool, respond)
-
-        # run the harness
-        async with asyncio.TaskGroup() as tasks:
-            tasks.create_task(harness.run(slack_app_token, tasks, 5))
+    # run the harness
+    async with asyncio.TaskGroup() as tasks:
+        tasks.create_task(harness.run(tasks))
 
 
 if __name__ == "__main__":

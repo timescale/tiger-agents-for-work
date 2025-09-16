@@ -51,15 +51,6 @@ async def reset_database_connection(con: AsyncConnection) -> None:
 
 
 async def main() -> None:
-    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
-    assert slack_bot_token is not None, (
-        "SLACK_BOT_TOKEN environment variable is missing!"
-    )
-    slack_app_token = os.getenv("SLACK_APP_TOKEN")
-    assert slack_app_token is not None, (
-        "SLACK_APP_TOKEN environment variable is missing!"
-    )
-
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
 
@@ -70,7 +61,7 @@ async def main() -> None:
 
     try:
         async with asyncio.TaskGroup() as tasks:
-            tasks.create_task(harness.run(slack_app_token, tasks, 5))
+            tasks.create_task(harness.run(tasks))
     except* Exception as eg:
         for error in eg.exceptions:
             logger.exception("Task failed", exc_info=error)
