@@ -4,33 +4,49 @@ An intelligent orchestrator agent for TigerData that provides comprehensive assi
 
 ## Architecture
 
-```
-                    ┌─────────────────────────┐
-                    │                         │
-                    │     EON AGENT         │
-                    │   (Orchestrator)        │
-                    │                         │
-                    │ • Routes requests       │
-                    │ • Maintains context     │
-                    │ • Fallback responses    │
-                    │                         │
-                    └─────────┬───────────────┘
-                              │
-            ┌─────────────────┼─────────────────┐
-            │                 │                 │
-    ┌───────▼──────┐ ┌────────▼────────┐ ┌─────▼──────┐
-    │              │ │                 │ │            │
-    │   PROGRESS   │ │      DOCS       │ │    SALES   │
-    │     AGENT    │ │    AGENT        │ │   AGENT    │
-    │              │ │                 │ │            │
-    └───────┬──────┘ └────────┬────────┘ └─────┬──────┘
-            │                 │                │
-    ┌───────▼──────┐ ┌────────▼────────┐ ┌─────▼──────┐
-    │ Team activity│ │PostgreSQL docs  │ │Salesforce  │
-    │ GitHub repos │ │TimescaleDB docs │ │support data│
-    │ Linear issues│ │TigerCloud docs  │ │Customer    │
-    │ Slack convos │ │API references   │ │insights    │
-    └──────────────┘ └─────────────────┘ └────────────┘
+For detailed technical documentation, see [architecture.md](./architecture.md).
+
+```mermaid
+graph TB
+    %% User Input
+    U[Slack User Input]
+
+    %% Main Orchestrator
+    E[EON Agent<br/>Orchestrator<br/>• Routes requests<br/>• Maintains context<br/>• Fallback responses]
+
+    %% Specialized Agents
+    P[Progress Agent<br/>Team Tracking]
+    D[Docs Agent<br/>Technical Documentation]
+    S[Sales Agent<br/>Customer Support]
+
+    %% MCP Services
+    GH[GitHub MCP<br/>Repository data]
+    LIN[Linear MCP<br/>Issue tracking]
+    SL[Slack MCP<br/>Conversations]
+    DOC[Docs MCP<br/>PostgreSQL/TimescaleDB<br/>documentation]
+    SF[Salesforce MCP<br/>Customer support<br/>insights]
+    MEM[Memory MCP<br/>User preferences<br/>context storage]
+
+    %% Database
+    DB[(TimescaleDB<br/>Event storage<br/>Memory persistence)]
+
+    %% Flow
+    U --> E
+    E --> P
+    E --> D
+    E --> S
+
+    P --> GH
+    P --> LIN
+    P --> SL
+
+    D --> DOC
+
+    S --> SF
+
+    E --> MEM
+    MEM --> DB
+    SL --> DB
 ```
 
 ### Agent Capabilities
