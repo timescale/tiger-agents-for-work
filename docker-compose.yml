@@ -107,7 +107,7 @@ services:
         condition: service_healthy
 
   tiger-slack-ingest:
-    image: ghcr.io/timescale/tiger-slack/ingest:v0.2
+    image: ghcr.io/timescale/tiger-slack/ingest:v0.3
     container_name: tiger-slack-ingest
     env_file:
       - .env

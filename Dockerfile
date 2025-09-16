@@ -20,7 +20,7 @@ ENV PYTHONUNBUFFERED=1
 RUN groupadd -r botuser && useradd -r -g botuser botuser
 
 # Change ownership to non-root user
-RUN chown -R botuser:botuser /app
+RUN chown -R botuser:botuser /tiger_agent
 
 # Copy installed dependencies from build stage
 COPY --from=build /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages

@@ -1,16 +1,18 @@
 import asyncio
+import logging
 import os
 import signal
 from typing import Any
 
-import logfire
 from dotenv import find_dotenv, load_dotenv
+from psycopg import AsyncConnection
 
 from tiger_agent import AgentHarness
+from tiger_agent.agents import eon
+from tiger_agent.logging_config import setup_logging
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
-
-from tiger_agent.agents import eon
+setup_logging()
 
 # Enable remote debugging if DEBUG environment variable is set
 if os.getenv("DEBUG", "false").lower() == "true":
@@ -21,51 +23,23 @@ if os.getenv("DEBUG", "false").lower() == "true":
     if os.getenv("DEBUG_WAIT_FOR_ATTACH", "false").lower() == "true":
         debugpy.wait_for_client()  # Uncomment to wait for debugger before starting
 
-
-from psycopg import AsyncConnection
-from psycopg_pool import AsyncConnectionPool
-from slack_bolt.app.async_app import AsyncApp
-
-import tiger_agent
-
-
-logfire.configure(
-    service_name=os.getenv("SERVICE_NAME", os.getenv("SERVICE_NAME")),
-    service_version=tiger_agent.__version__,
-    scrubbing=False,
-    min_level="info",
-)
-logfire.instrument_psycopg()
-logfire.instrument_pydantic_ai()
-# logfire.instrument_mcp()
-# logfire.instrument_httpx()
-# logfire.instrument_system_metrics(
-#     {
-#         "process.cpu.time": ["user", "system"],
-#         "process.cpu.utilization": None,
-#         "process.cpu.core_utilization": None,
-#         "process.memory.usage": None,
-#         "process.memory.virtual": None,
-#         "process.thread.count": None,
-#     }
-# )
+logger = logging.getLogger(__name__)
 
 
 def shutdown_handler(signum: int, _frame: Any):
     signame = signal.Signals(signum).name
+    logger.info(f"received {signame}, exiting")
     loop = asyncio.get_running_loop()
     loop.stop()
-    logfire.info(f"Received {signame}, exiting")
     exit(0)
 
 
 def exception_handler(_, context):
-    with logfire.span("asyncio loop exception") as _:
-        exception = context.get("exception")
-        if exception:
-            logfire.error("asyncio task failed", _exc_info=exception, **context)
-        else:
-            logfire.error("asyncio task failed", **context)
+    exception = context.get("exception")
+    if exception:
+        logger.error("asyncio task failed", exc_info=exception, extra=context)
+    else:
+        logger.error("asyncio task failed", extra=context)
 
 
 async def configure_database_connection(con: AsyncConnection) -> None:
@@ -92,26 +66,14 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     loop.set_exception_handler(exception_handler)
 
-    async with AsyncConnectionPool(
-            check=AsyncConnectionPool.check_connection,
-            configure=configure_database_connection,
-            reset=reset_database_connection,
-    ) as pool:
-        await pool.wait()
+    harness = AgentHarness(eon.respond)
 
-        app = AsyncApp(
-            token=slack_bot_token,
-            ignoring_self_events_enabled=False,
-        )
-
-        harness = AgentHarness(app, pool, eon.respond)
-
-        try:
-            async with asyncio.TaskGroup() as tasks:
-                tasks.create_task(harness.run(slack_app_token, tasks, 5))
-        except* Exception as eg:
-            for error in eg.exceptions:
-                logfire.exception("Task failed", error=error)
+    try:
+        async with asyncio.TaskGroup() as tasks:
+            tasks.create_task(harness.run(slack_app_token, tasks, 5))
+    except* Exception as eg:
+        for error in eg.exceptions:
+            logger.exception("Task failed", exc_info=error)
 
 
 if __name__ == "__main__":

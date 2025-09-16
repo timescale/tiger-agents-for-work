@@ -1,3 +1,4 @@
+import logging
 import os
 
 import logfire
@@ -12,10 +13,12 @@ from tiger_agent.agents.data_types import AgentContext, Mention
 from tiger_agent.agents.docs import query_docs
 from tiger_agent.agents.filtering_agent import FilteringAgent
 from tiger_agent.agents.mcp import get_memories, get_user_metadata
-from tiger_agent.agents.mcp_servers import slack_mcp_server, memory_mcp_server
+from tiger_agent.agents.mcp_servers import memory_mcp_server, slack_mcp_server
 from tiger_agent.agents.progress import add_message
 from tiger_agent.agents.prompt import create_memory_prompt, create_user_metadata_prompt
 from tiger_agent.agents.sales import query_sales_support
+
+logger = logging.getLogger(__name__)
 
 EON_MODEL = os.environ.get("EON_MODEL", "anthropic:claude-sonnet-4-20250514")
 
@@ -163,7 +166,7 @@ async def remove_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: 
 
 
 async def post_response(
-        client: AsyncWebClient, channel: str, thread_ts: str, text: str
+    client: AsyncWebClient, channel: str, thread_ts: str, text: str
 ) -> None:
     await client.chat_postMessage(
         channel=channel,
@@ -174,9 +177,10 @@ async def post_response(
         unfurl_media=False,
     )
 
+
 async def respond(ctx: EventContext, event: Event) -> None:
     if event.event.get("type") != "app_mention":
-        logfire.warning("only app_mention events are handled", event=event)
+        logger.warning("only app_mention events are handled", extra={"event": event})
     mention = Mention(
         id=event.id,
         ts=event.event["ts"],
@@ -185,13 +189,15 @@ async def respond(ctx: EventContext, event: Event) -> None:
         text=event.event["text"],
         thread_ts=event.event.get("thread_ts"),
         attempts=event.attempts,
-        vt=event.vt
+        vt=event.vt,
     )
     client = ctx.app.client
     with logfire.span("respond") as span:
         span.set_attributes({"channel": mention.channel, "user": mention.user})
         try:
-            await add_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
+            await add_reaction(
+                client, channel=mention.channel, ts=mention.ts, emoji="spinthinking"
+            )
             async with eon_agent as agent:
                 # Slack messages are limited to 40k chars and 1 token ~= 4 chars
                 # https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them
@@ -215,13 +221,21 @@ async def respond(ctx: EventContext, event: Event) -> None:
                 mention.thread_ts if mention.thread_ts else mention.ts,
                 response.output,
             )
-            await remove_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
-            await add_reaction(client, channel=mention.channel, ts=mention.ts, emoji="white_check_mark")
+            await remove_reaction(
+                client, channel=mention.channel, ts=mention.ts, emoji="spinthinking"
+            )
+            await add_reaction(
+                client, channel=mention.channel, ts=mention.ts, emoji="white_check_mark"
+            )
             return
         except Exception as e:
-            logfire.exception("respond failed", error=e)
-            await remove_reaction(client, channel=mention.channel, ts=mention.ts, emoji="spinthinking")
-            await add_reaction(client, channel=mention.channel, ts=mention.ts, emoji="x")
+            logger.exception("respond failed", exc_info=e)
+            await remove_reaction(
+                client, channel=mention.channel, ts=mention.ts, emoji="spinthinking"
+            )
+            await add_reaction(
+                client, channel=mention.channel, ts=mention.ts, emoji="x"
+            )
             await post_response(
                 client,
                 mention.channel,

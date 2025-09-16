@@ -7,7 +7,7 @@ from dotenv import find_dotenv, load_dotenv
 from pydantic_ai import Agent
 from pydantic_ai.mcp import load_mcp_servers
 
-from tiger_agent import Event, AgentHarness, EventContext
+from tiger_agent import AgentHarness, Event, EventContext
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
@@ -26,7 +26,7 @@ if os.getenv("LOGFIRE_TOKEN"):
     logfire.instrument_pydantic_ai()
 
 
-SYSTEM_PROMPT="""\
+SYSTEM_PROMPT = """\
 You are a helpful Slack-native agent who answers questions posed to you in Slack messages.
 """
 
@@ -54,7 +54,9 @@ async def respond(ctx: EventContext, event: Event):
     text = event.event["text"]
     async with agent as a:
         resp = await a.run(text)
-    await ctx.app.client.chat_postMessage(channel=channel, thread_ts=ts, text=resp.output)
+    await ctx.app.client.chat_postMessage(
+        channel=channel, thread_ts=ts, text=resp.output
+    )
 
 
 async def main() -> None:
@@ -69,7 +71,7 @@ async def main() -> None:
 
     # create the pool of database connections
     async with AsyncConnectionPool(
-            check=AsyncConnectionPool.check_connection,
+        check=AsyncConnectionPool.check_connection,
     ) as pool:
         # wait for the connections to be ready
         await pool.wait()

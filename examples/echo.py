@@ -3,13 +3,13 @@ import os
 
 import logfire
 from dotenv import find_dotenv, load_dotenv
+from psycopg_pool import AsyncConnectionPool
+from slack_bolt.app.async_app import AsyncApp
 
-from tiger_agent import Event, AgentHarness, EventContext
+from tiger_agent import AgentHarness, Event, EventContext
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
-from psycopg_pool import AsyncConnectionPool
-from slack_bolt.app.async_app import AsyncApp
 
 if os.getenv("LOGFIRE_TOKEN"):
     logfire.configure(
@@ -27,7 +27,9 @@ async def echo(ctx: EventContext, event: Event):
     channel = event.event["channel"]
     ts = event.event["ts"]
     text = event.event["text"]
-    await ctx.app.client.chat_postMessage(channel=channel, thread_ts=ts, text=f"echo: {text}")
+    await ctx.app.client.chat_postMessage(
+        channel=channel, thread_ts=ts, text=f"echo: {text}"
+    )
     logfire.info(f"responded to event {event.id}")
 
 
@@ -43,7 +45,7 @@ async def main() -> None:
 
     # create the pool of database connections
     async with AsyncConnectionPool(
-            check=AsyncConnectionPool.check_connection,
+        check=AsyncConnectionPool.check_connection,
     ) as pool:
         # wait for the connections to be ready
         await pool.wait()
