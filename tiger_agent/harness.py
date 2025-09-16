@@ -42,12 +42,26 @@ EventProcessor = Callable[[EventContext, Event], Awaitable[None]]
 
 
 class AgentHarness:
-    def __init__(self, app: AsyncApp, pool: AsyncConnectionPool, event_processor: EventProcessor):
+    def __init__(
+            self, 
+            app: AsyncApp, 
+            pool: AsyncConnectionPool, 
+            event_processor: EventProcessor,
+            worker_sleep_seconds: int = 60,
+            worker_min_jitter_seconds: int = -15,
+            worker_max_jitter_seconds: int = 15
+    ):
         self._task_group: TaskGroup | None = None
         self.app = app
         self.pool = pool
         self._trigger = asyncio.Queue()
         self._event_processor = event_processor
+        self._worker_sleep_seconds = worker_sleep_seconds
+        self._worker_min_jitter_seconds = worker_min_jitter_seconds
+        self._worker_max_jitter_seconds = worker_max_jitter_seconds
+        assert worker_sleep_seconds > 0
+        assert worker_sleep_seconds - worker_min_jitter_seconds > 0
+        assert worker_max_jitter_seconds > worker_min_jitter_seconds
 
     @logfire.instrument("insert_event", extract_args=False)
     async def _insert_event(self, event: dict[str, Any]) -> None:
@@ -130,12 +144,18 @@ class AgentHarness:
                 await self._delete_expired_events()
         
         # initial staggering of workers
-        await asyncio.sleep(random.randint(0, 30))
+        await asyncio.sleep(random.randint(0, self._worker_sleep_seconds))
         
         while True:
             try:
-                jitter = random.randint(-15, 15)
-                await asyncio.wait_for(self._trigger.get(), timeout=(60.0 + jitter))
+                jitter = random.randint(
+                    self._worker_min_jitter_seconds, 
+                    self._worker_max_jitter_seconds
+                )
+                await asyncio.wait_for(
+                    self._trigger.get(),
+                    timeout=(self._worker_sleep_seconds + jitter)
+                )
                 await worker_run("triggered")
             except TimeoutError:
                 await worker_run("timeout")
