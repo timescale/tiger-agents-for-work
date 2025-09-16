@@ -30,18 +30,24 @@ SYSTEM_PROMPT="""\
 You are a helpful Slack-native agent who answers questions posed to you in Slack messages.
 """
 
+
+# load mcp server configurations from a json file
 # see https://ai.pydantic.dev/mcp/client/#loading-mcp-servers-from-configuration
 mcp_servers = load_mcp_servers(Path.cwd().joinpath("mcp_config.json"))
 
 
+# create the pydantic-ai agent to answer questions from slack
 agent = Agent(
     model=os.getenv("AGENT_MODEL", "anthropic:claude-sonnet-4-20250514"),
-    name="slackbot-agent",
+    name="simple-agent",
     system_prompt=SYSTEM_PROMPT,
     toolsets=mcp_servers,
 )
 
 
+# this is called when there is a question from slack
+# have the agent generate an answer
+# then post the answer to slack as a reply in a thread
 async def respond(ctx: EventContext, event: Event):
     channel = event.event["channel"]
     ts = event.event["ts"]
