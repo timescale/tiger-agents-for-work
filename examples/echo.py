@@ -45,7 +45,7 @@ async def main() -> None:
 
     # create the pool of database connections
     async with AsyncConnectionPool(
-            check=AsyncConnectionPool.check_connection,
+        check=AsyncConnectionPool.check_connection,
     ) as pool:
         # wait for the connections to be ready
         await pool.wait()

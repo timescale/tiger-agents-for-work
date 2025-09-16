@@ -74,7 +74,6 @@ async def main() -> None:
     except* Exception as eg:
         for error in eg.exceptions:
             logger.exception("Task failed", exc_info=error)
-        
 
 
 if __name__ == "__main__":
