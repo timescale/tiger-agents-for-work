@@ -15,6 +15,9 @@ dependencies = [
     "websockets>=15.0.1",
 ]
 
+[tool.setuptools.package-data]
+"tiger_agent.migrations" = ["**/*.sql"]
+
 [tool.uv]
 dev-dependencies = [
     "ruff>=0.12.11",
