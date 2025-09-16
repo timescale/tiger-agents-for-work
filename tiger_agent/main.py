@@ -60,8 +60,7 @@ async def main() -> None:
     harness = AgentHarness(eon.respond)
 
     try:
-        async with asyncio.TaskGroup() as tasks:
-            tasks.create_task(harness.run(tasks))
+        await harness.run(num_workers=5)
     except* Exception as eg:
         for error in eg.exceptions:
             logger.exception("Task failed", exc_info=error)
