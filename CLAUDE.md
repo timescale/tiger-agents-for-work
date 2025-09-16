@@ -172,9 +172,6 @@ timeout = 60.0 + jitter
 
 This architecture provides enterprise-grade reliability while maintaining the responsiveness needed for real-time chat applications.
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-
 
 ### Agent Architecture
 
