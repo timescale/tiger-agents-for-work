@@ -7,7 +7,7 @@ from dotenv import find_dotenv, load_dotenv
 from pydantic_ai import Agent
 from pydantic_ai.mcp import load_mcp_servers
 
-from tiger_agent import Event, AgentHarness, EventContext
+from tiger_agent import AgentHarness, Event, EventContext
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 

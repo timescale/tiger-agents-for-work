@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 from pathlib import Path
 
@@ -7,6 +8,9 @@ from psycopg import AsyncConnection, AsyncCursor
 from semver import Version
 
 from tiger_agent import __version__
+from tiger_agent.logging_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 SHARED_LOCK_KEY = 31321898691465844
 MAX_LOCK_ATTEMPTS = 10
@@ -48,7 +52,7 @@ async def is_migration_required(cur: AsyncCursor, target_version: Version) -> bo
     """Check if migration is required"""
     db_version = await get_db_version(cur)
     if target_version < db_version:
-        logfire.error(
+        logger.error(
             f"target version ({target_version}) is older than the database ({db_version})! aborting"
         )
         raise ValueError(
@@ -62,7 +66,7 @@ def sql_file_number(path: Path) -> int:
     pattern = r"^(\d{3})-[a-z][a-z-]*\.sql$"
     match = re.match(pattern, path.name)
     if not match:
-        logfire.error(f"{path} file name does not match the pattern {pattern}")
+        logger.error(f"{path} file name does not match the pattern {pattern}")
         raise ValueError(f"Invalid filename pattern: {path.name}")
     return int(match.group(1))
 
@@ -75,7 +79,7 @@ def check_sql_file_order(paths: list[Path]) -> None:
         if this == 999:
             break
         if this != prev + 1:
-            logfire.error(f"sql files must be strictly ordered: {path.name}")
+            logger.error(f"sql files must be strictly ordered: {path.name}")
             raise ValueError(f"SQL files not in sequential order at {path.name}")
         prev = this
 
@@ -135,11 +139,11 @@ async def migrate_db(con: AsyncConnection) -> None:
             if locked:
                 break
             if i == MAX_LOCK_ATTEMPTS:
-                logfire.error(
+                logger.error(
                     f"failed to get an advisory lock to check database version after {i} attempts"
                 )
                 raise RuntimeError("Could not acquire migration lock")
-            logfire.info(
+            logger.info(
                 f"sleeping {LOCK_SLEEP_SECONDS} seconds before another lock attempt"
             )
             await asyncio.sleep(LOCK_SLEEP_SECONDS)
@@ -149,17 +153,17 @@ async def migrate_db(con: AsyncConnection) -> None:
 
         # Check if migration is required
         if not await is_migration_required(cur, target_version):
-            logfire.info("no migration required. app and db are compatible.")
+            logger.info("no migration required. app and db are compatible.")
             return
 
-        logfire.info(f"database migration to version {target_version} required...")
+        logger.info(f"database migration to version {target_version} required...")
 
         # Run migrations
         await run_incremental(cur, target_version)
         await run_idempotent(cur)
         await set_version(cur, target_version)
 
-    logfire.info(f"database migration to version {target_version} complete")
+    logger.info(f"database migration to version {target_version} complete")
 
 
 async def main():
@@ -172,21 +176,16 @@ async def main():
     load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
     service_name = os.environ.get("SERVICE_NAME")
-    
-    logfire.configure(
-        service_name=os.getenv("SERVICE_NAME", service_name),
-        service_version=__version__,
-        scrubbing=False,
-        min_level="info",
-    )
+
+    setup_logging(service_name)
     logfire.instrument_psycopg()
 
-    logfire.info("Starting database migration...")
+    logger.info("Starting database migration...")
 
     async with await AsyncConnection.connect() as con:
         await migrate_db(con)
 
-    logfire.info("Database migration completed successfully")
+    logger.info("Database migration completed successfully")
 
 
 if __name__ == "__main__":

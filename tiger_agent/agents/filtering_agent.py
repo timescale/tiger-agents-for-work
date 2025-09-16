@@ -8,17 +8,18 @@ from tiger_agent.agents.util import prune
 
 AgentDepsT = TypeVar("AgentDepsT")
 
+
 class FilteringAgent(Agent[AgentDepsT]):
     """Agent that filters out None items from toolsets."""
-    
+
     def __init__(
         self,
         *args: Any,
         toolsets: Sequence[AbstractToolset[AgentDepsT]] | None = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> None:
         # Filter toolsets if provided
         if toolsets is not None:
             toolsets = prune(list(toolsets))
-        
+
         super().__init__(*args, **kwargs, toolsets=toolsets)

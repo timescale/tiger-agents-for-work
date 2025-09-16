@@ -1,11 +1,16 @@
+import logging
 import os
 
-import logfire
-
 from tiger_agent.agents import AGENT_NAME
-from tiger_agent.agents.data_types import SlackUserResult, SlackUsersResponse, Memory, \
-    MemoriesResponse
-from tiger_agent.agents.mcp_servers import slack_mcp_server, memory_mcp_server
+from tiger_agent.agents.data_types import (
+    MemoriesResponse,
+    Memory,
+    SlackUserResult,
+    SlackUsersResponse,
+)
+from tiger_agent.agents.mcp_servers import memory_mcp_server, slack_mcp_server
+
+logger = logging.getLogger(__name__)
 
 
 async def get_user_metadata(user_id: str) -> SlackUserResult | None:
@@ -16,7 +21,7 @@ async def get_user_metadata(user_id: str) -> SlackUserResult | None:
         response = SlackUsersResponse.model_validate(result)
         return response.results[0] if response.results else None
     except Exception as e:
-        logfire.exception("Failed to get user metadata", error=e)
+        logger.exception("Failed to get user metadata", exc_info=e)
         return None
 
 
@@ -30,5 +35,5 @@ async def get_memories(user_id: str) -> list[Memory] | None:
         response = MemoriesResponse.model_validate(result)
         return response.memories
     except Exception as e:
-        logfire.exception("Failed to get memories", error=e)
+        logger.exception("Failed to get memories", exc_info=e)
         return None
