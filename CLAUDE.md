@@ -131,9 +131,9 @@ timeout = 60.0 + jitter
 ## Event Lifecycle
 
 ### 1. Event Reception
-1. Slack sends app mention webhook
-2. `_on_event()` acknowledges immediately (prevents Slack timeout)
-3. Event stored via `agent.insert_event()` 
+1. Slack sends app mention event
+2. Event stored via `agent.insert_event()` 
+3. `_on_event()` acknowledges immediately (prevents Slack timeout)
 4. Queue signal sent: `await self._trigger.put(True)`
 
 ### 2. Event Processing
