@@ -1,7 +1,7 @@
 {
   "display_information": {
     "name": "your-bot-name",
-    "description": "TigerData Knowledge Base",
+    "description": "your-bot-description",
     "background_color": "#000000"
   },
   "features": {
