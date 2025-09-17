@@ -184,6 +184,12 @@ class AgentHarness:
                 # if we failed to process the event, stop working for now
                 return
 
+    def _calc_worker_sleep(self) -> int:
+        jitter = random.randint(
+            self._worker_min_jitter_seconds, self._worker_max_jitter_seconds
+        )
+        return self._worker_sleep_seconds + jitter
+
     async def _worker(self, worker_id: int, initial_sleep_seconds: int):
         async def worker_run(reason: str):
             with logfire.span("worker_run", worker_id=worker_id, reason=reason) as _:
@@ -198,11 +204,8 @@ class AgentHarness:
         logger.info("starting worker", extra={"worker_id": worker_id})
         while True:
             try:
-                jitter = random.randint(
-                    self._worker_min_jitter_seconds, self._worker_max_jitter_seconds
-                )
                 await asyncio.wait_for(
-                    self._trigger.get(), timeout=(self._worker_sleep_seconds + jitter)
+                    self._trigger.get(), timeout=self._calc_worker_sleep()
                 )
                 await worker_run("triggered")
             except TimeoutError:
