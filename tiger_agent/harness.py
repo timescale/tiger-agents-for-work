@@ -158,25 +158,30 @@ class AgentHarness:
             self._app_id,
         )
 
-    async def _process_event(self, event: Event):
+    async def _process_event(self, event: Event) -> bool:
         with logfire.span("process_event", event_id=event.id) as _:
             try:
                 await self._event_processor(self._make_event_context(), event)
                 await self._delete_event(event)
+                return True
             except Exception as e:
                 logger.exception(
                     "event processing failed", extra={"event_id": event.id}, exc_info=e
                 )
                 # Event remains in database for retry
+            return False
 
     @logfire.instrument("process_events", extract_args=False)
     async def _process_events(self):
-        while True:
+        # while we are finding events to claim, keep working for a bit but not forever
+        for _ in range(20):
             event = await self._claim_event()
             if not event:
                 logger.info("no event found")
                 return
-            await self._process_event(event)
+            if not await self._process_event(event):
+                # if we failed to process the event, stop working for now
+                return
 
     async def _worker(self, worker_id: int):
         async def worker_run(reason: str):
