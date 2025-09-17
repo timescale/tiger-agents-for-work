@@ -170,34 +170,12 @@ timeout = 60.0 + jitter
 
 This architecture provides enterprise-grade reliability while maintaining the responsiveness needed for real-time chat applications.
 
-## Agent Architecture
+## Event Processing Architecture
 
-**Core Pattern**: Orchestrator + Specialized Agents architecture where the main EON agent routes requests to specialized sub-agents.
-
-```
-EON Agent (Orchestrator) → Routes to:
-├── Progress Agent (team/project tracking via GitHub/Linear/Slack)
-├── Docs Agent (PostgreSQL/TimescaleDB technical documentation)
-└── Sales Agent (Salesforce customer support insights)
-```
+Tiger Agent provides a robust Slack event processing infrastructure with guaranteed delivery and worker-based processing.
 
 **Key Components**:
-- **MCP Servers**: 6 external microservices (docs, github, linear, memory, salesforce, slack)
-- **Agent System**: Specialized agents for different domains accessed via tool definitions
-- **Event Processing**: Slack event handling with async task management
+- **Event Harness**: Slack event capture and coordination
+- **Database Queue**: Persistent event storage with retry logic
+- **Worker Pool**: Concurrent event processing with bounded concurrency
 - **Database**: TimescaleDB with custom migration system
-
-## MCP Server Architecture
-
-All external capabilities are provided through MCP (Model Context Protocol) servers. Each server runs in its own container and can be selectively disabled via environment variables.
-
-**Server Configuration Pattern**:
-```python
-# Singleton instances with conditional instantiation
-def service_mcp_server() -> MCPServer | None:
-    if os.environ.get("DISABLE_SERVICE_MCP_SERVER"):
-        return None
-    # ... create server instance
-```
-
-**Disable Any MCP Server**: Set `DISABLE_{SERVICE}_MCP_SERVER` to any value in `.env`
