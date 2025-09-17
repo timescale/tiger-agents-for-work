@@ -123,7 +123,9 @@ class AgentHarness:
             con.cursor(row_factory=class_row(Event)) as cur,
         ):
             await cur.execute("select * from agent.claim_event()")
-            result = await cur.fetchone()
+            result: Event | None = await cur.fetchone()
+            if result:
+                assert result.id is not None, "claimed an empty event"
             return result
 
     @logfire.instrument("delete_event", extract_args=False)
