@@ -109,3 +109,31 @@ as $func$
     ;
 $func$ language sql volatile security invoker
 ;
+
+
+-----------------------------------------------------------------------
+-- agent.event_error_count
+create or replace function agent.event_error_count
+( _bgn timestamptz default (now() - interval '10m')
+, _end timestamptz default now()
+) returns int8
+as $func$
+    -- if attempts is > 1, then it encountered attempts - 1 errors
+    select sum(x.num_errors)
+    from
+    (
+        select coalesce(sum(e.attempts - 1), 0) as num_errors
+        from agent.event e
+        where _bgn <= e.event_ts
+        and e.event_ts <= _end
+        and e.attempts > 1
+        union all
+        select coalesce(sum(h.attempts - 1), 0) as num_errors
+        from agent.event_hist h
+        where _bgn <= e.event_ts
+        and e.event_ts <= _end
+        and h.attempts > 1
+    ) x
+    ;
+$func$ language sql stable security invoker
+;
