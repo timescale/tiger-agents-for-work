@@ -1,23 +1,15 @@
 import asyncio
-import os
+from pathlib import Path
 
 import logfire
 from dotenv import find_dotenv, load_dotenv
 
 from tiger_agent import AgentHarness, Event, EventContext
+from tiger_agent.logging_config import setup_logging
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
-
-
-if os.getenv("LOGFIRE_TOKEN"):
-    logfire.configure(
-        service_name="echo_agent",
-        service_version="0.0.1",
-        scrubbing=False,
-        min_level="info",
-    )
-    logfire.instrument_psycopg()
-    logfire.instrument_pydantic_ai()
+NAME = Path(__file__).with_suffix("").name
+setup_logging(service_name=NAME)
 
 
 # our slackbot will just echo messages back

@@ -7,6 +7,7 @@ create table agent.event
 , event_ts timestamptz not null default now()
 , attempts int4 not null default 0
 , vt timestamptz not null default now() -- visibility threshold
+, claimed timestamptz[] not null default array[]::timestamptz[]
 , event jsonb
 );
 create index on agent.event (vt, attempts);
@@ -18,6 +19,7 @@ create table if not exists agent.event_hist
 , event_ts timestamptz not null default now()
 , attempts int4 not null default 0
 , vt timestamptz not null default now() -- visibility threshold
+, claimed timestamptz[] not null default array[]::timestamptz[]
 , event jsonb
 ) with (
   tsdb.hypertable,

@@ -2,24 +2,16 @@ import asyncio
 import os
 from pathlib import Path
 
-import logfire
 from dotenv import find_dotenv, load_dotenv
 from pydantic_ai import Agent
 from pydantic_ai.mcp import load_mcp_servers
 
 from tiger_agent import AgentHarness, Event, EventContext
+from tiger_agent.logging_config import setup_logging
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
-
-if os.getenv("LOGFIRE_TOKEN"):
-    logfire.configure(
-        service_name="simple_agent",
-        service_version="0.0.1",
-        scrubbing=False,
-        min_level="info",
-    )
-    logfire.instrument_psycopg()
-    logfire.instrument_pydantic_ai()
+NAME = Path(__file__).with_suffix("").name
+setup_logging(service_name=NAME)
 
 
 SYSTEM_PROMPT = """\
@@ -35,7 +27,7 @@ mcp_servers = load_mcp_servers(Path.cwd().joinpath("mcp_config.json"))
 # create the pydantic-ai agent to answer questions from slack
 agent = Agent(
     model=os.getenv("AGENT_MODEL", "anthropic:claude-sonnet-4-20250514"),
-    name="simple-agent",
+    name=NAME,
     system_prompt=SYSTEM_PROMPT,
     toolsets=mcp_servers,
 )

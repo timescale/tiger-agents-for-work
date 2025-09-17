@@ -39,6 +39,7 @@ as $func$
         update agent.event u set
           vt = clock_timestamp() + _invisible_for -- invisible for a bit while we work it
         , attempts = u.attempts + 1
+        , claimed = claimed || now()
         from x
         where u.id = x.id
         returning u.*
@@ -64,6 +65,7 @@ as $func$
     , event_ts
     , attempts
     , vt
+    , claimed
     , event
     )
     select
@@ -71,6 +73,7 @@ as $func$
     , d.event_ts
     , d.attempts
     , d.vt
+    , d.claimed
     , d.event
     from d
     ;
@@ -97,6 +100,7 @@ as $func$
     , event_ts
     , attempts
     , vt
+    , claimed
     , event
     )
     select
@@ -104,6 +108,7 @@ as $func$
     , d.event_ts
     , d.attempts
     , d.vt
+    , d.claimed
     , d.event
     from d
     ;

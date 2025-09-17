@@ -68,6 +68,7 @@ class Event:
     event_ts: datetime
     attempts: int
     vt: datetime
+    claimed: list[datetime]
     event: dict[str, Any]
 
 
@@ -183,15 +184,18 @@ class AgentHarness:
                 # if we failed to process the event, stop working for now
                 return
 
-    async def _worker(self, worker_id: int):
+    async def _worker(self, worker_id: int, initial_sleep_seconds: int):
         async def worker_run(reason: str):
             with logfire.span("worker_run", worker_id=worker_id, reason=reason) as _:
                 await self._process_events()
                 await self._delete_expired_events()
 
         # initial staggering of workers
-        await asyncio.sleep(random.randint(0, self._worker_sleep_seconds))
+        if initial_sleep_seconds > 0:
+            logger.info("worker initial sleep", extra={"worker_id": worker_id, "initial_sleep_seconds": initial_sleep_seconds})
+            await asyncio.sleep(initial_sleep_seconds)
 
+        logger.info("starting worker", extra={"worker_id": worker_id})
         while True:
             try:
                 jitter = random.randint(
@@ -221,6 +225,12 @@ class AgentHarness:
         self._bot_name: str = bot["name"]
         self._app_id: str = bot["app_id"]
 
+    def _worker_args(self, num_workers: int) -> list[tuple[int, int]]:
+        initial_sleeps: list[int] = [0]  # first worker starts immediately
+        # pick num_workers - 1 unique initial sleep values
+        initial_sleeps.extend(random.sample(range(1, self._worker_sleep_seconds), num_workers - 1))
+        return [(worker_id, initial_sleep) for worker_id, initial_sleep in enumerate(initial_sleeps)]
+
     async def run(self, num_workers: int = 5):
         await self.pool.wait()
         async with asyncio.TaskGroup() as tasks:
@@ -232,9 +242,10 @@ class AgentHarness:
             async def on_event(ack: AsyncAck, event: dict[str, Any]):
                 await self._on_event(ack, event)
 
-            for worker_id in range(num_workers):
+            logger.info(f"creating {num_workers} workers")
+            for worker_id, initial_sleep in self._worker_args(num_workers):
                 logger.info("creating worker", extra={"worker_id": worker_id})
-                tasks.create_task(self._worker(worker_id))
+                tasks.create_task(self._worker(worker_id, initial_sleep))
 
             self.app.event("app_mention")(on_event)
 
