@@ -38,18 +38,6 @@ def _create_default_pool() -> AsyncConnectionPool:
     )
 
 
-def _create_default_app() -> AsyncApp:
-    slack_bot_token = os.getenv("SLACK_BOT_TOKEN")
-    assert slack_bot_token is not None, (
-        "SLACK_BOT_TOKEN environment variable is missing!"
-    )
-
-    return AsyncApp(
-        token=slack_bot_token,
-        ignoring_self_events_enabled=False,
-    )
-
-
 @dataclass
 class EventContext:
     app: AsyncApp
@@ -85,21 +73,27 @@ class AgentHarness:
         worker_sleep_seconds: int = 60,
         worker_min_jitter_seconds: int = -15,
         worker_max_jitter_seconds: int = 15,
+        slack_bot_token: str | None = None,
         slack_app_token: str | None = None,
     ):
         self._task_group: TaskGroup | None = None
-        self.app = app if app is not None else _create_default_app()
         self.pool = pool if pool is not None else _create_default_pool()
         self._trigger = asyncio.Queue()
         self._event_processor = event_processor
         self._worker_sleep_seconds = worker_sleep_seconds
         self._worker_min_jitter_seconds = worker_min_jitter_seconds
         self._worker_max_jitter_seconds = worker_max_jitter_seconds
+        self._slack_bot_token = slack_bot_token or os.getenv("SLACK_BOT_TOKEN")
+        assert self._slack_bot_token is not None, "no SLACK_BOT_TOKEN found"
         self._slack_app_token = slack_app_token or os.getenv("SLACK_APP_TOKEN")
         assert self._slack_app_token is not None, "no SLACK_APP_TOKEN found"
         assert worker_sleep_seconds > 0
         assert worker_sleep_seconds - worker_min_jitter_seconds > 0
         assert worker_max_jitter_seconds > worker_min_jitter_seconds
+        self.app = app if app is not None else AsyncApp(
+            token=self._slack_bot_token,
+            ignoring_self_events_enabled=False,
+        )
 
     @logfire.instrument("insert_event", extract_args=False)
     async def _insert_event(self, event: dict[str, Any]) -> None:
@@ -252,5 +246,5 @@ class AgentHarness:
 
             self.app.event("app_mention")(on_event)
 
-            handler = AsyncSocketModeHandler(self.app)
+            handler = AsyncSocketModeHandler(self.app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
