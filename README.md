@@ -60,11 +60,6 @@ SLACK_BOT_TOKEN=xoxb-your_bot_token_here
 SLACK_APP_TOKEN=xapp-your_app_token_here
 ```
 
-**Core Services** (Required):
-```bash
-LOGFIRE_TOKEN=pylf_your_logfire_token_here
-```
-
 **Note**: Database variables (`PGHOST`, `PGDATABASE`, etc.) are pre-configured for the Docker setup and typically don't need modification.
 
 ## Docker Deployment

@@ -1,1 +1,0 @@
-AGENT_NAME = "eon"
