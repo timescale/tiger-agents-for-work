@@ -211,7 +211,6 @@ class AgentHarness:
         bot_id = auth_test_response.get("bot_id")
         
         bots_info_response = await self.app.client.bots_info(bot=bot_id)
-        assert hasattr(bots_info_response, "get") and callable(bots_info_response.get), "bots_info_response has unexpected payload"
         assert bots_info_response.get("ok"), "slack bots_info failed"
         
         bot = bots_info_response.get("bot")
