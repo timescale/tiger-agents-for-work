@@ -35,6 +35,7 @@ def _create_default_pool() -> AsyncConnectionPool:
         check=AsyncConnectionPool.check_connection,
         configure=configure_database_connection,
         reset=reset_database_connection,
+        open=False,
     )
 
 
@@ -228,7 +229,8 @@ class AgentHarness:
         return [(worker_id, initial_sleep) for worker_id, initial_sleep in enumerate(initial_sleeps)]
 
     async def run(self, num_workers: int = 5):
-        await self.pool.wait()
+        await self.pool.open(wait=True)
+
         async with asyncio.TaskGroup() as tasks:
             await self._fetch_bot_info()
 
