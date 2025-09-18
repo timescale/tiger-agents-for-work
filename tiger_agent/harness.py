@@ -55,7 +55,6 @@ class EventContext:
     app: AsyncApp
     pool: AsyncConnectionPool
     task_group: TaskGroup
-    bot_id: str
     bot_user_id: str
     bot_name: str
     app_id: str
@@ -151,7 +150,6 @@ class AgentHarness:
             self.app,
             self.pool,
             self._task_group,
-            self._bot_id,
             self._bot_user_id,
             self._bot_name,
             self._app_id,
@@ -220,7 +218,6 @@ class AgentHarness:
         assert isinstance(bot, dict), "resp.data.bot must be a dict"
         
         self._bot_user_id: str = bot.get("user_id")
-        self._bot_id: str = bot.get("id")
         self._bot_name: str = bot.get("name")
         self._app_id: str = bot.get("app_id")
 
