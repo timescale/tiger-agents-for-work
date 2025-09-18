@@ -206,15 +206,18 @@ class AgentHarness:
     @logfire.instrument("fetch_bot_info", extract_args=False)
     async def _fetch_bot_info(self):
         auth_test_response = await self.app.client.auth_test()
-        
+        assert hasattr(auth_test_response, "get"), "auth_test_response has unexpected payload"
         assert auth_test_response.get("ok"), "slack auth_test failed"
         
         bot_id = auth_test_response.get("bot_id")
         
         bots_info_response = await self.app.client.bots_info(bot=bot_id)
+        assert hasattr(bots_info_response, "get"), "bots_info_response has unexpected payload"
         assert bots_info_response.get("ok"), "slack bots_info failed"
         
         bot = bots_info_response.get("bot")
+        
+        assert hasattr(bot, "get"), "bots_info_response has unexpected payload"
         
         self._bot_user_id: str = bot.get("user_id")
         self._bot_name: str = bot.get("name")
