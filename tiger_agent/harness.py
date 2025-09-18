@@ -212,14 +212,19 @@ class AgentHarness:
     @logfire.instrument("fetch_bot_info", extract_args=False)
     async def _fetch_bot_info(self):
         resp = await self.app.client.auth_test()
+        
+        assert isinstance(resp.data, dict), "resp.data must be a dict"
         assert resp.data.get("ok") == True, "slack auth_test failed"
         
-        bot = resp.data.get("bot")
-        assert isinstance(bot, dict), "resp.data.bot must be a dict"
+        bot_id = resp.data.get("bot_id")
         
-        self._bot_user_id: str = bot.get("user_id")
-        self._bot_name: str = bot.get("name")
-        self._app_id: str = bot.get("app_id")
+        bot_info = await self.app.client.bots_info(bot=bot_id)
+        
+        assert isinstance(bot_info.bot, dict), "resp.data must be a dict"
+        
+        self._bot_user_id: str = bot_info.get("user_id")
+        self._bot_name: str = bot_info.get("name")
+        self._app_id: str = bot_info.get("app_id")
 
     def _worker_args(self, num_workers: int) -> list[tuple[int, int]]:
         initial_sleeps: list[int] = [0]  # first worker starts immediately
