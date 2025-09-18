@@ -207,7 +207,6 @@ class AgentHarness:
     async def _fetch_bot_info(self):
         auth_test_response = await self.app.client.auth_test()
         
-        assert isinstance(auth_test_response, dict), "resp.data must be a dict"
         assert auth_test_response.get("ok"), "slack auth_test failed"
         
         bot_id = auth_test_response.get("bot_id")
@@ -216,8 +215,6 @@ class AgentHarness:
         assert bots_info_response.get("ok"), "slack bots_info failed"
         
         bot = bots_info_response.get("bot")
-        
-        assert isinstance(bot, dict), "bot must be a dict"
         
         self._bot_user_id: str = bot.get("user_id")
         self._bot_name: str = bot.get("name")
