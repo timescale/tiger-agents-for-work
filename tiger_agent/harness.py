@@ -206,11 +206,12 @@ class AgentHarness:
     @logfire.instrument("fetch_bot_info", extract_args=False)
     async def _fetch_bot_info(self):
         resp = await self.app.client.auth_test()
+        data = resp.get("data")
         
-        assert isinstance(resp.data, dict), "resp.data must be a dict"
-        assert resp.data.get("ok") == True, "slack auth_test failed"
+        assert isinstance(data, dict), "resp.data must be a dict"
+        assert data.get("ok"), "slack auth_test failed"
         
-        bot_id = resp.data.get("bot_id")
+        bot_id = data.get("bot_id")
         
         bot_info = await self.app.client.bots_info(bot=bot_id)
         
