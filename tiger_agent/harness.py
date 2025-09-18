@@ -146,7 +146,7 @@ class AgentHarness:
         ):
             await cur.execute("select agent.delete_expired_events()")
 
-    def th_make_event_context(self) -> EventContext:
+    def _make_event_context(self) -> EventContext:
         return EventContext(
             self.app,
             self.pool,
