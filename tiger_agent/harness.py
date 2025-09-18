@@ -56,9 +56,8 @@ class EventContext:
     pool: AsyncConnectionPool
     task_group: TaskGroup
     bot_id: str
+    bot_user_id: str
     bot_name: str
-    team_id: str
-    team_name: str
     app_id: str
 
 
@@ -147,15 +146,14 @@ class AgentHarness:
         ):
             await cur.execute("select agent.delete_expired_events()")
 
-    def _make_event_context(self) -> EventContext:
+    def th_make_event_context(self) -> EventContext:
         return EventContext(
             self.app,
             self.pool,
             self._task_group,
             self._bot_id,
+            self._bot_user_id,
             self._bot_name,
-            self._team_id,
-            self._team_name,
             self._app_id,
         )
 
@@ -216,17 +214,15 @@ class AgentHarness:
     @logfire.instrument("fetch_bot_info", extract_args=False)
     async def _fetch_bot_info(self):
         resp = await self.app.client.auth_test()
-        assert isinstance(resp.data, dict), "resp.data must be a dict"
-        assert resp.data["ok"] == True, "slack auth_test failed"
-        self._bot_id: str = resp.data["bot_id"]
-        self._team_id: str = resp.data["team_id"]
-        self._team_name: str = resp.data["team"]
-        resp = await self.app.client.bots_info(bot=self._bot_id, team_id=self._team_id)
-        assert isinstance(resp.data, dict), "resp.data must be a dict"
-        assert resp.data["ok"] == True, "slack bot_info failed"
-        bot = resp.data["bot"]
-        self._bot_name: str = bot["name"]
-        self._app_id: str = bot["app_id"]
+        assert resp.data.get("ok") == True, "slack auth_test failed"
+        
+        bot = resp.data.get("bot")
+        assert isinstance(bot, dict), "resp.data.bot must be a dict"
+        
+        self._bot_user_id: str = bot.get("user_id")
+        self._bot_id: str = bot.get("id")
+        self._bot_name: str = bot.get("name")
+        self._app_id: str = bot.get("app_id")
 
     def _worker_args(self, num_workers: int) -> list[tuple[int, int]]:
         initial_sleeps: list[int] = [0]  # first worker starts immediately
