@@ -4,7 +4,8 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 from pydantic_ai import Agent
-from pydantic_ai.mcp import load_mcp_servers
+from pydantic_ai.mcp import load_mcp_servers, MCPServerStdio, MCPServerStreamableHTTP, \
+    MCPServerSSE
 
 from tiger_agent import AgentHarness, Event, EventContext
 from tiger_agent.logging_config import setup_logging
@@ -21,7 +22,11 @@ You are a helpful Slack-native agent who answers questions posed to you in Slack
 
 # load mcp server configurations from a json file
 # see https://ai.pydantic.dev/mcp/client/#loading-mcp-servers-from-configuration
-mcp_servers = load_mcp_servers(Path.cwd().joinpath("mcp_config.json"))
+def mcp_servers() -> list[MCPServerStdio | MCPServerStreamableHTTP | MCPServerSSE]:
+    config = Path.cwd().joinpath("mcp_config.json")
+    if config.exists():
+        return load_mcp_servers(config)
+    return []
 
 
 # create the pydantic-ai agent to answer questions from slack
@@ -29,7 +34,6 @@ agent = Agent(
     model=os.getenv("AGENT_MODEL", "anthropic:claude-sonnet-4-20250514"),
     name=NAME,
     system_prompt=SYSTEM_PROMPT,
-    toolsets=mcp_servers,
 )
 
 
@@ -41,7 +45,7 @@ async def respond(ctx: EventContext, event: Event):
     ts = event.event["ts"]
     text = event.event["text"]
     async with agent as a:
-        resp = await a.run(text)
+        resp = await a.run(text, toolsets=mcp_servers())
     await ctx.app.client.chat_postMessage(
         channel=channel, thread_ts=ts, text=resp.output
     )
