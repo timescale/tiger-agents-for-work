@@ -10,9 +10,10 @@ from typing import Any
 
 import logfire
 from psycopg import AsyncConnection
-from psycopg.rows import class_row
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
+from pydantic import BaseModel
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
@@ -49,14 +50,36 @@ class EventContext:
     app_id: str
 
 
-@dataclass
-class Event:
+class AppMentionEvent(BaseModel):
+    model_config = {"extra": "allow"}
+
+    ts: str
+    thread_ts: str | None = None
+    team: str
+    text: str
+    type: str
+    user: str
+    blocks: list[dict[str, Any]] | None = None
+    channel: str
+    event_ts: str
+    client_msg_id: str
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AppMentionEvent":
+        return cls(**data)
+
+
+class Event(BaseModel):
     id: int
     event_ts: datetime
     attempts: int
     vt: datetime
     claimed: list[datetime]
-    event: dict[str, Any]
+    event: AppMentionEvent
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Event":
+        return cls(**data)
 
 
 # Type alias for event processing callback
@@ -114,13 +137,14 @@ class AgentHarness:
         async with (
             self.pool.connection() as con,
             con.transaction() as _,
-            con.cursor(row_factory=class_row(Event)) as cur,
+            con.cursor(row_factory=dict_row) as cur,
         ):
             await cur.execute("select * from agent.claim_event()")
-            result: Event | None = await cur.fetchone()
-            if result:
-                assert result.id is not None, "claimed an empty event"
-            return result
+            row: dict[str, Any] | None = await cur.fetchone()
+            if not row:
+                return None
+            assert row["id"] is not None, "claimed an empty event"
+            return Event.from_dict(row)
 
     @logfire.instrument("delete_event", extract_args=False)
     async def _delete_event(self, event: Event) -> None:
