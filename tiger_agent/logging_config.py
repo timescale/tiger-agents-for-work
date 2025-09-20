@@ -60,8 +60,3 @@ def setup_logging(service_name: str = "tiger-agent") -> None:
             level=logging.INFO,
             format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         )
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Get a logger instance for the given name."""
-    return logging.getLogger(name)

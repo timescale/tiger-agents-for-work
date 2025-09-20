@@ -1,0 +1,12 @@
+[
+  {
+    "tool_prefix": "slack",
+    "url": "http://tiger-slack-mcp-server/mcp",
+    "allow_sampling": false
+  },
+  {
+    "tool_prefix": "docs",
+    "url": "http://tiger-docs-mcp-server/mcp",
+    "allow_sampling": false
+  }
+]
