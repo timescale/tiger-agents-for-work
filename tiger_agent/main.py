@@ -9,6 +9,7 @@ from tiger_agent import AgentHarness, Event, EventContext
 from tiger_agent.processor import build_event_processor
 from tiger_agent.logging_config import setup_logging
 from tiger_agent.slack import user_info
+from tiger_agent.user_memory import list_user_memories
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 setup_logging(service_name="eon")
@@ -27,13 +28,21 @@ async def main() -> None:
     
     
     async def generate_user_prompt(ctx: EventContext, event: Event) -> str:
-        user = await user_info(ctx, event.event.user)
+        mention = event.event
+        user = await user_info(ctx, mention.user)
+        memories = await list_user_memories(ctx.pool, mention.user)
         
         # Convert event timestamp to user's timezone
         local_time = event.event_ts.astimezone(ZoneInfo(user.tz)) if user else None
 
         tmpl = template_env.get_template("user_prompt.md")
-        return await tmpl.render_async(event=event, mention=event.event, user=user, local_time=local_time)
+        return await tmpl.render_async(
+            event=event,
+            mention=mention,
+            user=user,
+            memories=memories,
+            local_time=local_time
+        )
 
 
     # build an event processor
