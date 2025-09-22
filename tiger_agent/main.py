@@ -17,11 +17,23 @@ def cli():
 @click.option("--prompts", type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path), default=Path("prompts"), help="Directory containing prompt templates")
 @click.option("--mcp-config", type=click.Path(exists=True, path_type=Path), default=None, help="Path to MCP config file")
 @click.option("--env", type=click.Path(exists=True, path_type=Path), default=None, help="Path to environment file")
+@click.option("--worker-sleep-seconds", default=60, help="Worker sleep duration in seconds")
+@click.option("--worker-min-jitter-seconds", default=-15, help="Minimum jitter for worker sleep")
+@click.option("--worker-max-jitter-seconds", default=15, help="Maximum jitter for worker sleep")
+@click.option("--max-attempts", default=3, help="Maximum retry attempts for failed tasks")
+@click.option("--invisibility-minutes", default=10, help="Task invisibility timeout in minutes")
+@click.option("--num-workers", default=5, help="Number of worker processes")
 def run(
     model: str,
     prompts: Path,
     mcp_config: Path | None = None,
     env: Path | None = None,
+    worker_sleep_seconds: int = 60,
+    worker_min_jitter_seconds: int = -15,
+    worker_max_jitter_seconds: int = 15,
+    max_attempts: int = 3,
+    invisibility_minutes: int = 10,
+    num_workers: int = 5,
 ):
     """Run the Tiger Agent bot"""
     import jinja2
@@ -43,7 +55,15 @@ def run(
     )
 
     # create the agent harness for the event processor
-    harness = AgentHarness(agent)
+    harness = AgentHarness(
+        agent,
+        worker_sleep_seconds=worker_sleep_seconds,
+        worker_min_jitter_seconds=worker_min_jitter_seconds,
+        worker_max_jitter_seconds=worker_max_jitter_seconds,
+        max_attempts=max_attempts,
+        invisibility_minutes=invisibility_minutes,
+        num_workers=num_workers,
+    )
 
     # run the harness
     asyncio.run(harness.run())
