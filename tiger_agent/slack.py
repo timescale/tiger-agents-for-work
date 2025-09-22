@@ -3,22 +3,21 @@ from typing import Any, Optional
 import logfire
 from pydantic import BaseModel
 from slack_sdk.errors import SlackApiError
-
-from tiger_agent import EventContext
+from slack_sdk.web.async_client import AsyncWebClient
 
 
 @logfire.instrument("add_reaction", extract_args=["channel", "ts", "emoji"])
-async def add_reaction(ctx: EventContext, channel: str, ts: str, emoji: str):
+async def add_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: str):
     try:
-        await ctx.app.client.reactions_add(channel=channel, timestamp=ts, name=emoji)
+        await client.reactions_add(channel=channel, timestamp=ts, name=emoji)
     except SlackApiError:
         pass
 
 
 @logfire.instrument("remove_reaction", extract_args=["channel", "ts", "emoji"])
-async def remove_reaction(ctx: EventContext, channel: str, ts: str, emoji: str):
+async def remove_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: str):
     try:
-        await ctx.app.client.reactions_remove(channel=channel, timestamp=ts, name=emoji)
+        await client.reactions_remove(channel=channel, timestamp=ts, name=emoji)
     except SlackApiError:
         pass
 
@@ -55,10 +54,10 @@ class UserInfo(BaseModel):
         return cls(**data)
 
 
-@logfire.instrument("user_info", extract_args=["user_id"])
-async def user_info(ctx: EventContext, user_id: str) -> UserInfo | None:
+@logfire.instrument("fetch_user_info", extract_args=["user_id"])
+async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | None:
     try:
-        resp = await ctx.app.client.users_info(user=user_id, include_locale=True)
+        resp = await client.users_info(user=user_id, include_locale=True)
         assert isinstance(resp.data, dict)
         assert resp.data["ok"]
         return UserInfo.from_dict(resp.data["user"])
@@ -68,9 +67,9 @@ async def user_info(ctx: EventContext, user_id: str) -> UserInfo | None:
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
 async def post_response(
-        ctx: EventContext, channel: str, thread_ts: str, text: str
+        client: AsyncWebClient, channel: str, thread_ts: str, text: str
 ) -> None:
-    await ctx.app.client.chat_postMessage(
+    await client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
         text=text,
@@ -78,3 +77,46 @@ async def post_response(
         unfurl_links=False,
         unfurl_media=False,
     )
+
+
+class BotInfo(BaseModel):
+    model_config = {"extra": "allow"}
+
+    url: str
+    team: str
+    team_id: str
+    bot_id: str
+    name: str
+    app_id: str
+    user_id: str
+    
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "BotInfo":
+        return cls(**data)
+
+
+@logfire.instrument("fetch_bot_info", extract_args=False)
+async def fetch_bot_info(client: AsyncWebClient) -> BotInfo:
+    auth_test_response = await client.auth_test()
+    assert auth_test_response.get("ok"), "slack auth_test failed"
+
+    bot_id = auth_test_response.get("bot_id")
+
+    bots_info_response = await client.bots_info(bot=bot_id)
+    assert bots_info_response.get("ok"), "slack bots_info failed"
+
+    bot = bots_info_response.get("bot")
+    assert isinstance(bot, dict), "bots_info_response has unexpected payload"
+    
+    args = dict(
+        url=auth_test_response.get("url"),
+        team=auth_test_response.get("team"),
+        team_id=auth_test_response.get("team_id"),
+        bot_id=bot_id,
+        name=bot.get("name"),
+        app_id=bot.get("app_id"),
+        user_id=bot.get("user_id")
+    )
+    
+    return BotInfo.from_dict(args)
+

@@ -8,7 +8,7 @@ from psycopg import AsyncConnection, AsyncCursor
 from semver import Version
 
 from tiger_agent import __version__
-from tiger_agent.logging_config import setup_logging
+from tiger_agent.logging import setup_logging
 
 logger = logging.getLogger(__name__)
 

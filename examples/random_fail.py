@@ -4,8 +4,8 @@ from random import randint
 
 from dotenv import find_dotenv, load_dotenv
 
-from tiger_agent import AgentHarness, Event, EventContext
-from tiger_agent.logging_config import setup_logging
+from tiger_agent import AgentHarness, Event, HarnessContext
+from tiger_agent.logging import setup_logging
 
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
@@ -14,7 +14,7 @@ setup_logging(service_name=NAME)
 
 
 # our slackbot will fail sometimes
-async def random_fail(ctx: EventContext, event: Event):
+async def random_fail(ctx: HarnessContext, event: Event):
     channel = event.event["channel"]
     ts = event.event["ts"]
     dice = randint(1, 6)
@@ -30,7 +30,7 @@ async def main() -> None:
     # create the agent harness
     harness = AgentHarness(random_fail)
     # run the harness
-    await harness.run(num_workers=5)
+    await harness.run()
 
 
 if __name__ == "__main__":

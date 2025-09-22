@@ -1,71 +1,22 @@
 import json
 import logging
 from pathlib import Path
-from typing import Any, Callable, Awaitable, Sequence
+from typing import Any
+from zoneinfo import ZoneInfo
 
+import jinja2
 import logfire
-from pydantic_ai import Agent, ModelSettings
-from pydantic_ai.builtin_tools import AbstractBuiltinTool
-from pydantic_ai.mcp import MCPServerStreamableHTTP
-from pydantic_ai.tools import Tool
+from jinja2 import FileSystemLoader
+from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
-from tiger_agent import EventContext, Event, EventProcessor
-
-from tiger_agent.slack import add_reaction, post_response, remove_reaction
-import tiger_agent.user_memory as mem
+from tiger_agent import HarnessContext, Event
+from tiger_agent.harness import AppMentionEvent
+from tiger_agent.slack import add_reaction, post_response, remove_reaction, \
+    fetch_user_info, \
+    fetch_bot_info, BotInfo
 
 logger = logging.getLogger(__name__)
-
-
-# Type alias for event processing callback
-PromptGenerator = Callable[[EventContext, Event], Awaitable[str]]
-
-
-def make_memory_tools(ctx: EventContext, user_id: str) -> list[Tool]:
-    async def save_user_memory(memory: str) -> mem.UserMemory:
-        """Save a new memory for the user. Use this to remember important information about the user for future conversations.
-
-        Args:
-            memory: The information to remember about the user (preferences, context, facts, etc.)
-        """
-        return await mem.insert_user_memory(ctx.pool, user_id, memory)
-
-    async def update_user_memory(id: int, memory: str) -> None:
-        """Update an existing user memory. Use this to modify or correct previously saved information.
-
-        Args:
-            id: The ID of the memory to update
-            memory: The new memory content to replace the existing one
-        """
-        return await mem.update_user_memory(ctx.pool, id, user_id, memory)
-
-    async def delete_user_memory(id: int) -> None:
-        """Delete a user memory. Use this to remove information that is no longer relevant or accurate.
-
-        Args:
-            id: The ID of the memory to delete
-        """
-        return await mem.delete_user_memory(ctx.pool, id, user_id)
-
-    async def list_user_memories() -> list[mem.UserMemory]:
-        """Get all memories saved for the user. Use this to review what you know about the user."""
-        return await mem.list_user_memories(ctx.pool, user_id)
-
-    async def get_user_memory(id: int) -> mem.UserMemory | None:
-        """Get a specific user memory by ID. Use this to retrieve details about a particular memory.
-
-        Args:
-            id: The ID of the memory to retrieve
-        """
-        return await mem.get_user_memory(ctx.pool, id, user_id)
-
-    return [
-        Tool(save_user_memory),
-        Tool(update_user_memory),
-        Tool(delete_user_memory),
-        Tool(list_user_memories),
-        Tool(get_user_memory),
-    ]
 
 
 def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
@@ -73,80 +24,113 @@ def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
     return mcp_config
 
 
-@logfire.instrument("load_mcp_servers")
-def load_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> dict[str, MCPServerStreamableHTTP]:
-    mcp_servers: dict[str, MCPServerStreamableHTTP] = {}
+@logfire.instrument("create_mcp_servers")
+def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> dict[str, MCPServerStreamableHTTP | MCPServerStdio]:
+    mcp_servers: dict[str, MCPServerStreamableHTTP | MCPServerStdio] = {}
     for name, cfg in mcp_config.items():
         if cfg.pop("disabled", False):
             continue
-        mcp_servers[name] = MCPServerStreamableHTTP(**cfg)
+        if cfg.get("command"):
+            mcp_servers[name] = MCPServerStdio(**cfg)
+        elif cfg.get("url"):
+            mcp_servers[name] = MCPServerStreamableHTTP(**cfg)
     return mcp_servers
 
 
 class TigerAgent:
     def __init__(
         self,
-        system_prompt_generator: PromptGenerator,
-        user_prompt_generator: PromptGenerator,
         model: str,
-        model_settings: ModelSettings | None = None,
-        mcp_config: dict[str, dict[str, Any]] = (),
-        tools: Sequence[Tool] = (),
-        builtin_tools: Sequence[AbstractBuiltinTool] = (),
+        mcp_config_path: Path | None,
+        jinja_env: jinja2.Environment | None = None,
+        max_attempts: int = 3
     ):
-        self._system_prompt_generator = system_prompt_generator
-        self._user_prompt_generator = user_prompt_generator
         self._model = model
-        self._model_settings = model_settings
-        self._mcp_config = mcp_config
-        self._tools = tools
-        self._builtin_tools = builtin_tools
-
-    def get_event_processor(self) -> EventProcessor:
-        async def generate_system_prompt(ctx: EventContext, event: Event) -> str:
-            with logfire.span("generate_system_prompt", event_id=event.id) as _:
-                return await self._system_prompt_generator(ctx, event)
-
-        async def generate_user_prompt(ctx: EventContext, event: Event) -> str:
-            with logfire.span("generate_user_prompt", event_id=event.id) as _:
-                return await self._user_prompt_generator(ctx, event)
+        self._mcp_config_path = mcp_config_path
+        self._max_attempts = max_attempts
+        self._jinja_env = jinja_env if jinja_env else jinja2.Environment(
+            enable_async=True,
+            loader=FileSystemLoader(Path.cwd())
+        )
+        self._bot_info: BotInfo | None = None
     
-        async def event_processor(ctx: EventContext, event: Event) -> None:
-            mention = event.event
-            try:
-                await add_reaction(ctx, mention.channel, mention.ts, "spinthinking")
-                with logfire.span("build_agent", event_id=event.id) as _:
-                    system_prompt = await generate_system_prompt(ctx, event)
-                    user_prompt = await generate_user_prompt(ctx, event)
-                    tools = make_memory_tools(ctx, mention.user)
-                    tools.extend(self._tools)
-                    mcp_servers = load_mcp_servers(self._mcp_config)
-                    agent = Agent(
-                        self._model,
-                        model_settings=self._model_settings,
-                        toolsets=[mcp_server for mcp_server in mcp_servers.values()],
-                        tools=tools,
-                        builtin_tools=self._builtin_tools,
-                        system_prompt=system_prompt,
+    @logfire.instrument("make_mcp_servers", extract_args=False)
+    async def make_mcp_servers(self) -> dict[str, MCPServerStreamableHTTP | MCPServerStdio]:
+        if not self._mcp_config_path:
+            return {}
+        self._mcp_config: dict[str, dict[str, Any]] = load_mcp_config(self._mcp_config_path)
+        return create_mcp_servers(self._mcp_config)
+    
+    @logfire.instrument("make_context", extract_args=False)
+    async def make_context(self, **kwargs) -> dict[str, Any]:
+        hctx: HarnessContext = kwargs["hctx"]
+        event: Event = kwargs["event"]
+        mention: AppMentionEvent = event.event
+        mcp_servers = kwargs["mcp_servers"]
+        kwargs["mention"] = mention
+        if not self._bot_info:
+            self._bot_info = await fetch_bot_info(hctx.app.client)
+        kwargs["bot"] = self._bot_info
+        user_info = await fetch_user_info(hctx.app.client, mention.user)
+        if user_info:
+            kwargs["user"] = user_info
+            kwargs["local_time"] = event.event_ts.astimezone(ZoneInfo(user_info.tz))
+        return kwargs
+    
+    @logfire.instrument("make_system_prompt", extract_args=False)
+    async def make_system_prompt(self, ctx: dict[str, Any]) -> str:
+        tmpl = self._jinja_env.get_template("system_prompt.md")
+        return await tmpl.render_async(**ctx)
+    
+    @logfire.instrument("make_user_prompt", extract_args=False)
+    async def make_user_prompt(self, ctx: dict[str, Any]) -> str:
+        tmpl = self._jinja_env.get_template("user_prompt.md")
+        return await tmpl.render_async(**ctx)
+    
+    @logfire.instrument("respond", extract_args=False)
+    async def respond(self, hctx: HarnessContext, event: Event) -> str:
+        mcp_servers = await self.make_mcp_servers()
+        ctx = await self.make_context(hctx=hctx, event=event, mcp_servers=mcp_servers)
+        system_prompt = await self.make_system_prompt(ctx)
+        user_prompt = await self.make_system_prompt(ctx)
+        toolsets = [mcp_server for mcp_server in mcp_servers.values()]
+        with logfire.span("build_and_run_agent") as _:
+            agent = Agent(
+                model=self._model,
+                deps_type=dict[str, Any],
+                system_prompt=system_prompt,
+                toolsets=toolsets
+            )
+            async with agent as a:
+                response = await a.run(
+                    user_prompt=user_prompt,
+                    deps=ctx,
+                    usage_limits=UsageLimits(
+                        output_tokens_limit=9_000
                     )
-                with logfire.span("run_agent", event_id=event.id) as _:
-                    async with agent as a:
-                        resp = await a.run(user_prompt)
-                await post_response(ctx, mention.channel, mention.thread_ts if mention.thread_ts else mention.ts, resp.output)
-                await remove_reaction(ctx, mention.channel, mention.ts, "spinthinking")
-                await add_reaction(ctx, mention.channel, mention.ts, "white_check_mark")
-            except Exception as e:
-                logger.exception("respond failed", exc_info=e)
-                await remove_reaction(ctx, mention.channel, mention.ts, "spinthinking")
-                await add_reaction(ctx, mention.channel, mention.ts, "x")
-                await post_response(
-                    ctx,
-                    mention.channel,
-                    mention.thread_ts if mention.thread_ts else mention.ts,
-                    "I experienced an issue trying to respond. I will try again."
-                    if event.attempts < 3
-                    else " I give up. Sorry.",
                 )
-                raise e
-        
-        return event_processor
+                return response.output
+
+    @logfire.instrument("event_processor", extract_args=False)
+    async def __call__(self, ctx: HarnessContext, event: Event) -> None:
+        client = ctx.app.client
+        mention = event.event
+        try:
+            await add_reaction(client, mention.channel, mention.ts, "spinthinking")
+            response = await self.respond(ctx, event)
+            await post_response(client, mention.channel, mention.thread_ts if mention.thread_ts else mention.ts, response)
+            await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
+            await add_reaction(client, mention.channel, mention.ts, "white_check_mark")
+        except Exception as e:
+            logger.exception("respond failed", exc_info=e)
+            await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
+            await add_reaction(client, mention.channel, mention.ts, "x")
+            await post_response(
+                client,
+                mention.channel,
+                mention.thread_ts if mention.thread_ts else mention.ts,
+                "I experienced an issue trying to respond. I will try again."
+                if event.attempts < self._max_attempts
+                else " I give up. Sorry.",
+            )
+            raise e
