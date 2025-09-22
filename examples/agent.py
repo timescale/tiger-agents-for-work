@@ -52,7 +52,6 @@ class TigerAgent:
     async def respond(self, ctx: EventContext, event: Event):
         channel = event.event["channel"]
         ts = event.event["ts"]
-        text = event.event["text"]
         async with self.agent as a:
             resp = await a.run(
                 self.user_prompt.format(ctx=ctx, event=event) if isinstance(self.user_prompt, str) else self.user_prompt(ctx, event),
@@ -64,7 +63,7 @@ class TigerAgent:
 
     async def run(self):
         # create the agent harness
-        harness = AgentHarness(respond)
+        harness = AgentHarness(self.respond)
 
         # run the harness
         await harness.run(num_workers=5)

@@ -1,8 +1,5 @@
 from .agent import TigerAgent
 import asyncio
-from dotenv import find_dotenv, load_dotenv
-
-load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 
 async def main() -> None:
     agent = TigerAgent(
