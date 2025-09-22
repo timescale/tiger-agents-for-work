@@ -23,31 +23,28 @@ from tiger_agent.migrations import runner
 logger = logging.getLogger(__name__)
 
 
-async def configure_database_connection(con: AsyncConnection) -> None:
+async def _configure_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
 
 
-async def reset_database_connection(con: AsyncConnection) -> None:
+async def _reset_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
 
 
 def _create_default_pool() -> AsyncConnectionPool:
     return AsyncConnectionPool(
         check=AsyncConnectionPool.check_connection,
-        configure=configure_database_connection,
-        reset=reset_database_connection,
+        configure=_configure_database_connection,
+        reset=_reset_database_connection,
         open=False,
     )
 
 
 @dataclass
-class EventContext:
+class HarnessContext:
     app: AsyncApp
     pool: AsyncConnectionPool
     task_group: TaskGroup
-    bot_user_id: str
-    bot_name: str
-    app_id: str
 
 
 class AppMentionEvent(BaseModel):
@@ -83,7 +80,7 @@ class Event(BaseModel):
 
 
 # Type alias for event processing callback
-EventProcessor = Callable[[EventContext, Event], Awaitable[None]]
+EventProcessor = Callable[[HarnessContext, Event], Awaitable[None]]
 
 
 class AgentHarness:
@@ -95,16 +92,22 @@ class AgentHarness:
         worker_sleep_seconds: int = 60,
         worker_min_jitter_seconds: int = -15,
         worker_max_jitter_seconds: int = 15,
+        max_attempts: int = 3,
+        invisibility_minutes: int = 10,
+        num_workers: int = 5,
         slack_bot_token: str | None = None,
         slack_app_token: str | None = None,
     ):
         self._task_group: TaskGroup | None = None
-        self.pool = pool if pool is not None else _create_default_pool()
+        self._pool = pool if pool is not None else _create_default_pool()
         self._trigger = asyncio.Queue()
         self._event_processor = event_processor
         self._worker_sleep_seconds = worker_sleep_seconds
         self._worker_min_jitter_seconds = worker_min_jitter_seconds
         self._worker_max_jitter_seconds = worker_max_jitter_seconds
+        self._max_attempts = max_attempts
+        self._num_workers = num_workers
+        self._invisibility_minutes = invisibility_minutes
         self._slack_bot_token = slack_bot_token or os.getenv("SLACK_BOT_TOKEN")
         assert self._slack_bot_token is not None, "no SLACK_BOT_TOKEN found"
         self._slack_app_token = slack_app_token or os.getenv("SLACK_APP_TOKEN")
@@ -112,7 +115,7 @@ class AgentHarness:
         assert worker_sleep_seconds > 0
         assert worker_sleep_seconds - worker_min_jitter_seconds > 0
         assert worker_max_jitter_seconds > worker_min_jitter_seconds
-        self.app = app if app is not None else AsyncApp(
+        self._app = app if app is not None else AsyncApp(
             token=self._slack_bot_token,
             ignoring_self_events_enabled=False,
         )
@@ -120,7 +123,7 @@ class AgentHarness:
     @logfire.instrument("insert_event", extract_args=False)
     async def _insert_event(self, event: dict[str, Any]) -> None:
         async with (
-            self.pool.connection() as con,
+            self._pool.connection() as con,
             con.transaction() as _,
             con.cursor() as cur,
         ):
@@ -135,11 +138,14 @@ class AgentHarness:
     @logfire.instrument("claim_event", extract_args=False)
     async def _claim_event(self) -> Event | None:
         async with (
-            self.pool.connection() as con,
+            self._pool.connection() as con,
             con.transaction() as _,
             con.cursor(row_factory=dict_row) as cur,
         ):
-            await cur.execute("select * from agent.claim_event()")
+            await cur.execute(
+                "select * from agent.claim_event(%s, %s::int8 * interval '1m')",
+                (self._max_attempts, self._invisibility_minutes)
+            )
             row: dict[str, Any] | None = await cur.fetchone()
             if not row:
                 return None
@@ -149,7 +155,7 @@ class AgentHarness:
     @logfire.instrument("delete_event", extract_args=False)
     async def _delete_event(self, event: Event) -> None:
         async with (
-            self.pool.connection() as con,
+            self._pool.connection() as con,
             con.transaction() as _,
             con.cursor() as cur,
         ):
@@ -158,26 +164,26 @@ class AgentHarness:
     @logfire.instrument("delete_expired_events", extract_args=False)
     async def _delete_expired_events(self) -> None:
         async with (
-            self.pool.connection() as con,
+            self._pool.connection() as con,
             con.transaction() as _,
             con.cursor() as cur,
         ):
-            await cur.execute("select agent.delete_expired_events()")
+            await cur.execute(
+                "select agent.delete_expired_events(%s, %s::int8 * interval '1m')",
+                (self._max_attempts, self._invisibility_minutes)
+            )
 
-    def _make_event_context(self) -> EventContext:
-        return EventContext(
-            self.app,
-            self.pool,
+    def _make_harness_context(self) -> HarnessContext:
+        return HarnessContext(
+            self._app,
+            self._pool,
             self._task_group,
-            self._bot_user_id,
-            self._bot_name,
-            self._app_id,
         )
 
     async def _process_event(self, event: Event) -> bool:
         with logfire.span("process_event", event_id=event.id) as _:
             try:
-                await self._event_processor(self._make_event_context(), event)
+                await self._event_processor(self._make_harness_context(), event)
                 await self._delete_event(event)
                 return True
             except Exception as e:
@@ -228,48 +234,29 @@ class AgentHarness:
             except QueueShutDown:
                 return
 
-    @logfire.instrument("fetch_bot_info", extract_args=False)
-    async def _fetch_bot_info(self):
-        auth_test_response = await self.app.client.auth_test()
-        assert auth_test_response.get("ok"), "slack auth_test failed"
-        
-        bot_id = auth_test_response.get("bot_id")
-        
-        bots_info_response = await self.app.client.bots_info(bot=bot_id)
-        assert bots_info_response.get("ok"), "slack bots_info failed"
-        
-        bot = bots_info_response.get("bot")
-        
-        assert isinstance(bot, dict), "bots_info_response has unexpected payload"
-        
-        self._bot_user_id: str = bot.get("user_id")
-        self._bot_name: str = bot.get("name")
-        self._app_id: str = bot.get("app_id")
-
     def _worker_args(self, num_workers: int) -> list[tuple[int, int]]:
         initial_sleeps: list[int] = [0]  # first worker starts immediately
         # pick num_workers - 1 unique initial sleep values
         initial_sleeps.extend(random.sample(range(1, self._worker_sleep_seconds), num_workers - 1))
         return [(worker_id, initial_sleep) for worker_id, initial_sleep in enumerate(initial_sleeps)]
 
-    async def run(self, num_workers: int = 5):
-        await self.pool.open(wait=True)
+    async def run(self):
+        await self._pool.open(wait=True)
 
         async with asyncio.TaskGroup() as tasks:
-            await self._fetch_bot_info()
-
-            async with self.pool.connection() as con:
+            async with self._pool.connection() as con:
                 await runner.migrate_db(con)
 
             async def on_event(ack: AsyncAck, event: dict[str, Any]):
                 await self._on_event(ack, event)
 
-            logger.info(f"creating {num_workers} workers")
-            for worker_id, initial_sleep in self._worker_args(num_workers):
+            logger.info(f"creating {self._num_workers} workers")
+            for worker_id, initial_sleep in self._worker_args(self._num_workers):
                 logger.info("creating worker", extra={"worker_id": worker_id})
                 tasks.create_task(self._worker(worker_id, initial_sleep))
 
-            self.app.event("app_mention")(on_event)
+            self._app.event("app_mention")(on_event)
 
-            handler = AsyncSocketModeHandler(self.app, app_token=self._slack_app_token)
+            handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
+

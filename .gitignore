@@ -13,3 +13,4 @@ wheels/
 .env
 .logfire
 .claude
+mcp_config.json

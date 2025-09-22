@@ -4,8 +4,8 @@ from pathlib import Path
 import logfire
 from dotenv import find_dotenv, load_dotenv
 
-from tiger_agent import AgentHarness, Event, EventContext
-from tiger_agent.logging_config import setup_logging
+from tiger_agent import AgentHarness, Event, HarnessContext
+from tiger_agent.logging import setup_logging
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 NAME = Path(__file__).with_suffix("").name
@@ -13,7 +13,7 @@ setup_logging(service_name=NAME)
 
 
 # our slackbot will just echo messages back
-async def echo(ctx: EventContext, event: Event):
+async def echo(ctx: HarnessContext, event: Event):
     channel = event.event["channel"]
     ts = event.event["ts"]
     text = event.event["text"]
@@ -27,7 +27,7 @@ async def main() -> None:
     # create the agent harness
     harness = AgentHarness(echo)
     # run the harness
-    await harness.run(num_workers=5)
+    await harness.run()
 
 
 if __name__ == "__main__":
