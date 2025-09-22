@@ -1698,6 +1698,7 @@ name = "tiger-agent"
 version = "0.0.1"
 source = { virtual = "." }
 dependencies = [
+    { name = "click" },
     { name = "debugpy" },
     { name = "jinja2" },
     { name = "logfire", extra = ["httpx", "psycopg", "system-metrics"] },
@@ -1716,6 +1717,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.2.1" },
     { name = "debugpy", specifier = ">=1.8.7" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "logfire", extras = ["httpx", "psycopg", "system-metrics"], specifier = ">=4.3.6" },
