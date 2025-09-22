@@ -1,4 +1,5 @@
 from datetime import datetime
+from textwrap import dedent
 from typing import Any
 
 import logfire
@@ -43,7 +44,17 @@ async def insert_user_memory(pool: AsyncConnectionPool, user_id: str, memory: st
         con.cursor(row_factory=dict_row) as cur,
     ):
         await cur.execute(
-            "select * from agent.insert_user_memory(%s, %s)", 
+            dedent("""\
+            insert into agent.user_memory
+            ( user_id
+            , memory
+            )
+            values
+            ( %s
+            , %s
+            )
+            returning *
+            """),
             (user_id, memory)
         )
         row = await cur.fetchone()
@@ -58,8 +69,18 @@ async def update_user_memory(pool: AsyncConnectionPool, id: int, user_id: str, m
         con.cursor() as cur,
     ):
         await cur.execute(
-            "select agent.update_user_memory(%s, %s, %s)",
-            (id, user_id, memory)
+            dedent("""\
+                update agent.user_memory set
+                  memory = %(memory)s
+                , updated = now()
+                where id = %(id)s
+                and user_id = %(user_id)s
+            """),
+            dict(
+                id=id,
+                user_id=user_id,
+                memory=memory
+            )
         )
 
 
@@ -71,8 +92,13 @@ async def delete_user_memory(pool: AsyncConnectionPool, id: int, user_id: str) -
         con.cursor() as cur,
     ):
         await cur.execute(
-            "select agent.delete_user_memory(%s, %s)",
-            (id, user_id)
+            dedent("""\
+                delete from agent.user_memory 
+                where id = %(id)s
+                and user_id = %(user_id)s
+                returning id
+            """),
+            dict(id=id, user_id=user_id)
         )
 
 
@@ -84,7 +110,11 @@ async def list_user_memories(pool: AsyncConnectionPool, user_id: str) -> list[Us
         con.cursor(row_factory=dict_row) as cur,
     ):
         await cur.execute(
-            "select * from agent.list_user_memories(%s)",
+            dedent("""\
+                select *
+                from agent.user_memory
+                where user_id = %s
+            """),
             (user_id,)
         )
         memories = []
@@ -95,17 +125,19 @@ async def list_user_memories(pool: AsyncConnectionPool, user_id: str) -> list[Us
 
 @logfire.instrument("get_user_memory", extract_args=["id", "user_id"])
 async def get_user_memory(pool: AsyncConnectionPool, id: int, user_id: str) -> UserMemory | None:
-    """Retrieves a user-specific memory
-    
-    """
     async with (
         pool.connection() as con,
         con.transaction() as _,
         con.cursor(row_factory=dict_row) as cur,
     ):
         await cur.execute(
-            "select * from agent.get_user_memory(%s)",
-            (id, user_id)
+            dedent("""\
+                select *
+                from agent.user_memory
+                where user_id = %(user_id)s
+                and id = %(id)s
+            """),
+            dict(id=id, user_id=user_id)
         )
         row = await cur.fetchone()
         return UserMemory.from_dict(row) if row else None
