@@ -1,0 +1,34 @@
+{
+  "slack": {
+    "tool_prefix": "slack",
+    "url": "http://slack-mcp-server/mcp",
+    "allow_sampling": false
+  },
+  "docs": {
+    "tool_prefix": "docs",
+    "url": "http://docs-mcp-server/mcp",
+    "allow_sampling": false
+  },
+  "logfire": {
+    "command": "uvx",
+    "args": [
+      "logfire-mcp"
+    ],
+    "env": {
+      "LOGFIRE_READ_TOKEN": "your_token"
+    },
+    "disabled": false
+  },
+  "github": {
+    "tool_prefix": "github",
+    "url": "http://github-mcp-server/mcp",
+    "allow_sampling": false,
+    "disabled": true
+  },
+  "linear": {
+    "tool_prefix": "linear",
+    "url": "http://linear-mcp-server/mcp",
+    "allow_sampling": false,
+    "disabled": true
+  }
+}

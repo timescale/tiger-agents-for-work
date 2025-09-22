@@ -47,6 +47,7 @@ class TigerAgent:
     ):
         self._model = model
         self._mcp_config_path = mcp_config_path
+        self._mcp_config: dict[str, dict[str, Any]] | None = None
         self._max_attempts = max_attempts
         self._jinja_env = jinja_env if jinja_env else jinja2.Environment(
             enable_async=True,
@@ -58,7 +59,8 @@ class TigerAgent:
     async def make_mcp_servers(self) -> dict[str, MCPServerStreamableHTTP | MCPServerStdio]:
         if not self._mcp_config_path:
             return {}
-        self._mcp_config: dict[str, dict[str, Any]] = load_mcp_config(self._mcp_config_path)
+        if not self._mcp_config:
+            self._mcp_config: dict[str, dict[str, Any]] = load_mcp_config(self._mcp_config_path)
         return create_mcp_servers(self._mcp_config)
     
     @logfire.instrument("make_context", extract_args=False)
@@ -92,7 +94,7 @@ class TigerAgent:
         mcp_servers = await self.make_mcp_servers()
         ctx = await self.make_context(hctx=hctx, event=event, mcp_servers=mcp_servers)
         system_prompt = await self.make_system_prompt(ctx)
-        user_prompt = await self.make_system_prompt(ctx)
+        user_prompt = await self.make_user_prompt(ctx)
         toolsets = [mcp_server for mcp_server in mcp_servers.values()]
         with logfire.span("build_and_run_agent") as _:
             agent = Agent(
