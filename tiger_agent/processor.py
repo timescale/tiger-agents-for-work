@@ -67,6 +67,21 @@ def make_memory_tools(ctx: EventContext, user_id: str) -> list[Tool]:
     ]
 
 
+def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
+    mcp_config: dict[str, dict[str, Any]] = json.loads(mcp_config.read_text()) if mcp_config else {}
+    return mcp_config
+
+
+@logfire.instrument("load_mcp_servers")
+def load_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> dict[str, MCPServerStreamableHTTP]:
+    mcp_servers: dict[str, MCPServerStreamableHTTP] = {}
+    for name, cfg in mcp_config.items():
+        if cfg.pop("disabled", False):
+            continue
+        mcp_servers[name] = MCPServerStreamableHTTP(**cfg)
+    return mcp_servers
+
+
 def build_event_processor(
     model: str,
     system_prompt_generator: PromptGenerator,
@@ -74,13 +89,7 @@ def build_event_processor(
     mcp_config: Path | None,
 ) -> EventProcessor:
 
-    mcp_config: list[dict[str, Any]] = json.loads(mcp_config.read_text()) if mcp_config else []
-    @logfire.instrument("load_mcp_servers")
-    def load_mcp_servers() -> list[MCPServerStreamableHTTP]:
-        mcp_servers: list[MCPServerStreamableHTTP] = []
-        for cfg in mcp_config:
-            mcp_servers.append(MCPServerStreamableHTTP(**cfg))
-        return mcp_servers
+    mcp_config: dict[str, dict[str, Any]] = load_mcp_config(mcp_config) if mcp_config else {}
 
     async def generate_system_prompt(ctx: EventContext, event: Event) -> str:
         with logfire.span("generate_system_prompt", event_id=event.id) as _:
@@ -98,10 +107,10 @@ def build_event_processor(
                 system_prompt = await generate_system_prompt(ctx, event)
                 user_prompt = await generate_user_prompt(ctx, event)
                 mem_tools = make_memory_tools(ctx, mention.user)
-                mcp_servers = load_mcp_servers()
+                mcp_servers = load_mcp_servers(mcp_config)
                 agent = Agent(
                     model,
-                    toolsets=mcp_servers,
+                    toolsets=[mcp_server for mcp_server in mcp_servers.values()],
                     tools=mem_tools,
                     system_prompt=system_prompt,
                 )

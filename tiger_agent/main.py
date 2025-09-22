@@ -26,7 +26,6 @@ async def main() -> None:
         tmpl = template_env.get_template("system_prompt.md")
         return await tmpl.render_async(bot_user_id=ctx.bot_user_id, bot_name=ctx.bot_name)
     
-    
     async def generate_user_prompt(ctx: EventContext, event: Event) -> str:
         mention = event.event
         user = await user_info(ctx, mention.user)
@@ -43,7 +42,6 @@ async def main() -> None:
             memories=memories,
             local_time=local_time
         )
-
 
     # build an event processor
     event_processor = build_event_processor(
