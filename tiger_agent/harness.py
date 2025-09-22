@@ -153,6 +153,8 @@ class AgentHarness:
     async def _process_event(self, event: Event) -> bool:
         with logfire.span("process_event", event_id=event.id) as _:
             try:
+                user = await self.app.client.users_info(user=event.event.get("user", ""))
+                # TODO: add user info to either context or event?
                 await self._event_processor(self._make_event_context(), event)
                 await self._delete_event(event)
                 return True
