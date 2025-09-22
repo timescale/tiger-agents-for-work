@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Any, Callable
 
 from pydantic_ai import Agent
@@ -13,7 +15,7 @@ class TigerAgent:
             model: str,
             system_prompt: str | Callable[[EventContext], str] | list[str] | list[Callable[[EventContext], str]],
             user_prompt: str | Callable[[EventContext, Event], str],
-            mcp_config: dict = {},
+            mcp_config: str | dict = {},
             tools: list[Any] = [],
     ):
         self.agent = Agent(
@@ -22,8 +24,16 @@ class TigerAgent:
         self.user_prompt = user_prompt
 
 
-        self.mcp_config = mcp_config
+        if isinstance(mcp_config, str):
+            mcp_config_path = Path(mcp_config)
+            if not mcp_config_path.exists():
+                raise FileNotFoundError(f"MCP config file not found: {mcp_config}")
+            self.mcp_config = json.loads(mcp_config_path.read_text())
+        else:
+            self.mcp_config = mcp_config
+
         self.tools = tools
+
         if isinstance(system_prompt, str):
             self.agent.system_prompt(lambda ctx: EventContext: system_prompt.format(ctx=ctx))
         elif isinstance(system_prompt, list):
