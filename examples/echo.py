@@ -4,7 +4,7 @@ from pathlib import Path
 import logfire
 from dotenv import find_dotenv, load_dotenv
 
-from tiger_agent import AgentHarness, Event, HarnessContext
+from tiger_agent import EventHarness, Event, HarnessContext
 from tiger_agent.logging import setup_logging
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
@@ -25,7 +25,7 @@ async def echo(ctx: HarnessContext, event: Event):
 
 async def main() -> None:
     # create the agent harness
-    harness = AgentHarness(echo)
+    harness = EventHarness(echo)
     # run the harness
     await harness.run()
 

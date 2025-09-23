@@ -83,7 +83,7 @@ class Event(BaseModel):
 EventProcessor = Callable[[HarnessContext, Event], Awaitable[None]]
 
 
-class AgentHarness:
+class EventHarness:
     def __init__(
         self,
         event_processor: EventProcessor,
