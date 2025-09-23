@@ -85,6 +85,7 @@ class EventHarness:
         worker_min_jitter_seconds: int = -15,
         worker_max_jitter_seconds: int = 15,
         max_attempts: int = 3,
+        max_age_minutes: int = 60,
         invisibility_minutes: int = 10,
         num_workers: int = 5,
         slack_bot_token: str | None = None,
@@ -98,6 +99,7 @@ class EventHarness:
         self._worker_min_jitter_seconds = worker_min_jitter_seconds
         self._worker_max_jitter_seconds = worker_max_jitter_seconds
         self._max_attempts = max_attempts
+        self._max_age_minutes = max_age_minutes
         self._num_workers = num_workers
         self._invisibility_minutes = invisibility_minutes
         self._slack_bot_token = slack_bot_token or os.getenv("SLACK_BOT_TOKEN")
@@ -162,7 +164,7 @@ class EventHarness:
         ):
             await cur.execute(
                 "select agent.delete_expired_events(%s, %s::int8 * interval '1m')",
-                (self._max_attempts, self._invisibility_minutes)
+                (self._max_attempts, self._max_age_minutes)
             )
 
     def _make_harness_context(self) -> HarnessContext:

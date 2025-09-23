@@ -21,6 +21,7 @@ def cli():
 @click.option("--worker-min-jitter-seconds", default=-15, help="Minimum jitter for worker sleep")
 @click.option("--worker-max-jitter-seconds", default=15, help="Maximum jitter for worker sleep")
 @click.option("--max-attempts", default=3, help="Maximum retry attempts for failed tasks")
+@click.option("--max-age-minutes", default=60, help="Maximum age of an event before expiring")
 @click.option("--invisibility-minutes", default=10, help="Task invisibility timeout in minutes")
 @click.option("--num-workers", default=5, help="Number of worker processes")
 def run(
@@ -32,6 +33,7 @@ def run(
     worker_min_jitter_seconds: int = -15,
     worker_max_jitter_seconds: int = 15,
     max_attempts: int = 3,
+    max_age_minutes: int = 60,
     invisibility_minutes: int = 10,
     num_workers: int = 5,
 ):
@@ -61,6 +63,7 @@ def run(
         worker_min_jitter_seconds=worker_min_jitter_seconds,
         worker_max_jitter_seconds=worker_max_jitter_seconds,
         max_attempts=max_attempts,
+        max_age_minutes=max_age_minutes,
         invisibility_minutes=invisibility_minutes,
         num_workers=num_workers,
     )
