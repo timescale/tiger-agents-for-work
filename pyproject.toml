@@ -1,6 +1,10 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "tiger-agent"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -16,6 +20,13 @@ dependencies = [
     "slack-bolt>=1.24.0",
     "websockets>=15.0.1",
 ]
+
+[tool.setuptools.packages.find]
+include = ["tiger_agent*"]
+exclude = ["prompts*", "examples*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "tiger_agent.__version__"}
 
 [tool.setuptools.package-data]
 "tiger_agent.migrations" = ["**/*.sql"]
