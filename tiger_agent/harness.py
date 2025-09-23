@@ -141,13 +141,30 @@ EventProcessor = Callable[[HarnessContext, Event], Awaitable[None]]
 
 class EventHarness:
     """
-    Core event processing harness for Tiger Agent.
+    Core event processing harness for Tiger Agent with bounded concurrency and immediate responsiveness.
 
     The EventHarness orchestrates the entire event processing pipeline:
     1. Receives Slack app_mention events via Socket Mode
     2. Stores events durably in PostgreSQL (agent.event table)
     3. Coordinates multiple workers to claim and process events
     4. Handles retries, timeouts, and cleanup of expired events
+
+    Key architectural features:
+
+    **Bounded Concurrency**: Fixed number of worker tasks (num_workers) ensures predictable
+    resource usage and prevents overwhelming downstream systems.
+
+    **Immediate Event Handling**: When events arrive, exactly one worker is immediately "poked" via an
+    asyncio.Queue trigger, ensuring events are processed without delay rather than
+    waiting for the next polling cycle.
+
+    **Atomic Event Claiming**: Multiple workers compete for events using agent.claim_event(),
+    which atomically assigns events to exactly one worker, preventing duplicate processing.
+
+    **Resilient Retry Logic**: Failed/missed events are automatically retried through:
+    - Periodic worker polling (with jitter to prevent thundering herd)
+    - Automatic cleanup of expired/stuck events
+    - Visibility thresholds that make failed events available for retry
 
     The harness implements a work queue pattern where:
     - Events are atomically claimed by workers using agent.claim_event()
@@ -165,7 +182,7 @@ class EventHarness:
         max_attempts: Maximum retry attempts per event
         max_age_minutes: Maximum age before events are expired
         invisibility_minutes: How long claimed events remain invisible
-        num_workers: Number of concurrent worker tasks
+        num_workers: Number of concurrent worker tasks (bounded concurrency)
         slack_bot_token: Slack bot token (uses SLACK_BOT_TOKEN env if None)
         slack_app_token: Slack app token (uses SLACK_APP_TOKEN env if None)
     """
@@ -226,10 +243,17 @@ class EventHarness:
 
     @logfire.instrument("on_event", extract_args=False)
     async def _on_event(self, ack: AsyncAck, event: dict[str, Any]):
-        """Handle incoming Slack app_mention events.
+        """Handle incoming Slack app_mention events with immediate worker notification.
 
-        Stores the event in the database and triggers workers to process it.
-        Acknowledges the event back to Slack to prevent retries.
+        This method implements the "poke" mechanism for immediate event processing:
+        1. Stores the event durably in the database
+        2. Acknowledges to Slack to prevent retries
+        3. "Pokes" exactly one worker via asyncio.Queue trigger for immediate processing
+
+        The trigger ensures that one worker wakes up immediately to process available events
+        rather than waiting for the next polling cycle. This provides excellent responsiveness
+        while maintaining the resilience of periodic polling for retries and avoiding
+        thundering herd effects.
 
         Args:
             ack: Slack acknowledgment callback
