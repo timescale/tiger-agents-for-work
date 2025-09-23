@@ -5,6 +5,7 @@ import click
 from dotenv import find_dotenv, load_dotenv
 
 from tiger_agent.logging import setup_logging
+from tiger_agent.processor import AppMentionProcessor
 
 
 @click.group()
@@ -39,7 +40,7 @@ def run(
     import jinja2
     from jinja2 import FileSystemLoader
 
-    from tiger_agent import AgentHarness, TigerAgent
+    from tiger_agent import EventHarness, TigerAgent
 
     load_dotenv(dotenv_path=env if env else find_dotenv(usecwd=True))
     setup_logging()
@@ -53,9 +54,9 @@ def run(
             loader=FileSystemLoader(prompts)
         )
     )
-
-    # create the agent harness for the event processor
-    harness = AgentHarness(
+    
+    # create a harness for the processor
+    harness = EventHarness(
         agent,
         worker_sleep_seconds=worker_sleep_seconds,
         worker_min_jitter_seconds=worker_min_jitter_seconds,
