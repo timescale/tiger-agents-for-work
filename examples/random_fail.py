@@ -4,7 +4,7 @@ from random import randint
 
 from dotenv import find_dotenv, load_dotenv
 
-from tiger_agent import AgentHarness, Event, HarnessContext
+from tiger_agent import EventHarness, Event, HarnessContext
 from tiger_agent.logging import setup_logging
 
 
@@ -28,7 +28,7 @@ async def random_fail(ctx: HarnessContext, event: Event):
 
 async def main() -> None:
     # create the agent harness
-    harness = AgentHarness(random_fail)
+    harness = EventHarness(random_fail)
     # run the harness
     await harness.run()
 
