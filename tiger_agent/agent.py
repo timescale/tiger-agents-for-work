@@ -84,6 +84,7 @@ class TigerAgent:
         ctx["mention"] = mention
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
+        ctx["bot"] = self.bot_info
         user_info = await fetch_user_info(hctx.app.client, mention.user)
         if user_info:
             ctx["user"] = user_info

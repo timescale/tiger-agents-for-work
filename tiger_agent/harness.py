@@ -61,10 +61,6 @@ class AppMentionEvent(BaseModel):
     event_ts: str
     client_msg_id: str
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AppMentionEvent":
-        return cls(**data)
-
 
 class Event(BaseModel):
     id: int
@@ -73,10 +69,6 @@ class Event(BaseModel):
     vt: datetime
     claimed: list[datetime]
     event: AppMentionEvent
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Event":
-        return cls(**data)
 
 
 # Type alias for event processing callback
@@ -150,7 +142,7 @@ class EventHarness:
             if not row:
                 return None
             assert row["id"] is not None, "claimed an empty event"
-            return Event.from_dict(row)
+            return Event(**row)
 
     @logfire.instrument("delete_event", extract_args=False)
     async def _delete_event(self, event: Event) -> None:

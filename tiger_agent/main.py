@@ -5,7 +5,6 @@ import click
 from dotenv import find_dotenv, load_dotenv
 
 from tiger_agent.logging import setup_logging
-from tiger_agent.processor import AppMentionProcessor
 
 
 @click.group()
