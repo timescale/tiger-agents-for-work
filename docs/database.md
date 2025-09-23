@@ -36,6 +36,51 @@ These events are similarly "moved" to the `agent.event_hist` table.
 The `agent.event_hist` table has the same schema as the `agent.event` table and is a TimescaleDB hypertable partitioned on the `event_ts`.
 This historical table allows for post-analysis. It also makes it easy to "move" events back into `agent.event` for reprocessing if necessary.
 
+## Database Functions
+
+Tiger Agent provides several database functions for managing events and handling Slack timestamps:
+
+### Event Management Functions
+
+**agent.insert_event(_event jsonb)**
+- Inserts a Slack event into the `agent.event` table
+- Automatically converts Slack's numeric timestamp to PostgreSQL timestamptz
+- Parameters:
+  - `_event`: The complete Slack event payload as JSONB
+
+**agent.claim_event(_max_attempts int4 = 3, _invisible_for interval = '10m')**
+- Atomically claims an event for processing by a worker
+- Uses `ORDER BY random()` to randomly select events for load balancing across workers
+- Utilizes `FOR UPDATE SKIP LOCKED` for efficient concurrent access
+- Parameters:
+  - `_max_attempts`: Maximum retry attempts before giving up (default: 3)
+  - `_invisible_for`: How long to make the event invisible while processing (default: 10 minutes)
+- Returns: The claimed event row, or nothing if no events are available
+
+**agent.delete_event(_id int8)**
+- Marks an event as successfully processed by moving it to `agent.event_hist`
+- Atomically deletes from `agent.event` and inserts into `agent.event_hist`
+- Parameters:
+  - `_id`: The event ID to mark as completed
+
+**agent.delete_expired_events(_max_attempts int = 3, _max_vt_age interval = '1h')**
+- Cleans up events that have exceeded retry limits or are stuck
+- Moves expired events to `agent.event_hist` table
+- Parameters:
+  - `_max_attempts`: Events with this many attempts or more are expired (default: 3)
+  - `_max_vt_age`: Events invisible for longer than this are expired (default: 1 hour)
+
+### Timestamp Conversion Functions
+
+**agent.to_timestamptz(_ts numeric) / agent.to_timestamptz(_ts text)**
+- Converts Slack's Unix timestamp format to PostgreSQL timestamptz
+- Handles both numeric and text input formats
+- Used internally by `agent.insert_event()` for timestamp conversion
+
+**agent.from_timestamptz(_ts timestamptz)**
+- Converts PostgreSQL timestamptz back to Unix timestamp numeric format
+- Useful for API responses that need Slack-compatible timestamps
+
 ## Migrations
 
 Tiger Agent manages its own database migrations.
@@ -62,7 +107,14 @@ The [/tiger_agent/migrations/runner.py](/tiger_agent/migrations/runner.py) modul
 All migration scripts are executed in a single-transaction. The entire migration either succeeds or fails. 
 The database cannot be left in some middle-ground state halfway between two versions.
 
-Before attempting a migration, the library attempts to acquire an exclusive transaction-level advisory lock.
-If successful, an exclusive lock is placed on the `agent.migration` table.
-In this way, multiple instances of the library cannot apply migrations simultaneously.
+Before attempting a migration, the library uses a dual-locking approach for maximum safety:
+
+1. **Advisory Lock**: Attempts to acquire an exclusive transaction-level advisory lock (key: 31321898691465844) with retry logic (up to 10 attempts with 10-second delays)
+2. **Table Lock**: Places an exclusive lock on the `agent.migration` table within the transaction
+
+This dual-locking approach ensures that multiple instances of the library cannot apply migrations simultaneously, even in edge cases where advisory locks might not be sufficient.
+
+### Migration Security
+
+The migration system includes a **schema ownership check** for security. Only the user who owns the `agent` schema can run database migrations. If the schema exists but is owned by a different user, the migration will abort with an error. This prevents unauthorized users from modifying the database schema.
 
