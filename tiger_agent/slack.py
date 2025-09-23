@@ -49,10 +49,6 @@ class UserInfo(BaseModel):
     tz_offset: Optional[int] = None
     profile: UserProfile
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "UserInfo":
-        return cls(**data)
-
 
 @logfire.instrument("fetch_user_info", extract_args=["user_id"])
 async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | None:
@@ -60,7 +56,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
         resp = await client.users_info(user=user_id, include_locale=True)
         assert isinstance(resp.data, dict)
         assert resp.data["ok"]
-        return UserInfo.from_dict(resp.data["user"])
+        return UserInfo(**(resp.data["user"]))
     except SlackApiError:
         return None
 
@@ -89,10 +85,6 @@ class BotInfo(BaseModel):
     name: str
     app_id: str
     user_id: str
-    
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BotInfo":
-        return cls(**data)
 
 
 @logfire.instrument("fetch_bot_info", extract_args=False)
@@ -108,7 +100,7 @@ async def fetch_bot_info(client: AsyncWebClient) -> BotInfo:
     bot = bots_info_response.get("bot")
     assert isinstance(bot, dict), "bots_info_response has unexpected payload"
     
-    args = dict(
+    bot_info = BotInfo(
         url=auth_test_response.get("url"),
         team=auth_test_response.get("team"),
         team_id=auth_test_response.get("team_id"),
@@ -118,5 +110,5 @@ async def fetch_bot_info(client: AsyncWebClient) -> BotInfo:
         user_id=bot.get("user_id")
     )
     
-    return BotInfo.from_dict(args)
+    return bot_info
 
