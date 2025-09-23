@@ -1,6 +1,8 @@
 # Tiger Agent
 
-A Slack event processing harness that captures Slack events and provides queued processing with worker pools for reliable event handling.
+Tiger Agent is a Python library and CLI for building Slack bots, especially LLM-powered agentic Slack bots.
+
+
 
 ## Architecture
 
