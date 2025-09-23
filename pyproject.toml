@@ -23,7 +23,7 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["tiger_agent*"]
-exclude = ["prompts*", "examples*"]
+exclude = ["prompts*", "examples*", "docs*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "tiger_agent.__version__"}
