@@ -67,7 +67,7 @@ cd tiger-agent
 uv sync
 
 # verify the installation
-uv run python -m tiger_agent --help
+uv run tiger_agent --help
 ```
 
 #### 2. Run a TimescaleDB database in a docker container.
@@ -77,7 +77,12 @@ uv run python -m tiger_agent --help
 docker pull timescale/timescaledb-ha:pg17
 
 # run the database container
-docker run -d --name tiger-agent -e POSTGRES_PASSWORD=password -p 127.0.0.1:5432:5432 timescale/timescaledb-ha:pg17
+docker run -d --name tiger-agent \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=tsdb \
+  -e POSTGRES_USER=tsdbadmin \
+  -p 127.0.0.1:5432:5432 \
+  timescale/timescaledb-ha:pg17
 ```
 
 #### 3. Create a Slack App
@@ -116,8 +121,11 @@ Edit the .env file.
 Run the Tiger Agent.
 
 ```bash
-uv run python -m tiger_agent run 
+uv run tiger_agent run 
 ```
+
+At this point, Tiger Agent will be receiving `app_mention` events from your Slack workspace.
+Send a Slack message mentioning your bot by name.
 
 ## Customization
 
