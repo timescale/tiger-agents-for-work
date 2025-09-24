@@ -110,9 +110,9 @@ Edit the .env file.
 3. Add your `ANTHROPIC_API_KEY`. It starts with `sk-ant-`.
 4. [OPTIONAL] Add your `LOGFIRE_TOKEN`. It starts with `pylf_v1_`.
 
-### Run a Tiger Agent
+### Run the Tiger Agent
 
-Run a Tiger Agent.
+Run the Tiger Agent.
 
 ```bash
 uv run python -m tiger_agent run 
