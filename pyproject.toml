@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tiger_agent = "tiger_agent.main:main"
+tiger-agent = "tiger_agent.main:main"
 
 [tool.setuptools.packages.find]
 include = ["tiger_agent*"]

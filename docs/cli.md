@@ -6,54 +6,113 @@ Tiger Agent provides a command-line interface for running custom AI-powered Slac
 
 The CLI tool (`tiger-agent`) provides two main commands:
 - **`run`**: Start the Tiger Agent bot with custom configuration
-- **`migrate`**: Run database migrations to set up or update the database schema
+- **`migrate`**: Run database migrations to set up or update the database schema (Not usually necessary)
 
-## Installation & Setup
+## Running and Installing the CLI
+
+Run the Tiger Agent CLI
 
 ```bash
-# Install tiger-agent
-pip install tiger-agent
-# or
-uv add tiger-agent
+uvx --from git+https://github.com/timescale/tiger-agent.git tiger-agent --help
+```
 
-# Verify installation
+Run a specific version using a git tag (v0.0.1 in the example)
+
+```bash
+uvx --from git+https://github.com/timescale/tiger-agent.git@v0.0.1 tiger-agent --help
+```
+
+Install Tiger Agent as a tool
+
+```bash
+# install the tool
+uv tool install --from git+https://github.com/timescale/tiger-agent.git@v0.0.1
+
+# test the installation
 tiger-agent --help
 ```
 
-## Basic Usage
-
-### Prerequisites
+## Prerequisites
 
 Before running Tiger Agent, you need:
 
-1. **Environment variables** for Slack and database connectivity
-2. **Prompt templates** (system_prompt.md and user_prompt.md)
-3. **MCP configuration** (optional, for extended capabilities)
-4. **PostgreSQL database** with TimescaleDB extension
+1. **PostgreSQL database** with TimescaleDB extension
+2. **Environment variables** for Slack and database connectivity
+3. **Prompt templates** (system_prompt.md and user_prompt.md)
+4. **MCP configuration** (optional, for extended capabilities)
 
-### Minimal Setup
+## Setup
+
+### A Database
+
+You will need a PostgreSQL database with the TimescaleDB extension.
+
+You can use docker:
+
+```bash
+# pull the latest image
+docker pull timescale/timescaledb-ha:pg17
+
+# run the database container
+docker run -d --name tiger-agent -e POSTGRES_PASSWORD=password -p 127.0.0.1:5432:5432 timescale/timescaledb-ha:pg17
+```
+
+### Project Structure
+
+Your project structure will look like this:
+
+```
+my-tiger-agent/
+├── .env
+├── mcp_config.json
+└── prompts/
+    ├── system_prompt.md
+    └── user_prompt.md
+```
+
+```bash
+mkdir my-tiger-agent
+
+cd my-tiger-agent
+```
+
+### Environment Variables
+
+Create a `.env` file to put your environment variables in. Copy [.env.sample](/.env.sample) to get started.
+The two Slack tokens, the Anthropic API key, and the database connection details are required.
+
+Alternately, you can set the environment variables in your shell session:
 
 ```bash
 # 1. Set up environment variables
 export SLACK_BOT_TOKEN="xoxb-your-bot-token"
 export SLACK_APP_TOKEN="xapp-your-app-token"
+ANTHROPIC_API_KEY="sk-ant-api03-your-api-key"
 export PGHOST="localhost"
-export PGDATABASE="tiger_agent"
-export PGUSER="your_user"
-export PGPASSWORD="your_password"
-
-# 2. Run database migrations
-tiger-agent migrate
-
-# 3. Start the bot (requires prompts directory)
-tiger-agent run --prompts ./prompts
+export PGDATABASE="postgres"
+export PGUSER="postgres"
+export PGPASSWORD="password"
 ```
 
-## Commands
+### Prompts
 
-### `run` - Start the Agent
+Create a directory to put your prompt templates in.
 
-Starts the Tiger Agent bot with EventHarness for processing Slack app_mention events.
+```bash
+mkdir prompts
+```
+
+Copy the [system_prompt.md](/prompts/system_prompt.md) and [user_prompt.md](/prompts/user_prompt.md) into the `prompts` directory you just created.
+Use these Jinja2 templates as a starting point for customizing the instructions for your agent.
+See [Customizing the Prompt Templates](#customizing-the-prompt-templates) for detailed instructions.
+
+### MCP Server Config File (Optional)
+
+You can give your agent capabilities by configuring MCP Servers for it to use.
+Copy [examples/mcp_config.json](/examples/mcp_config.json) to your project as an example to get started.
+Read [MCP Server Configuration](#mcp-server-configuration) for detailed instructions.
+
+## Run the Agent
 
 ```bash
 tiger-agent run [OPTIONS]
@@ -101,33 +160,8 @@ tiger-agent run \
   --env .env.production
 ```
 
-### `migrate` - Database Migrations
 
-Runs database migrations to create or update the Tiger Agent database schema.
-
-```bash
-tiger-agent migrate [OPTIONS]
-```
-
-#### Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--env` | Auto-detected | Path to custom environment file |
-
-#### Examples
-
-```bash
-# Run migrations with auto-detected .env
-tiger-agent migrate
-
-# Run migrations with custom environment
-tiger-agent migrate --env .env.production
-```
-
-## Configuration Files
-
-### Prompt Templates
+## Customizing the Prompt Templates
 
 Tiger Agent requires two Jinja2 template files in the prompts directory:
 
@@ -190,11 +224,11 @@ Please respond appropriately to this request.
 | `user` | User profile (real_name, timezone, etc.) |
 | `local_time` | Event timestamp in user's timezone |
 
-### MCP Server Configuration
+## MCP Server Configuration
 
 Configure external tools and capabilities via `mcp_config.json`:
 
-#### HTTP-based MCP Servers
+### HTTP-based MCP Servers
 
 ```json
 {
@@ -213,7 +247,7 @@ Configure external tools and capabilities via `mcp_config.json`:
 }
 ```
 
-#### Command-line MCP Servers
+### Command-line MCP Servers
 
 ```json
 {
@@ -236,310 +270,3 @@ Configure external tools and capabilities via `mcp_config.json`:
   }
 }
 ```
-
-## Environment Configuration
-
-### Required Environment Variables
-
-```bash
-# Slack Configuration
-SLACK_BOT_TOKEN=xoxb-your-bot-token-here
-SLACK_APP_TOKEN=xapp-your-app-token-here
-
-# Database Configuration
-PGHOST=localhost
-PGDATABASE=tiger_agent
-PGUSER=your_username
-PGPASSWORD=your_password
-PGPORT=5432  # optional, defaults to 5432
-
-# Optional: AI Model Configuration
-ANTHROPIC_API_KEY=your_anthropic_key
-OPENAI_API_KEY=your_openai_key
-
-# Optional: Observability
-LOGFIRE_TOKEN=your_logfire_token
-SERVICE_NAME=my-tiger-agent
-```
-
-### Environment File Support
-
-Tiger Agent supports `.env` files for configuration:
-
-```bash
-# .env file
-SLACK_BOT_TOKEN=xoxb-123...
-SLACK_APP_TOKEN=xapp-456...
-PGHOST=db.example.com
-PGDATABASE=production_tiger
-PGUSER=tiger_user
-PGPASSWORD=secure_password
-ANTHROPIC_API_KEY=sk-ant-123...
-LOGFIRE_TOKEN=logfire-789...
-```
-
-## Complete Setup Example
-
-Here's a complete example of setting up Tiger Agent from scratch:
-
-### 1. Project Structure
-
-```
-my-tiger-agent/
-├── .env
-├── mcp_config.json
-└── prompts/
-    ├── system_prompt.md
-    └── user_prompt.md
-```
-
-### 2. Environment Setup (`.env`)
-
-```bash
-# Slack
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_APP_TOKEN=xapp-your-app-token
-
-# Database
-PGHOST=localhost
-PGDATABASE=tiger_agent_dev
-PGUSER=postgres
-PGPASSWORD=postgres
-
-# AI
-ANTHROPIC_API_KEY=sk-ant-your-key
-
-# Observability (optional)
-LOGFIRE_TOKEN=your-logfire-token
-SERVICE_NAME=my-custom-agent
-```
-
-### 3. MCP Configuration (`mcp_config.json`)
-
-```json
-{
-  "logfire": {
-    "command": "uvx",
-    "args": ["logfire-mcp"],
-    "env": {
-      "LOGFIRE_READ_TOKEN": "your_read_token"
-    }
-  },
-  "docs": {
-    "tool_prefix": "docs",
-    "url": "http://localhost:8000/mcp",
-    "allow_sampling": false,
-    "disabled": true
-  }
-}
-```
-
-### 4. System Prompt (`prompts/system_prompt.md`)
-
-```markdown
-# Customer Support Agent
-
-You are a helpful customer support agent for {{bot.team}}.
-
-## Your Role
-- Help team members with questions and requests
-- Provide accurate information using available tools
-- Be professional and friendly
-
-## Context
-- Current user: {{user.real_name}}
-- User timezone: {{user.tz_label}}
-- Current time: {{local_time.strftime('%I:%M %p')}}
-
-## Guidelines
-- Always greet users by name
-- Use tools to find accurate information
-- Ask clarifying questions when needed
-- Keep responses concise but helpful
-```
-
-### 5. User Prompt (`prompts/user_prompt.md`)
-
-```markdown
-**User Request from {{user.real_name}}:**
-
-{{mention.text}}
-
-{% if mention.thread_ts %}
-*This is part of an ongoing thread conversation.*
-{% endif %}
-
-**Additional Context:**
-- Time: {{local_time.strftime('%A, %B %d at %I:%M %p %Z')}}
-- Channel: {{mention.channel}}
-
-Please help with this request using available tools and information.
-```
-
-### 6. Run the Agent
-
-```bash
-# First, run migrations
-tiger-agent migrate
-
-# Then start the agent
-tiger-agent run \
-  --prompts ./prompts \
-  --mcp-config ./mcp_config.json \
-  --num-workers 3
-```
-
-## Advanced Usage
-
-### Custom Models
-
-Tiger Agent supports various AI model providers:
-
-```bash
-# Anthropic Claude
-tiger-agent run --model "anthropic:claude-3-5-sonnet-20241022"
-tiger-agent run --model "anthropic:claude-3-5-haiku-20241022"
-
-# OpenAI
-tiger-agent run --model "openai:gpt-4"
-tiger-agent run --model "openai:gpt-3.5-turbo"
-
-# Custom model endpoints
-tiger-agent run --model "custom:my-model"
-```
-
-### Performance Tuning
-
-For high-traffic Slack workspaces:
-
-```bash
-tiger-agent run \
-  --prompts ./prompts \
-  --mcp-config ./mcp_config.json \
-  --num-workers 15 \
-  --worker-sleep-seconds 30 \
-  --max-attempts 5 \
-  --invisibility-minutes 5
-```
-
-### Development vs Production
-
-Development setup:
-```bash
-tiger-agent run \
-  --prompts ./dev-prompts \
-  --num-workers 2 \
-  --env .env.dev
-```
-
-Production setup:
-```bash
-tiger-agent run \
-  --prompts ./prod-prompts \
-  --mcp-config ./prod-mcp-config.json \
-  --num-workers 10 \
-  --max-attempts 5 \
-  --env .env.production
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"No prompts directory"**
-   - Ensure `--prompts` points to a directory containing `system_prompt.md` and `user_prompt.md`
-
-2. **"Database connection failed"**
-   - Verify PostgreSQL is running and environment variables are correct
-   - Run `tiger-agent migrate` first
-
-3. **"Slack authentication failed"**
-   - Check `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are valid
-   - Ensure bot is installed in workspace
-
-4. **"MCP server connection failed"**
-   - Verify MCP server URLs are accessible
-   - Check command-line MCP servers can be executed
-   - Review environment variables for MCP servers
-
-### Debugging
-
-Enable verbose logging:
-```bash
-export LOGFIRE_TOKEN=your-token  # For comprehensive tracing
-tiger-agent run --prompts ./prompts
-```
-
-Check database connection:
-```bash
-tiger-agent migrate  # Should complete without errors
-```
-
-Test MCP configuration:
-```bash
-# Disable all MCP servers in config to isolate issues
-# Set "disabled": true for all servers in mcp_config.json
-```
-
-## Integration with CI/CD
-
-### Docker Deployment
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-# Copy configuration
-COPY prompts/ ./prompts/
-COPY mcp_config.json .
-COPY .env .
-
-# Run migrations and start agent
-CMD ["sh", "-c", "tiger-agent migrate && tiger-agent run --prompts ./prompts --mcp-config ./mcp_config.json"]
-```
-
-### Kubernetes Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: tiger-agent
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: tiger-agent
-  template:
-    metadata:
-      labels:
-        app: tiger-agent
-    spec:
-      containers:
-      - name: tiger-agent
-        image: your-registry/tiger-agent:latest
-        command:
-          - tiger-agent
-          - run
-          - --prompts
-          - /app/prompts
-          - --mcp-config
-          - /app/mcp_config.json
-          - --num-workers
-          - "5"
-        env:
-        - name: SLACK_BOT_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: slack-secrets
-              key: bot-token
-        - name: PGHOST
-          value: "postgres-service"
-```
-
-The Tiger Agent CLI provides a powerful, flexible way to deploy custom AI-powered Slack bots with minimal configuration while maintaining full access to the sophisticated EventHarness architecture and MCP server ecosystem.
