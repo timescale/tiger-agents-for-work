@@ -1,101 +1,88 @@
 # Tiger Agent
 
-Tiger Agent is a Python library and CLI for building Slack bots, especially LLM-powered agentic Slack bots.
 
+Want to see a Tiger Agent in action as quickly as possible? Jump to the [Quick Start](#quick-start).
 
+## What is TigerData building with Tiger Agent?
 
-## Architecture
+At TigerData, we have used Tiger Agent to build Eon.
+Eon is an agentic bot living in our internal Slack.
+Eon answers questions of all sorts.
 
-For detailed technical documentation, see [architecture.md](./architecture.md).
+We are building Eon in the open. Check out our work at [https://github.com/timescale/tiger-eon](https://github.com/timescale/tiger-eon).
+Use what we have learned as a reference for building your own Tiger Agent.
 
-```mermaid
-graph TB
-    %% User Input
-    U[Slack Events]
+We gave Eon superpowers via multiple MCP servers, including:
 
-    %% Event Processing
-    H[Event Harness<br/>• Captures events<br/>• Queues for processing<br/>• Worker coordination]
-    W[Worker Pool<br/>• Concurrent processing<br/>• Retry logic<br/>• Failure handling]
+1. **Slack** - Eon can read the conversation for context more like a human would. They can also search Slack for answers.
+   [https://github.com/timescale/tiger-slack](https://github.com/timescale/tiger-slack)
+2. **Docs** - Eon can search TigerData docs, Postgres docs, and use our curated prompts.
+   [https://github.com/timescale/tiger-docs-mcp-server](https://github.com/timescale/tiger-docs-mcp-server)
+3. **Memory** - Eon can "remember" important facts about interactions. [https://github.com/timescale/tiger-memory-mcp-server](https://github.com/timescale/tiger-memory-mcp-server)
+4. **Linear** - Eon can read our Linear issues. [https://github.com/timescale/tiger-linear-mcp-server](https://github.com/timescale/tiger-linear-mcp-server)
+5. **GitHub** - Eon can read our commits and pull requests. [https://github.com/timescale/tiger-gh-mcp-server](https://github.com/timescale/tiger-gh-mcp-server)
+6. **Salesforce** - Eon can read our support cases. [https://github.com/timescale/tiger-salesforce-mcp-server](https://github.com/timescale/tiger-salesforce-mcp-server)
 
-    %% Database
-    DB[(TimescaleDB<br/>Event storage<br/>Processing queue)]
+None of these MCP servers are **required** to use Tiger Agent, but feel free to if they suit your needs.
 
-    %% Flow
-    U --> H
-    H --> DB
-    DB --> W
-    W --> DB
-```
+We have found Eon to be an extremely valuable addition to our company.
 
-## Getting Started
+## Quick Start
 
-### Installation
+### Prerequisites
+
+1. [uv](https://docs.astral.sh/uv/)
+2. [docker](https://www.docker.com/products/docker-desktop/)
+
+### Setup
+
+#### 1. Clone the repo and install the dependencies.
 
 ```bash
-# Install dependencies
+# clone the repo
+git clone https://github.com/timescale/tiger-agent
+cd tiger-agent
+
+# install the dependencies
 uv sync
 
-# Set up environment variables
-cp .env.sample .env
-# Edit .env with your configuration
-
-# Run database migrations
-uv run python -m tiger_agent.migrations.runner
-
-# Start the harness
-uv run python -m tiger_agent.main
+# verify the installation
+uv run python -m tiger_agent --help
 ```
 
-### Environment Variables
+#### 2. Run a TimescaleDB database in a docker container.
 
-First, initialize your environment configuration:
+```bash
+# pull the latest image
+docker pull timescale/timescaledb-ha:pg17
+
+# run the database container
+docker run -d --name tiger-agent -e POSTGRES_PASSWORD=password -p 127.0.0.1:5432:5432 timescale/timescaledb-ha:pg17
+```
+
+#### 3. Create a Slack App
+
+#### 4. Set your environment variables
+
+Copy the sample .env file.
 
 ```bash
 cp .env.sample .env
 ```
+Edit the .env file.
 
-#### Required Variables
+1. Add your `SLACK_APP_TOKEN`. It starts with `xapp-`.
+2. Add your `SLACK_BOT_TOKEN`. It starts with `xoxb-`.
+3. Add your `ANTHROPIC_API_KEY`. It starts with `sk-ant-`.
+4. [OPTIONAL] Add your `LOGFIRE_TOKEN`. It starts with `pylf_v1_`.
 
-**Slack Integration** (Required):
-```bash
-SLACK_BOT_TOKEN=xoxb-your_bot_token_here
-SLACK_APP_TOKEN=xapp-your_app_token_here
-```
+### Run a Tiger Agent
 
-**Note**: Database variables (`PGHOST`, `PGDATABASE`, etc.) are pre-configured for the Docker setup and typically don't need modification.
-
-## Docker Deployment
-
-### Quick Start
-
-Use the provided startup script:
+Run a Tiger Agent.
 
 ```bash
-./start.sh
+uv run python -m tiger_agent run 
 ```
 
-This script will:
-1. Build Docker images
-2. Start core services (app, database, Slack ingest)
+## Customization
 
-### Manual Docker Commands
-
-```bash
-# Build and start all services
-docker-compose build
-docker-compose up -d
-
-# Start core services
-docker-compose up -d app db tiger-slack-ingest
-
-# View logs
-docker-compose logs -f app
-```
-
-### Event Processing
-
-The system processes Slack events through a reliable queue-based architecture:
-- **Event Capture**: Slack events are immediately acknowledged and stored
-- **Queue Processing**: Worker pool processes events with retry logic
-- **Failure Handling**: Failed events are retried with exponential backoff
-- **Monitoring**: Full observability through Logfire integration
