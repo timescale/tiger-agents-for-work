@@ -12,5 +12,8 @@ Technical documentation of the EventHarness system that provides scalable, resil
 ## [Database Architecture](database.md)
 Detailed explanation of the PostgreSQL + TimescaleDB database design, including the event work queue system, database functions for atomic operations, migration system, and data models for durable event processing.
 
+## [Customization Guide](customization_guide.md)
+Complete guide to using Tiger Agent as a library to create a customized bot for your specific usage.
+
 ## [Observability](observability.md)
 Guide to Tiger Agent's comprehensive observability features using Logfire, including automatic instrumentation, system metrics collection, tracing patterns, and monitoring best practices for production deployments.
