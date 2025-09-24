@@ -49,14 +49,12 @@ None of these MCP servers are **required** to use Tiger Agent, but feel free to 
 
 ## Quick Start
 
-### Prerequisites
+### 0. Prerequisites
 
 1. [uv](https://docs.astral.sh/uv/)
 2. [docker](https://www.docker.com/products/docker-desktop/)
 
-### Setup
-
-#### 1. Clone the repo and install the dependencies.
+### 1. Clone the repo and install the dependencies.
 
 ```bash
 # clone the repo
@@ -70,7 +68,7 @@ uv sync
 uv run tiger_agent --help
 ```
 
-#### 2. Run a TimescaleDB database in a docker container.
+### 2. Run a TimescaleDB database in a docker container.
 
 ```bash
 # pull the latest image
@@ -85,7 +83,7 @@ docker run -d --name tiger-agent \
   timescale/timescaledb-ha:pg17
 ```
 
-#### 3. Create a Slack App
+### 3. Create a Slack App
 
 Tiger Agent use the Slack Events API with Socket Mode to receive `app_mention` events when your Slack users mention the bot.
 You must create a Slack App for your Tiger Agent.
@@ -102,7 +100,7 @@ You must create a Slack App for your Tiger Agent.
 10. Navigate to: Install App → Click 'Install to [Workspace]'
 11. After installation, save the 'Bot User OAuth Token' A.K.A. `SLACK_APP_TOKEN` (It starts with `xapp-`)
 
-#### 4. Set your environment variables
+### 4. Set your environment variables
 
 Copy the sample .env file.
 
@@ -116,7 +114,7 @@ Edit the .env file.
 3. Add your `ANTHROPIC_API_KEY`. It starts with `sk-ant-`.
 4. [OPTIONAL] Add your `LOGFIRE_TOKEN`. It starts with `pylf_`.
 
-### Run the Tiger Agent
+### 5. Run the Tiger Agent
 
 Run the Tiger Agent.
 
