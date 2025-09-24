@@ -12,7 +12,7 @@ All functions are designed to be resilient, gracefully handling API errors and p
 structured data models for Slack entities.
 """
 
-from typing import Any, Optional
+from typing import Optional
 
 import logfire
 from pydantic import BaseModel
