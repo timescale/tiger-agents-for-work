@@ -4,19 +4,20 @@ Tiger Agent is a production-ready library for building AI-powered Slack bots tha
 (optionally) zero-code setup via CLI.
 
 * Want to see a Tiger Agent in action as quickly as possible? Jump to the [Quick Start](#quick-start).
-* Want to know what makes Tiger Agent special? Check out the [Features](#features).
+* Want to know what makes Tiger Agent special? Continue to the [Features](#features).
 * Want to know how TigerData has put this to use? Read [What is TigerData building with Tiger Agent](#what-is-tigerdata-building-with-tiger-agent).
+* Want to dig into the details? Consume the [docs](/docs/README.md).
 
 ## Features
 
+- **🔒 Durable & Atomic Event Handling**: PostgreSQL-backed event claiming ensures exactly-once processing with no duplicates, even under high concurrency and failure conditions
+- **⚡ Bounded Concurrency**: Fixed worker pools prevent resource exhaustion while maintaining predictable performance under load
 - **🎯 Immediate Event Processing**: Events are processed within milliseconds of arrival rather than waiting for polling cycles, providing real-time responsiveness
-- **⚡ Bounded Concurrency**: Fixed worker pools prevent resource exhaustion while maintaining predictable performance under any load
-- **🔒 Atomic Event Handling**: PostgreSQL-backed event claiming ensures exactly-once processing with no duplicates, even under high concurrency and failure conditions
 - **🔄 Resilient Retry Logic**: Automatic retry with visibility thresholds and cleanup of stuck or expired events
 - **📈 Horizontal Scalability**: Multiple instances can run simultaneously with coordinated work distribution across all instances
-- **🔍 Complete Observability**: Full Logfire instrumentation provides detailed tracing of event flow, worker activity, and database operations
 - **🤖 AI-Powered Responses**: Pydantic-AI Agents using the model of your choice with (optional) MCP server integrations
 - **🔧 Extensible Architecture**: No coding required for basic bots and easy customization through Python subclassing for more specialized use cases
+- **🔍 Complete Observability**: Full Logfire instrumentation provides detailed tracing of event flow, worker activity, and database operations
 
 How does Tiger Agent provide all of these features? Read the [docs](/docs/README.md).
 
@@ -123,6 +124,5 @@ uv run python -m tiger_agent run
 For light customization, you can use [Jinja2](https://jinja.palletsprojects.com/en/stable/) templates to customize the system and user prompts.
 You can give your Tiger Agent custom superpowers by configuring one or more MCP servers. See the [CLI docs](/docs/cli.md) for more information.
 
-For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch. Check out the [Tiger Agent docs](/docs/tiger_agent.md).
-
-
+For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch. 
+Check out the [Customization Guide](/docs/customization_guide.md) to see how.
