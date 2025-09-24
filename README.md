@@ -133,4 +133,4 @@ For light customization, you can use [Jinja2](https://jinja.palletsprojects.com/
 You can give your Tiger Agent custom superpowers by configuring one or more MCP servers. See the [CLI docs](/docs/cli.md) for more information.
 
 For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch. 
-Check out the [Customization Guide](/docs/customization_guide.md) to see how.
+Check out the [Tiger Agent docs](/docs/tiger_agent.md) to see how.
