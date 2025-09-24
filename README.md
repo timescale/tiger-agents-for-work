@@ -16,7 +16,7 @@ Tiger Agent is a production-ready library for building AI-powered Slack bots tha
 - **🔄 Resilient Retry Logic**: Automatic retry with visibility thresholds and cleanup of stuck or expired events
 - **📈 Horizontal Scalability**: Multiple instances can run simultaneously with coordinated work distribution across all instances
 - **🤖 AI-Powered Responses**: Pydantic-AI Agents using the model of your choice with (optional) MCP server integrations
-- **🔧 Extensible Architecture**: No coding required for basic bots and easy customization through Python subclassing for more specialized use cases
+- **🔧 Extensible Architecture**: No coding required for basic bots and easy customization via Python for more specialized use cases
 - **🔍 Complete Observability**: Full Logfire instrumentation provides detailed tracing of event flow, worker activity, and database operations
 
 How does Tiger Agent provide all of these features? Read the [docs](/docs/README.md).
