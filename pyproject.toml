@@ -21,6 +21,9 @@ dependencies = [
     "websockets>=15.0.1",
 ]
 
+[project.scripts]
+tiger_agent = "tiger_agent.main:main"
+
 [tool.setuptools.packages.find]
 include = ["tiger_agent*"]
 exclude = ["prompts*", "examples*", "docs*"]
