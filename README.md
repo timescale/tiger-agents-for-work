@@ -114,7 +114,7 @@ Edit the .env file.
 1. Add your `SLACK_APP_TOKEN`. It starts with `xapp-`.
 2. Add your `SLACK_BOT_TOKEN`. It starts with `xoxb-`.
 3. Add your `ANTHROPIC_API_KEY`. It starts with `sk-ant-`.
-4. [OPTIONAL] Add your `LOGFIRE_TOKEN`. It starts with `pylf_v1_`.
+4. [OPTIONAL] Add your `LOGFIRE_TOKEN`. It starts with `pylf_`.
 
 ### Run the Tiger Agent
 
