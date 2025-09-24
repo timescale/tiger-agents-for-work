@@ -1,49 +1,22 @@
 # Tiger Agent CLI
 
-Tiger Agent provides a command-line interface for running custom AI-powered Slack bots. The CLI allows you to quickly deploy a TigerAgent instance with custom prompts and MCP server integrations without writing Python code.
+Tiger Agent provides a command-line interface for running custom AI-powered Slack bots.
+The CLI allows you to quickly deploy a TigerAgent instance with custom prompts and MCP server integrations without writing Python code.
 
-## Overview
+## Create a Custom Tiger Agent with the CLI
 
-The CLI tool (`tiger-agent`) provides two main commands:
-- **`run`**: Start the Tiger Agent bot with custom configuration
-- **`migrate`**: Run database migrations to set up or update the database schema (Not usually necessary)
+### 0. Prerequisites
 
-## Running and Installing the CLI
-
-Run the Tiger Agent CLI
-
-```bash
-uvx --from git+https://github.com/timescale/tiger-agent.git tiger-agent --help
-```
-
-Run a specific version using a git tag (v0.0.1 in the example)
-
-```bash
-uvx --from git+https://github.com/timescale/tiger-agent.git@v0.0.1 tiger-agent --help
-```
-
-Install Tiger Agent as a tool
-
-```bash
-# install the tool
-uv tool install --from git+https://github.com/timescale/tiger-agent.git@v0.0.1
-
-# test the installation
-tiger-agent --help
-```
-
-## Prerequisites
-
-Before running Tiger Agent, you need:
+Before running the Tiger Agent CLI, you need:
 
 1. **PostgreSQL database** with TimescaleDB extension
 2. **Environment variables** for Slack and database connectivity
 3. **Prompt templates** (system_prompt.md and user_prompt.md)
 4. **MCP configuration** (optional, for extended capabilities)
+5. **An Anthropic API Key** for LLM text completion
 
-## Setup
 
-### A Database
+### 1. Database Creation
 
 You will need a PostgreSQL database with the TimescaleDB extension.
 
@@ -54,10 +27,15 @@ You can use docker:
 docker pull timescale/timescaledb-ha:pg17
 
 # run the database container
-docker run -d --name tiger-agent -e POSTGRES_PASSWORD=password -p 127.0.0.1:5432:5432 timescale/timescaledb-ha:pg17
+docker run -d --name tiger-agent \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=tsdb \
+  -e POSTGRES_USER=tsdbadmin \
+  -p 127.0.0.1:5432:5432 \
+  timescale/timescaledb-ha:pg17
 ```
 
-### Project Structure
+### 2. Project Structure
 
 Your project structure will look like this:
 
@@ -70,31 +48,31 @@ my-tiger-agent/
     └── user_prompt.md
 ```
 
+Create the root directory.
+
 ```bash
 mkdir my-tiger-agent
 
 cd my-tiger-agent
 ```
 
-### Environment Variables
+### 3. Environment Variables
 
 Create a `.env` file to put your environment variables in. Copy [.env.sample](/.env.sample) to get started.
-The two Slack tokens, the Anthropic API key, and the database connection details are required.
-
-Alternately, you can set the environment variables in your shell session:
 
 ```bash
-# 1. Set up environment variables
-export SLACK_BOT_TOKEN="xoxb-your-bot-token"
-export SLACK_APP_TOKEN="xapp-your-app-token"
-ANTHROPIC_API_KEY="sk-ant-api03-your-api-key"
-export PGHOST="localhost"
-export PGDATABASE="postgres"
-export PGUSER="postgres"
-export PGPASSWORD="password"
+curl -o .env https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/.env.sample
 ```
 
-### Prompts
+Then, edit the `.env` file to add your:
+
+- SLACK_APP_TOKEN
+- SLACK_BOT_TOKEN
+- ANTHROPIC_API_KEY
+- LOGFIRE_TOKEN (optional)
+
+
+### 4. Prompts
 
 Create a directory to put your prompt templates in.
 
@@ -103,22 +81,53 @@ mkdir prompts
 ```
 
 Copy the [system_prompt.md](/prompts/system_prompt.md) and [user_prompt.md](/prompts/user_prompt.md) into the `prompts` directory you just created.
+
+```bash
+curl -o prompts/system_prompt.md https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/prompts/system_prompt.md
+curl -o prompts/user_prompt.md https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/prompts/user_prompt.md
+```
+
 Use these Jinja2 templates as a starting point for customizing the instructions for your agent.
 See [Customizing the Prompt Templates](#customizing-the-prompt-templates) for detailed instructions.
 
-### MCP Server Config File (Optional)
+
+### 5. MCP Server Config File (Optional)
 
 You can give your agent capabilities by configuring MCP Servers for it to use.
 Copy [examples/mcp_config.json](/examples/mcp_config.json) to your project as an example to get started.
-Read [MCP Server Configuration](#mcp-server-configuration) for detailed instructions.
-
-## Run the Agent
 
 ```bash
-tiger-agent run [OPTIONS]
+curl -o mcp_config.json https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/examples/mcp_config.json
 ```
 
-#### Options
+Read [MCP Server Configuration](#mcp-server-configuration) for detailed instructions on how to edit this file.
+
+
+### 6. Running the Tiger Agent CLI
+
+Install Tiger Agent as a tool
+
+```bash
+# install the tool
+uv tool install --from git+https://github.com/timescale/tiger-agent.git tiger-agent
+
+# test the installation
+tiger-agent --help
+```
+
+Run the CLI (without MCP Servers):
+
+```bash
+tiger-agent run
+```
+
+Run the CLI with MCP Servers:
+
+```bash
+tiger-agent run --mcp-config mcp_config.json
+```
+
+#### CLI Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -160,12 +169,11 @@ tiger-agent run \
   --env .env.production
 ```
 
-
 ## Customizing the Prompt Templates
 
 Tiger Agent requires two Jinja2 template files in the prompts directory:
 
-#### `system_prompt.md`
+### `system_prompt.md`
 
 Defines the AI's role, capabilities, and behavior:
 
@@ -191,7 +199,7 @@ You can help with documentation, code analysis, project management, and more.
 - Consider local time: {{local_time.strftime('%I:%M %p %Z')}}
 ```
 
-#### `user_prompt.md`
+### `user_prompt.md`
 
 Formats the user's request with context:
 
@@ -214,7 +222,7 @@ Formats the user's request with context:
 Please respond appropriately to this request.
 ```
 
-#### Available Template Variables
+### Available Template Variables
 
 | Variable | Description |
 |----------|-------------|
