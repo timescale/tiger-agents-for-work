@@ -27,7 +27,11 @@ Eon is an agentic bot living in our internal Slack workspace.
 Eon answers all sorts of questions for us.
 
 We are building Eon in the open. Check out our work at [https://github.com/timescale/tiger-eon](https://github.com/timescale/tiger-eon).
-Use what we have learned as a reference for building your own Tiger Agent.
+Use what we have learned as a reference for building your own Tiger Agent. Share with us what you learn!
+
+We have found Eon to be an extremely valuable addition to our company.
+
+### What makes Eon special?
 
 We gave Eon superpowers via multiple MCP servers, including:
 
@@ -41,8 +45,6 @@ We gave Eon superpowers via multiple MCP servers, including:
 6. **Salesforce** - Eon can read our support cases. [https://github.com/timescale/tiger-salesforce-mcp-server](https://github.com/timescale/tiger-salesforce-mcp-server)
 
 None of these MCP servers are **required** to use Tiger Agent, but feel free to if they suit your needs.
-
-We have found Eon to be an extremely valuable addition to our company.
 
 ## Quick Start
 
