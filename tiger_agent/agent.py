@@ -20,7 +20,7 @@ The TigerAgent processes Slack app_mention events by:
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 from zoneinfo import ZoneInfo
 
 import logfire
@@ -35,6 +35,7 @@ from tiger_agent.slack import fetch_user_info, fetch_bot_info, BotInfo, add_reac
 
 logger = logging.getLogger(__name__)
 
+MCPDict: TypeAlias = dict[str, MCPServerStreamableHTTP | MCPServerStdio]
 
 @logfire.instrument("load_mcp_config")
 def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
@@ -46,12 +47,12 @@ def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
     Returns:
         Dictionary mapping server names to their configuration dictionaries
     """
-    mcp_config: dict[str, dict[str, Any]] = json.loads(mcp_config.read_text()) if mcp_config else {}
-    return mcp_config
+    loaded_mcp_config: dict[str, dict[str, Any]] = json.loads(mcp_config.read_text()) if mcp_config else {}
+    return loaded_mcp_config
 
 
 @logfire.instrument("create_mcp_servers", extract_args=False)
-def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> dict[str, MCPServerStreamableHTTP | MCPServerStdio]:
+def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
     """Create MCP server instances from configuration.
 
     Supports two types of MCP servers:
@@ -66,7 +67,7 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> dict[str, MCPSe
     Returns:
         Dictionary mapping server names to configured MCP server instances
     """
-    mcp_servers: dict[str, MCPServerStreamableHTTP | MCPServerStdio] = {}
+    mcp_servers: MCPDict = {}
     for name, cfg in mcp_config.items():
         if cfg.pop("disabled", False):
             continue
@@ -91,7 +92,7 @@ class MCPLoader:
     def __init__(self, config: Path | None):
         self._config = load_mcp_config(config) if config else {}
 
-    def __call__(self) -> dict[str, MCPServerStreamableHTTP | MCPServerStdio]:
+    def __call__(self) -> MCPDict:
         """Create fresh MCP server instances from the loaded configuration.
 
         Returns:
@@ -144,7 +145,7 @@ class TigerAgent:
             )
         self.mcp_loader = MCPLoader(mcp_config_path)
         self.max_attempts = max_attempts
-    
+
     @logfire.instrument("make_system_prompt", extract_args=False)
     async def make_system_prompt(self, ctx: dict[str, Any]) -> str:
         """Generate system prompt from Jinja2 template.
@@ -161,7 +162,7 @@ class TigerAgent:
         """
         tmpl = self.jinja_env.get_template("system_prompt.md")
         return await tmpl.render_async(**ctx)
-    
+
     @logfire.instrument("make_user_prompt", extract_args=False)
     async def make_user_prompt(self, ctx: dict[str, Any]) -> str:
         """Generate user prompt from Jinja2 template.
@@ -178,7 +179,19 @@ class TigerAgent:
         """
         tmpl = self.jinja_env.get_template("user_prompt.md")
         return await tmpl.render_async(**ctx)
-    
+
+    def augment_mcp_servers(self, mcp_servers: MCPDict):
+        """Hook to augment loaded MCP servers before use.
+
+        This method can be overridden in subclasses to modify or add to the
+        MCP servers created from configuration in-place. This can be useful
+        for adding a `process_tool_call` callback on servers for example.
+
+        Args:
+            mcp_servers: Dictionary of loaded MCP servers
+        """
+        pass
+
     @logfire.instrument("generate_response", extract_args=False)
     async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
         """Generate AI response to a Slack app_mention event.
@@ -217,7 +230,7 @@ class TigerAgent:
             ctx["local_time"] = event.event_ts.astimezone(ZoneInfo(user_info.tz))
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
-        mcp_servers = self.mcp_loader()
+        mcp_servers = self.augment_mcp_servers(self.mcp_loader())
         toolsets = [mcp_server for mcp_server in mcp_servers.values()]
         agent = Agent(
             model=self.model,
