@@ -9,11 +9,9 @@ The CLI allows you to quickly deploy a TigerAgent instance with custom prompts a
 
 Before running the Tiger Agent CLI, you need:
 
-1. **PostgreSQL database** with TimescaleDB extension
-2. **Environment variables** for Slack and database connectivity
-3. **Prompt templates** (system_prompt.md and user_prompt.md)
-4. **MCP configuration** (optional, for extended capabilities)
-5. **An Anthropic API Key** for LLM text completion
+1. [uv](https://docs.astral.sh/uv/)
+2. [docker](https://www.docker.com/products/docker-desktop/)
+3. An ANTHROPIC_API_KEY
 
 
 ### 1. Database Creation

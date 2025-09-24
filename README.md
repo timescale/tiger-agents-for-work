@@ -53,6 +53,7 @@ None of these MCP servers are **required** to use Tiger Agent, but feel free to 
 
 1. [uv](https://docs.astral.sh/uv/)
 2. [docker](https://www.docker.com/products/docker-desktop/)
+3. An ANTHROPIC_API_KEY
 
 ### 1. Clone the repo and install the dependencies.
 
