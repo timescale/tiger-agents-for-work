@@ -86,8 +86,7 @@ curl -o prompts/user_prompt.md https://raw.githubusercontent.com/timescale/tiger
 ```
 
 Use these Jinja2 templates as a starting point for customizing the instructions for your agent.
-See [Customizing the Prompt Templates](#customizing-the-prompt-templates) for detailed instructions.
-
+See [Prompt Templates](prompt_templates.md) for detailed instructions on customizing these templates.
 
 ### 5. MCP Server Config File (Optional)
 
@@ -166,70 +165,6 @@ tiger-agent run \
   --prompts ./prompts \
   --env .env.production
 ```
-
-## Customizing the Prompt Templates
-
-Tiger Agent requires two Jinja2 template files in the prompts directory:
-
-### `system_prompt.md`
-
-Defines the AI's role, capabilities, and behavior:
-
-```markdown
-# Tiger Agent System Prompt
-
-You are Tiger Agent, an AI assistant integrated into Slack via {{bot.name}}.
-
-## Your Capabilities
-- Access to real-time information through connected tools
-- Ability to help with {{user.real_name}}'s requests in {{bot.team}}
-- Context-aware responses based on user timezone ({{user.tz_label}})
-
-## Available Tools
-{% if mention.text contains "help" %}
-You can help with documentation, code analysis, project management, and more.
-{% endif %}
-
-## Guidelines
-- Be helpful and concise
-- Use threaded replies when appropriate
-- Reference user by name: {{user.real_name or user.name}}
-- Consider local time: {{local_time.strftime('%I:%M %p %Z')}}
-```
-
-### `user_prompt.md`
-
-Formats the user's request with context:
-
-```markdown
-# Request from {{user.real_name or user.name}}
-
-**Message:** {{mention.text}}
-
-**Context:**
-- Channel: {{mention.channel}}
-- Time: {{local_time.strftime('%Y-%m-%d %I:%M %p %Z')}}
-{% if mention.thread_ts %}
-- Thread: This is part of an ongoing conversation
-{% endif %}
-
-**User Profile:**
-- Timezone: {{user.tz_label}}
-- Team: {{bot.team}}
-
-Please respond appropriately to this request.
-```
-
-### Available Template Variables
-
-| Variable | Description |
-|----------|-------------|
-| `event` | Complete Event object with processing metadata |
-| `mention` | AppMentionEvent with message details |
-| `bot` | Bot information (name, team, capabilities) |
-| `user` | User profile (real_name, timezone, etc.) |
-| `local_time` | Event timestamp in user's timezone |
-
 
 ## If you need further customization...
 

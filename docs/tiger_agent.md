@@ -69,26 +69,7 @@ See [MCP Server Configuration](mcp_config.md) for detailed configuration instruc
 
 ### Template Configuration
 
-Templates are loaded from the filesystem using Jinja2:
-
-```python
-agent = TigerAgent(
-    jinja_env=Path("/path/to/templates"),  # Template directory
-    # or
-    jinja_env=Environment(enable_async=True, ...)  # Custom environment
-)
-```
-
-**Required Templates**:
-- `system_prompt.md`: AI system instructions and capabilities
-- `user_prompt.md`: User request formatting and context
-
-**Template Context Variables**:
-- `{{event}}`: Complete event object with processing metadata
-- `{{mention}}`: Slack message content and threading information
-- `{{bot}}`: Bot identity and capabilities
-- `{{user}}`: User profile and preferences
-- `{{local_time}}`: Event timestamp in user's timezone
+Templates are loaded from the filesystem using Jinja2. Tiger Agent requires two templates: `system_prompt.md` and `user_prompt.md`. See [Prompt Templates](prompt_templates.md) for detailed configuration and customization instructions.
 
 ## Getting Started
 

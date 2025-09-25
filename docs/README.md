@@ -12,5 +12,11 @@ Deep dive into the TigerAgent class - the AI-powered event processor that integr
 ## [CLI Usage](cli.md)
 Complete guide to using Tiger Agent as a command-line tool. Covers installation, configuration, prompt templates, MCP server setup, and deployment examples for creating custom AI bots without writing code.
 
+## [Prompt Templating](prompt_templates.md)
+A guide to customizing the Jinja2 templates Tiger Agent uses for dynamic, context-aware prompt generation
+
+## [MCP Server Configuration](mcp_config.md)
+Explains how Tiger Agent can be extended with powerful capabilities through MCP (Model Context Protocol) servers
+
 ## [Observability](observability.md)
 Guide to Tiger Agent's comprehensive observability features using Logfire, including automatic instrumentation, system metrics collection, tracing patterns, and monitoring best practices for production deployments.
