@@ -180,7 +180,7 @@ class TigerAgent:
         tmpl = self.jinja_env.get_template("user_prompt.md")
         return await tmpl.render_async(**ctx)
 
-    def augment_mcp_servers(self, mcp_servers: MCPDict, ctx: dict[str, Any]):
+    def augment_mcp_servers(self, mcp_servers: MCPDict):
         """Hook to augment loaded MCP servers before use.
 
         This method can be overridden in subclasses to modify or add to the
