@@ -126,6 +126,10 @@ uv run tiger_agent run
 At this point, Tiger Agent will be receiving `app_mention` events from your Slack workspace.
 Send a Slack message mentioning your bot by name.
 
+At this point, your Tiger Agent is using our default prompts and has no tools at its disposal.
+It can only respond using the knowledge was trained into the LLM.
+To make your Tiger Agent powerful, you'll need to [customize...](#customization)
+
 ## Customization
 
 For light customization, you can use [Jinja2](https://jinja.palletsprojects.com/en/stable/) templates to customize the system and user prompts.
