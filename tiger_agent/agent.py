@@ -180,7 +180,7 @@ class TigerAgent:
         tmpl = self.jinja_env.get_template("user_prompt.md")
         return await tmpl.render_async(**ctx)
 
-    def augment_mcp_servers(self, mcp_servers: MCPDict):
+    def augment_mcp_servers(self, mcp_servers: MCPDict, ctx: dict[str, Any]):
         """Hook to augment loaded MCP servers before use.
 
         This method can be overridden in subclasses to modify or add to the
@@ -230,7 +230,8 @@ class TigerAgent:
             ctx["local_time"] = event.event_ts.astimezone(ZoneInfo(user_info.tz))
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
-        mcp_servers = self.augment_mcp_servers(self.mcp_loader())
+        mcp_servers = self.mcp_loader()
+        self.augment_mcp_servers(mcp_servers, ctx)
         toolsets = [mcp_server for mcp_server in mcp_servers.values()]
         agent = Agent(
             model=self.model,
