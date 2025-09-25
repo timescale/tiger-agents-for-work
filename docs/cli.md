@@ -98,7 +98,7 @@ Copy [examples/mcp_config.json](/examples/mcp_config.json) to your project as an
 curl -o mcp_config.json https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/examples/mcp_config.json
 ```
 
-Read [MCP Server Configuration](#mcp-server-configuration) for detailed instructions on how to edit this file.
+Read [MCP Server Configuration](mcp_config.md) for detailed instructions on how to edit this file.
 
 
 ### 6. Running the Tiger Agent CLI
@@ -230,49 +230,7 @@ Please respond appropriately to this request.
 | `user` | User profile (real_name, timezone, etc.) |
 | `local_time` | Event timestamp in user's timezone |
 
-## MCP Server Configuration
 
-Configure external tools and capabilities via `mcp_config.json`:
+## If you need further customization...
 
-### HTTP-based MCP Servers
-
-```json
-{
-  "docs_server": {
-    "tool_prefix": "docs",
-    "url": "https://docs-mcp-server.example.com/mcp",
-    "allow_sampling": false,
-    "disabled": false
-  },
-  "github_server": {
-    "tool_prefix": "github",
-    "url": "http://localhost:3001/mcp",
-    "allow_sampling": true,
-    "disabled": false
-  }
-}
-```
-
-### Command-line MCP Servers
-
-```json
-{
-  "logfire_tools": {
-    "command": "uvx",
-    "args": ["logfire-mcp"],
-    "env": {
-      "LOGFIRE_READ_TOKEN": "your_token"
-    },
-    "disabled": false
-  },
-  "custom_tools": {
-    "command": "python",
-    "args": ["/path/to/mcp_server.py", "--config", "prod"],
-    "env": {
-      "DATABASE_URL": "postgresql://...",
-      "API_KEY": "secret"
-    },
-    "disabled": false
-  }
-}
-```
+If you need to customize your Tiger Agent beyond what is possible with the CLI, check out the guide in [docs/tiger_agent.md](/docs/tiger_agent.md)!

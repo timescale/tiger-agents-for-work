@@ -64,58 +64,8 @@ Each event processing cycle builds comprehensive context:
 
 ### MCP Server Configuration
 
-TigerAgent loads MCP servers from a JSON configuration file. There are two types of MCP servers:
-
-#### **Streaming HTTP Servers**
-For remote MCP services accessible over HTTP:
-
-```json
-{
-  "slack_server": {
-    "tool_prefix": "slack",
-    "url": "http://slack-mcp-server/mcp",
-    "allow_sampling": false,
-    "disabled": false
-  },
-  "docs_server": {
-    "tool_prefix": "docs",
-    "url": "https://docs-api.example.com/mcp",
-    "allow_sampling": true,
-    "disabled": false
-  }
-}
-```
-
-#### **stdio Servers**
-For command-line MCP servers that run as local processes:
-
-```json
-{
-  "logfire_server": {
-    "command": "uvx",
-    "args": ["logfire-mcp"],
-    "env": {
-      "LOGFIRE_READ_TOKEN": "your_token_here"
-    },
-    "disabled": false
-  },
-  "local_tool": {
-    "command": "python",
-    "args": ["/path/to/mcp_server.py", "--config", "prod"],
-    "env": {
-      "DATABASE_URL": "postgresql://...",
-      "API_KEY": "secret"
-    },
-    "disabled": false
-  }
-}
-```
-
-**Configuration Features**:
-- **Tool Prefixing**: Prevents naming conflicts between servers
-- **Selective Enabling**: Disable servers without removing configuration
-- **Environment Variables**: Pass secrets and configuration to servers
-- **Sampling Control**: Fine-tune model behavior per server
+TigerAgent loads MCP servers from a JSON configuration file, supporting both HTTP-based and command-line servers.
+See [MCP Server Configuration](mcp_config.md) for detailed configuration instructions.
 
 ### Template Configuration
 
