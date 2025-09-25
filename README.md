@@ -44,6 +44,7 @@ We gave Eon superpowers via multiple MCP servers, including:
 4. **Linear** - Eon can read our Linear issues. [https://github.com/timescale/tiger-linear-mcp-server](https://github.com/timescale/tiger-linear-mcp-server)
 5. **GitHub** - Eon can read our commits and pull requests. [https://github.com/timescale/tiger-gh-mcp-server](https://github.com/timescale/tiger-gh-mcp-server)
 6. **Salesforce** - Eon can read our support cases. [https://github.com/timescale/tiger-salesforce-mcp-server](https://github.com/timescale/tiger-salesforce-mcp-server)
+7. **Progress Agent** - Eon can use a subagent to report progress on projects. [https://github.com/timescale/tiger-progress-agent](https://github.com/timescale/tiger-progress-agent)
 
 None of these MCP servers are **required** to use Tiger Agent, but feel free to if they suit your needs.
 
