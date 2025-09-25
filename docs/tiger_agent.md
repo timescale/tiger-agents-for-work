@@ -10,7 +10,13 @@ TigerAgent transforms simple Slack mentions into powerful AI interactions by:
 - Providing context-aware responses using dynamic Jinja2 templating
 - Delivering rich user experiences with visual feedback through Slack reactions
 
-## Key Features
+**Next Steps:**
+- To learn about the architecture, continue on to [Architecture](#architecture).
+- To learn how to create a custom bot with Tiger Agent, jump ahead to [Creating a Custom Tiger Agent](#creating-a-custom-tiger-agent).
+
+## Architecture
+
+### Key Features
 
 ### 🤖 **AI-Powered Responses**
 Uses Pydantic-AI to generate intelligent responses to Slack mentions, with support for multiple LLM providers and structured output handling.
@@ -26,8 +32,6 @@ Provides visual feedback through reactions and supports threaded conversations, 
 
 ### 🎛️ **Extensible Architecture**
 Designed for customization through subclassing, allowing developers to override response generation for specialized use cases.
-
-## Architecture
 
 ### Core Components
 
@@ -60,18 +64,32 @@ Each event processing cycle builds comprehensive context:
 3. **Bot Information**: Includes bot capabilities and identity
 4. **Temporal Context**: Provides event timing in user's local timezone
 
-## Configuration
+### Interaction Flow
 
-### MCP Server Configuration
+### Success Path
 
-TigerAgent loads MCP servers from a JSON configuration file, supporting both HTTP-based and command-line servers.
-See [MCP Server Configuration](mcp_config.md) for detailed configuration instructions.
+1. **Event Reception**: EventHarness delivers Slack app_mention event
+2. **Visual Feedback**: Adds `:spinthinking:` reaction to indicate processing
+3. **Context Building**: Fetches user info, bot info, and builds template context
+4. **Prompt Generation**: Renders system and user prompts from Jinja2 templates
+5. **AI Processing**: Creates Pydantic-AI agent with MCP toolsets and generates response
+6. **Response Delivery**: Posts response to Slack thread or channel
+7. **Success Indication**: Removes `:spinthinking:` and adds `:white_check_mark:`
 
-### Template Configuration
+### Error Handling
 
-Templates are loaded from the filesystem using Jinja2. Tiger Agent requires two templates: `system_prompt.md` and `user_prompt.md`. See [Prompt Templates](prompt_templates.md) for detailed configuration and customization instructions.
+1. **Exception Capture**: Any processing failure is caught and logged
+2. **Visual Feedback**: Removes `:spinthinking:` and adds `:x:` reaction
+3. **User Communication**: Posts explanatory message to user
+4. **Retry Logic**: Re-raises exception for EventHarness retry handling
+5. **Adaptive Messaging**: Error message adapts based on retry count
 
-## Getting Started
+**Error Message Patterns**:
+- During retries: "I experienced an issue trying to respond. I will try again."
+- Final failure: "I experienced an issue trying to respond. I give up. Sorry."
+
+
+## Creating a Custom Tiger Agent
 
 ### Project Setup
 
@@ -98,10 +116,36 @@ To get a specific version of the library using git tags:
 ```bash
 uv add git+https://github.com/timescale/tiger-agent.git@v0.0.1
 ```
+### Configuration
 
-## Usage Patterns
+#### Environment Variables
 
-### Basic Usage
+Create a `.env` file to put your environment variables in. Copy [.env.sample](/.env.sample) to get started.
+
+```bash
+curl -o .env https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/.env.sample
+```
+
+Then, edit the `.env` file to add your:
+
+- SLACK_APP_TOKEN
+- SLACK_BOT_TOKEN
+- ANTHROPIC_API_KEY
+- LOGFIRE_TOKEN (optional)
+
+#### MCP Server Configuration
+
+TigerAgent loads MCP servers from a JSON configuration file, supporting both HTTP-based and command-line servers.
+See [MCP Server Configuration](mcp_config.md) for detailed configuration instructions.
+
+#### Template Configuration
+
+Templates are loaded from the filesystem using Jinja2. Tiger Agent requires two templates: `system_prompt.md` and `user_prompt.md`.
+See [Prompt Templates](prompt_templates.md) for detailed configuration and customization instructions.
+
+### Implementation Patterns
+
+#### Basic Usage
 
 ```python
 from tiger_agent import TigerAgent, EventHarness
@@ -118,7 +162,7 @@ harness = EventHarness(event_processor=agent)
 await harness.run()
 ```
 
-### Advanced Configuration
+#### Using a custom Jinja2 environment and other options
 
 ```python
 # Custom Jinja2 environment with additional filters
@@ -139,7 +183,7 @@ agent = TigerAgent(
 )
 ```
 
-### Customization Through Subclassing
+#### Customization Through Subclassing
 
 TigerAgent is designed for extension through inheritance. You can subclass TigerAgent and override the `generate_response(...)` method to customize exactly how responses are generated:
 
@@ -226,7 +270,7 @@ class CustomTigerAgent(TigerAgent):
 
 **Common Customization Patterns**:
 
-#### **Request Routing**
+##### **Request Routing**
 ```python
 async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
     mention = event.event
@@ -239,7 +283,7 @@ async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
         return await super().generate_response(hctx, event)
 ```
 
-#### **Response Filtering**
+##### **Response Filtering**
 ```python
 async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
     response = await super().generate_response(hctx, event)
@@ -251,7 +295,7 @@ async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
     return response
 ```
 
-#### **Context Enhancement**
+##### **Context Enhancement**
 ```python
 async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
     # Add custom context before generating response
@@ -271,7 +315,7 @@ async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
         self.make_system_prompt = original_method
 ```
 
-## Alternative: Implementing EventProcessor
+#### Implementing EventProcessor
 
 For even more customizability, you can implement an EventProcessor directly to control every aspect of the interaction. This can be a simple function which is passed to the EventHarness:
 
@@ -332,48 +376,3 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
 ```
-
-## Interaction Flow
-
-### Success Path
-
-1. **Event Reception**: EventHarness delivers Slack app_mention event
-2. **Visual Feedback**: Adds `:spinthinking:` reaction to indicate processing
-3. **Context Building**: Fetches user info, bot info, and builds template context
-4. **Prompt Generation**: Renders system and user prompts from Jinja2 templates
-5. **AI Processing**: Creates Pydantic-AI agent with MCP toolsets and generates response
-6. **Response Delivery**: Posts response to Slack thread or channel
-7. **Success Indication**: Removes `:spinthinking:` and adds `:white_check_mark:`
-
-### Error Handling
-
-1. **Exception Capture**: Any processing failure is caught and logged
-2. **Visual Feedback**: Removes `:spinthinking:` and adds `:x:` reaction
-3. **User Communication**: Posts explanatory message to user
-4. **Retry Logic**: Re-raises exception for EventHarness retry handling
-5. **Adaptive Messaging**: Error message adapts based on retry count
-
-**Error Message Patterns**:
-- During retries: "I experienced an issue trying to respond. I will try again."
-- Final failure: "I experienced an issue trying to respond. I give up. Sorry."
-
-## Integration Patterns
-
-### With EventHarness
-TigerAgent implements the EventProcessor interface, making it compatible with the EventHarness architecture for scalable event processing.
-
-### With MCP Ecosystem
-Supports the full MCP protocol specification, enabling integration with:
-- Documentation systems (search, retrieval)
-- Development tools (GitHub, Linear, Jira)
-- Data sources (databases, APIs)
-- Observability systems (Logfire, monitoring)
-
-### With Slack Platform
-Leverages Slack's rich interaction model:
-- Threaded conversations for context continuity
-- Reaction-based status indication
-- Channel and direct message support
-- User profile integration
-
-TigerAgent represents the convergence of modern AI capabilities with practical chat interface design, providing a foundation for building sophisticated conversational AI systems that can scale with organizational needs while remaining customizable for specific use cases.

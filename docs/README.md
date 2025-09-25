@@ -18,5 +18,8 @@ A guide to customizing the Jinja2 templates Tiger Agent uses for dynamic, contex
 ## [MCP Server Configuration](mcp_config.md)
 Explains how Tiger Agent can be extended with powerful capabilities through MCP (Model Context Protocol) servers
 
+## [Creating a Slack App](slack_app.md)
+Create a Slack App for your Tiger Agent to use the Slack Events API with Socket Mode to receive `app_mention` events
+
 ## [Observability](observability.md)
 Guide to Tiger Agent's comprehensive observability features using Logfire, including automatic instrumentation, system metrics collection, tracing patterns, and monitoring best practices for production deployments.

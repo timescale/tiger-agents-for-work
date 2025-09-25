@@ -10,15 +10,16 @@ The CLI allows you to quickly deploy a TigerAgent instance with custom prompts a
 Before running the Tiger Agent CLI, you need:
 
 1. [uv](https://docs.astral.sh/uv/)
-2. [docker](https://www.docker.com/products/docker-desktop/)
+2. A PostgreSQL database with TimescaleDB. You can use [docker](https://www.docker.com/products/docker-desktop/) if you wish.
 3. An ANTHROPIC_API_KEY
+4. A Slack app with tokens (see [docs/slack_app.md](/docs/slack_app.md))
 
 
 ### 1. Database Creation
 
 You will need a PostgreSQL database with the TimescaleDB extension.
 
-You can use docker:
+You can use docker to run the database:
 
 ```bash
 # pull the latest image
