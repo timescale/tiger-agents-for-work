@@ -1,1 +1,1 @@
-create extension if not exists timescaledb;
+create extension if not exists timescaledb with schema public;
