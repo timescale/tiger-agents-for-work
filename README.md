@@ -139,7 +139,7 @@ Check out the [Tiger Agent docs](/docs/tiger_agent.md) to see how.
 
 #### A First Superpower
 
-We have found that an amazing powerup for our agent, [Eon](https://github.com/timescale/tiger-eon), the ability to search and read Slack messages.
+We have found that an amazing powerup for our agent, [Eon](https://github.com/timescale/tiger-eon), is the ability to search and read Slack messages.
 When we ask Eon a vague question, Eon reads the Slack thread to gather context and make an inference like a human would!
 
 Good news: you can give your agent the same superpower! Head over to [tiger-slack](https://github.com/timescale/tiger-slack).
