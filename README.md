@@ -36,10 +36,8 @@ We have found Eon to be an extremely valuable addition to our company.
 
 We gave Eon superpowers via multiple MCP servers, including:
 
-1. **Slack** - Eon can read the conversation for context more like a human would. They can also search Slack for answers.
-   [https://github.com/timescale/tiger-slack](https://github.com/timescale/tiger-slack)
-2. **Docs** - Eon can search TigerData docs, Postgres docs, and use our curated prompts.
-   [https://github.com/timescale/tiger-docs-mcp-server](https://github.com/timescale/tiger-docs-mcp-server)
+1. **Slack** - Eon can read the conversation for context more like a human would. They can also search Slack for answers. [https://github.com/timescale/tiger-slack](https://github.com/timescale/tiger-slack)
+2. **Docs** - Eon can search TigerData docs, Postgres docs, and use our curated prompts. [https://github.com/timescale/tiger-docs-mcp-server](https://github.com/timescale/tiger-docs-mcp-server)
 3. **Memory** - Eon can "remember" important facts about interactions. [https://github.com/timescale/tiger-memory-mcp-server](https://github.com/timescale/tiger-memory-mcp-server)
 4. **Linear** - Eon can read our Linear issues. [https://github.com/timescale/tiger-linear-mcp-server](https://github.com/timescale/tiger-linear-mcp-server)
 5. **GitHub** - Eon can read our commits and pull requests. [https://github.com/timescale/tiger-gh-mcp-server](https://github.com/timescale/tiger-gh-mcp-server)
@@ -127,14 +125,23 @@ uv run tiger_agent run
 At this point, Tiger Agent will be receiving `app_mention` events from your Slack workspace.
 Send a Slack message mentioning your bot by name.
 
-At this point, your Tiger Agent is using our default prompts and has no tools at its disposal.
-It can only respond using the knowledge was trained into the LLM.
-To make your Tiger Agent powerful, you'll need to [customize...](#customization)
+### 6. Next Steps
 
-## Customization
+At this point, your Tiger Agent is using our default prompts and has no tools at its disposal.
+It can only respond using the knowledge was trained into the LLM, and it only "sees" the one Slack message that mentioned it.
+To make your Tiger Agent powerful, you'll need to customize it.
 
 For light customization, you can use [Jinja2](https://jinja.palletsprojects.com/en/stable/) templates to customize the system and user prompts.
 You can give your Tiger Agent custom superpowers by configuring one or more MCP servers. See the [CLI docs](/docs/cli.md) for more information.
 
-For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch. 
+For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch.
 Check out the [Tiger Agent docs](/docs/tiger_agent.md) to see how.
+
+**A Suggestion:**
+
+We have found that an amazing powerup for our agent, [Eon](https://github.com/timescale/tiger-eon), was giving it the ability to search and read Slack messages.
+When we ask Eon a vague question, Eon can read the Slack thread to gather context and make an inference like a human would!
+Good news! You can give your agent the same superpower. Head over to [tiger-slack](https://github.com/timescale/tiger-slack).
+You'll run a service that ingests real-time Slack events into a database (you can use the database you just created).
+You can backfill your historical Slack data, if you wish, and run an MCP Server makes the Slack data searchable.
+Once you've done this, [configure your Tiger Agent](/docs/mcp_config.md) to use the Slack MCP Server.
