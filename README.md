@@ -100,7 +100,7 @@ You must create a Slack App for your Tiger Agent.
 8. Click 'Generate Token and Scopes' → Add 'connections:write' scope → Generate
 9. Save your `SLACK_APP_TOKEN` (It starts with `xapp-`).
 10. Navigate to: Install App → Click 'Install to [Workspace]'
-11. After installation, save the 'Bot User OAuth Token' A.K.A. `SLACK_APP_TOKEN` (It starts with `xapp-`)
+11. After installation, save the 'Bot User OAuth Token' A.K.A. `SLACK_BOT_TOKEN` (It starts with `xoxb-`)
 
 ### 4. Set your environment variables
 
