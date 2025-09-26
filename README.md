@@ -122,7 +122,7 @@ Run the Tiger Agent.
 uv run tiger_agent run 
 ```
 
-At this point, Tiger Agent will be receiving `app_mention` events from your Slack workspace.
+Now, Tiger Agent will be receiving `app_mention` events from your Slack workspace!
 Send a Slack message mentioning your bot by name.
 
 ### 6. Next Steps
