@@ -141,7 +141,7 @@ Check out the [Tiger Agent docs](/docs/tiger_agent.md) to see how.
 
 We have found that an amazing powerup for our agent, [Eon](https://github.com/timescale/tiger-eon), was giving it the ability to search and read Slack messages.
 When we ask Eon a vague question, Eon can read the Slack thread to gather context and make an inference like a human would!
-Good news! You can give your agent the same superpower. Head over to [tiger-slack](https://github.com/timescale/tiger-slack).
+Good news: you can give your agent the same superpower! Head over to [tiger-slack](https://github.com/timescale/tiger-slack).
 You'll run a service that ingests real-time Slack events into a database (you can use the database you just created).
 You can backfill your historical Slack data, if you wish, and run an MCP Server makes the Slack data searchable.
 Once you've done this, [configure your Tiger Agent](/docs/mcp_config.md) to use the Slack MCP Server.
