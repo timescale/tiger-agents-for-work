@@ -270,31 +270,9 @@ agent = TigerAgent(
 )
 ```
 
-## Troubleshooting
+## MCP Servers to Try
 
-### Common Issues
-
-**Server won't start**: Check that the command path is correct and executable permissions are set.
-
-**Connection failed**: Verify the URL is accessible and the server is running.
-
-**Environment variables**: Ensure sensitive values are properly quoted in the JSON and accessible to the process.
-
-**Tool conflicts**: Use unique tool prefixes to avoid naming collisions.
-
-### Debugging
-
-Enable debug logging to troubleshoot MCP server issues:
-
-```bash
-export LOG_LEVEL=DEBUG
-tiger-agent run --mcp-config mcp_config.json
-```
-
-## Security Considerations
-
-- Store sensitive configuration (API keys, database URLs) in environment variables
-- Use separate configuration files for different environments
-- Regularly rotate API keys and tokens
-- Limit MCP server permissions to only what's necessary
-- Consider using tool prefixes to namespace server capabilities
+1. [tiger-slack](https://github.com/timescale/tiger-slack) - read Slack history
+2. [tiger-docs-mcp-server](https://github.com/timescale/tiger-docs-mcp-server) - Postgres and TigerData documentation
+3. [tiger-gh-mcp-server](https://github.com/timescale/tiger-gh-mcp-server) - read GitHub commits/PRs
+4. [tiger-linear-mcp-server](https://github.com/timescale/tiger-linear-mcp-server) - read Linear issues
