@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  docker-publish-mcp:
-    name: docker-publish-mcp
+  docker-publish:
+    name: docker-publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
