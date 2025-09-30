@@ -231,7 +231,7 @@ class TigerAgent:
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
         mcp_servers = self.mcp_loader()
-        self.augment_mcp_servers(mcp_servers, ctx)
+        self.augment_mcp_servers(mcp_servers)
         toolsets = [mcp_server for mcp_server in mcp_servers.values()]
         agent = Agent(
             model=self.model,
