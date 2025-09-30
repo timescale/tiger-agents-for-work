@@ -71,6 +71,8 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
     for name, cfg in mcp_config.items():
         if cfg.pop("disabled", False):
             continue
+        if not cfg.get("tool_prefix"):
+            cfg["tool_prefix"] = name
         if cfg.get("command"):
             mcp_servers[name] = MCPServerStdio(**cfg)
         elif cfg.get("url"):
