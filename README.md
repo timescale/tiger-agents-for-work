@@ -33,9 +33,9 @@ sequenceDiagram
 
     U->>TAB: app_mention event (@agent-slack-name)
     TAB->>TSDB: store event
-    TSDB-->>TAW: event claimed
-    TAW-->>MCP: use relevant tools to gather information
-    TAW-->>U: respond to user via Slack
+    TSDB->>TAW: event claimed
+    TAW->>MCP: use relevant tools to gather information
+    TAW->>U: respond to user via Slack
     TAW->>TSDB: delete event
 ```
 
