@@ -21,31 +21,6 @@ Tiger Agent is a production-ready library for building AI-powered Slack bots tha
 
 How does Tiger Agent provide all of these features? Read the [docs](/docs/README.md).
 
-## What is TigerData building with Tiger Agent?
-
-At TigerData, we have used Tiger Agent to build Eon.
-Eon is an agentic bot living in our internal Slack workspace.
-Eon answers all sorts of questions for us.
-
-We are building Eon in the open. Check out our work at [https://github.com/timescale/tiger-eon](https://github.com/timescale/tiger-eon).
-Use what we have learned as a reference for building your own Tiger Agent. Share with us what you learn!
-
-We have found Eon to be an extremely valuable addition to our company.
-
-### What makes Eon special?
-
-We gave Eon superpowers via multiple MCP servers, including:
-
-1. **Slack** - Eon can read the conversation for context more like a human would. They can also search Slack for answers. [https://github.com/timescale/tiger-slack](https://github.com/timescale/tiger-slack)
-2. **Docs** - Eon can search TigerData docs, Postgres docs, and use our curated prompts. [https://github.com/timescale/tiger-docs-mcp-server](https://github.com/timescale/tiger-docs-mcp-server)
-3. **Memory** - Eon can "remember" important facts about interactions. [https://github.com/timescale/tiger-memory-mcp-server](https://github.com/timescale/tiger-memory-mcp-server)
-4. **Linear** - Eon can read our Linear issues. [https://github.com/timescale/tiger-linear-mcp-server](https://github.com/timescale/tiger-linear-mcp-server)
-5. **GitHub** - Eon can read our commits and pull requests. [https://github.com/timescale/tiger-gh-mcp-server](https://github.com/timescale/tiger-gh-mcp-server)
-6. **Salesforce** - Eon can read our support cases. [https://github.com/timescale/tiger-salesforce-mcp-server](https://github.com/timescale/tiger-salesforce-mcp-server)
-7. **Progress Agent** - Eon can use a subagent to report progress on projects. [https://github.com/timescale/tiger-progress-agent](https://github.com/timescale/tiger-progress-agent)
-
-None of these MCP servers are **required** to use Tiger Agent, but feel free to if they suit your needs.
-
 ## Quick Start
 
 ### 0. Prerequisites
