@@ -37,11 +37,6 @@ sequenceDiagram
     TAW-->>MCP: use relevant tools to gather information
     TAW-->>U: respond to user via Slack
     TAW->>TSDB: delete event
-
-    click U "tiger_agent/harness.py#L473" "View app_mention event handler"
-    click TAB "tiger_agent/harness.py#L228" "View _insert_event method"
-    click TSDB "tiger_agent/harness.py#L267" "View _claim_event method"
-    click TAW "tiger_agent/agent.py#L288" "View post_response call"
 ```
 
 ## Quick Start
