@@ -35,7 +35,7 @@ sequenceDiagram
     TAB->>TSDB: store event
     TSDB-->>TAW: event claimed
     TAW-->>MCP: use relevant tools to gather information
-    TAW->>User: respond to user via Slack
+    TAW->>U: respond to user via Slack
 ```
 
 ## Quick Start
