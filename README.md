@@ -32,10 +32,16 @@ sequenceDiagram
     participant MCP as MCP Servers
 
     U->>TAB: app_mention event (@agent-slack-name)
+    click U "tiger_agent/harness.py#L473" "View app_mention event handler"
     TAB->>TSDB: store event
+    click TAB "tiger_agent/harness.py#L228" "View _insert_event method"
     TSDB-->>TAW: event claimed
+    click TSDB "tiger_agent/harness.py#L267" "View _claim_event method"
     TAW-->>MCP: use relevant tools to gather information
-    TAW->>U: respond to user via Slack
+    TAW-->>U: respond to user via Slack
+    click TAW "tiger_agent/agent.py#L288" "View post_response call"
+    TAW->>TSDB: delete event
+    click TAW "tiger_agent/harness.py#L293" "View _delete_event method"
 ```
 
 ## Quick Start
