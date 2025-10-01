@@ -21,6 +21,23 @@ Tiger Agent is a production-ready library for building AI-powered Slack bots tha
 
 How does Tiger Agent provide all of these features? Read the [docs](/docs/README.md).
 
+## High-Level Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant TAB as Tiger Agent Slack Bot
+    participant TSDB as TimescaleDB
+    participant TAW as Tiger Agent Worker
+    participant MCP as MCP Servers
+
+    U->>TAB: app_mention event (@agent-slack-name)
+    TAB->>TSDB: store event
+    TSDB-->TAW: event claimed
+    TAW->MCP: use relevant tools to gather information
+    TAW->User: respond to user via Slack
+```
+
 ## Quick Start
 
 ### 0. Prerequisites
