@@ -26,6 +26,24 @@ Multiple harness instances can run simultaneously, with PostgreSQL coordinating 
 ### 🔍 **Full Observability**
 Complete instrumentation with Logfire provides detailed tracing of event flow, worker activity, and database operations.
 
+## High-Level Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant TAB as Tiger Agent Slack Bot
+    participant TSDB as TimescaleDB
+    participant TAW as Tiger Agent Worker
+    participant MCP as MCP Servers
+
+    U->>TAB: app_mention event (@agent-slack-name)
+    TAB->>TSDB: store event
+    TSDB->>TAW: event claimed
+    TAW->>MCP: use relevant tools to gather information
+    TAW->>U: respond to user via Slack
+    TAW->>TSDB: delete event
+```
+
 ## Architecture Components
 
 ### Core Components
