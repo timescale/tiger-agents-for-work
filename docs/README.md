@@ -6,7 +6,7 @@ Detailed explanation of the PostgreSQL + TimescaleDB database design, including 
 ## [Event Processing Harness](event_harness.md)
 Technical documentation of the EventHarness system that provides scalable, resilient event processing with bounded concurrency, immediate responsiveness, and atomic event claiming through PostgreSQL work queues.
 
-## [TigerAgent](tiger_agent.md)
+## [Tiger Agent](tiger_agent.md)
 Deep dive into the TigerAgent class - the AI-powered event processor that integrates Pydantic-AI with MCP servers and Jinja2 templating. Includes customization patterns, configuration options, and subclassing examples for specialized use cases.
 
 ## [CLI Usage](cli.md)

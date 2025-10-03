@@ -1,11 +1,10 @@
-# Tiger Agent
+# Tiger Agents for Work
 
-Tiger Agent is a production-ready library for building AI-powered Slack bots that can handle thousands of concurrent conversations with enterprise-grade reliability and
-(optionally) zero-code setup via CLI.
+Tiger Agent is a production-ready library and CLI for building Slack-native agents for serious work.
+Tiger Agents can handle concurrent conversations with enterprise-grade reliability and (optionally) zero-code setup.
 
-* Want to see a Tiger Agent in action as quickly as possible? Jump to the [Quick Start](#quick-start).
+* Want to develop with Tiger Agent as quickly as possible? Jump to the [Developer Quick Start](#developer-quick-start).
 * Want to know what makes Tiger Agent special? Continue to the [Features](#features).
-* Want to know how TigerData has put this to use? Read [What is TigerData building with Tiger Agent](#what-is-tigerdata-building-with-tiger-agent).
 * Want to dig into the details? Consume the [docs](/docs/README.md).
 
 ## Features
@@ -21,25 +20,7 @@ Tiger Agent is a production-ready library for building AI-powered Slack bots tha
 
 How does Tiger Agent provide all of these features? Read the [docs](/docs/README.md).
 
-## High-Level Flow
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant TAB as Tiger Agent Slack Bot
-    participant TSDB as TimescaleDB
-    participant TAW as Tiger Agent Worker
-    participant MCP as MCP Servers
-
-    U->>TAB: app_mention event (@agent-slack-name)
-    TAB->>TSDB: store event
-    TSDB->>TAW: event claimed
-    TAW->>MCP: use relevant tools to gather information
-    TAW->>U: respond to user via Slack
-    TAW->>TSDB: delete event
-```
-
-## Quick Start
+## Developer Quick Start
 
 ### 0. Prerequisites
 
@@ -130,14 +111,6 @@ You can give your Tiger Agent custom superpowers by configuring one or more MCP 
 For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch.
 Check out the [Tiger Agent docs](/docs/tiger_agent.md) to see how.
 
-#### A First Superpower
+#### A Full-fledged Example
 
-We have found that an amazing powerup for our agent, [Eon](https://github.com/timescale/tiger-eon), is the ability to search and read Slack messages.
-When we ask Eon a vague question, Eon reads the Slack thread to gather context and make an inference like a human would!
-
-Good news: you can give your agent the same superpower! Head over to [tiger-slack](https://github.com/timescale/tiger-slack).
-
-1. You'll run a service that ingests real-time Slack events into a database (you can use the same database your Tiger Agent uses).
-2. You can backfill your historical Slack data, if you wish.
-3. Then, run an MCP Server makes the Slack data searchable.
-4. Once you've done this, [configure your Tiger Agent](/docs/mcp_config.md) to use the Slack MCP Server.
+Want to see a full-fledged example of Tiger Agent? Check out [Eon](https://github.com/timescale/tiger-eon).
