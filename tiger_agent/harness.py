@@ -73,11 +73,9 @@ class HarnessContext:
     Attributes:
         app: Slack Bolt AsyncApp for making Slack API calls
         pool: Database connection pool for PostgreSQL operations
-        task_group: AsyncIO TaskGroup for spawning concurrent tasks
     """
     app: AsyncApp
     pool: AsyncConnectionPool
-    task_group: TaskGroup
 
 
 class AppMentionEvent(BaseModel):
@@ -333,7 +331,6 @@ class EventHarness:
         return HarnessContext(
             self._app,
             self._pool,
-            self._task_group,
         )
 
     async def _process_event(self, event: Event) -> bool:
