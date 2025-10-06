@@ -18,19 +18,19 @@ TigerAgent transforms simple Slack mentions into powerful AI interactions by:
 
 ### Key Features
 
-### 🤖 **AI-Powered Responses**
+### **AI-Powered Responses**
 Uses Pydantic-AI to generate intelligent responses to Slack mentions, with support for multiple LLM providers and structured output handling.
 
-### 🔧 **MCP Server Integration**
+### **MCP Server Integration**
 Extends AI capabilities by connecting to multiple MCP servers, providing access to external APIs, databases, documentation systems, and specialized tools.
 
-### 📝 **Dynamic Prompt Templating**
+### **Dynamic Prompt Templating**
 Utilizes Jinja2 templates for context-aware prompt generation, allowing for sophisticated system and user prompts that adapt to conversation context.
 
-### 💬 **Rich Slack Interaction**
+### **Rich Slack Interaction**
 Provides visual feedback through reactions and supports threaded conversations, creating an intuitive user experience that indicates processing status.
 
-### 🎛️ **Extensible Architecture**
+### **Extensible Architecture**
 Designed for customization through subclassing, allowing developers to override response generation for specialized use cases.
 
 ### Core Components

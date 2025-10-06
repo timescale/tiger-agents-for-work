@@ -60,7 +60,7 @@ cd my-tiger-agent
 Create a `.env` file to put your environment variables in. Copy [.env.sample](/.env.sample) to get started.
 
 ```bash
-curl -L -o .env https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/.env.sample
+curl -L -o .env https://raw.githubusercontent.com/timescale/tiger-agents-for-work/refs/heads/main/.env.sample
 ```
 
 Then, edit the `.env` file to add your:
@@ -82,8 +82,8 @@ mkdir prompts
 Copy the [system_prompt.md](/prompts/system_prompt.md) and [user_prompt.md](/prompts/user_prompt.md) into the `prompts` directory you just created.
 
 ```bash
-curl -L -o prompts/system_prompt.md https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/prompts/system_prompt.md
-curl -L -o prompts/user_prompt.md https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/prompts/user_prompt.md
+curl -L -o prompts/system_prompt.md https://raw.githubusercontent.com/timescale/tiger-agents-for-work/refs/heads/main/prompts/system_prompt.md
+curl -L -o prompts/user_prompt.md https://raw.githubusercontent.com/timescale/tiger-agents-for-work/refs/heads/main/prompts/user_prompt.md
 ```
 
 Use these Jinja2 templates as a starting point for customizing the instructions for your agent.
@@ -95,7 +95,7 @@ You can give your agent capabilities by configuring MCP Servers for it to use.
 Copy [examples/mcp_config.json](/examples/mcp_config.json) to your project as an example to get started.
 
 ```bash
-curl -L -o mcp_config.json https://raw.githubusercontent.com/timescale/tiger-agent/refs/heads/main/examples/mcp_config.json
+curl -L -o mcp_config.json https://raw.githubusercontent.com/timescale/tiger-agents-for-work/refs/heads/main/examples/mcp_config.json
 ```
 
 Read [MCP Server Configuration](mcp_config.md) for detailed instructions on how to edit this file.
@@ -107,7 +107,7 @@ Install Tiger Agent as a tool
 
 ```bash
 # install the tool
-uv tool install --from git+https://github.com/timescale/tiger-agent.git tiger-agent
+uv tool install --from git+https://github.com/timescale/tiger-agents-for-work.git tiger-agent
 
 # test the installation
 tiger-agent --help

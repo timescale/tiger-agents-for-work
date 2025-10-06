@@ -9,14 +9,14 @@ Tiger Agents can handle concurrent conversations with enterprise-grade reliabili
 
 ## Features
 
-- **🔒 Durable & Atomic Event Handling**: PostgreSQL-backed event claiming ensures exactly-once processing with no duplicates, even under high concurrency and failure conditions
-- **⚡ Bounded Concurrency**: Fixed worker pools prevent resource exhaustion while maintaining predictable performance under load
-- **🎯 Immediate Event Processing**: Events are processed within milliseconds of arrival rather than waiting for polling cycles, providing real-time responsiveness
-- **🔄 Resilient Retry Logic**: Automatic retry with visibility thresholds and cleanup of stuck or expired events
-- **📈 Horizontal Scalability**: Multiple instances can run simultaneously with coordinated work distribution across all instances
-- **🤖 AI-Powered Responses**: Pydantic-AI Agents using the model of your choice with (optional) MCP server integrations
-- **🔧 Extensible Architecture**: No coding required for basic bots and easy customization via Python for more specialized use cases
-- **🔍 Complete Observability**: Full Logfire instrumentation provides detailed tracing of event flow, worker activity, and database operations
+- **Durable & Atomic Event Handling**: PostgreSQL-backed event claiming ensures exactly-once processing with no duplicates, even under high concurrency and failure conditions
+- **Bounded Concurrency**: Fixed worker pools prevent resource exhaustion while maintaining predictable performance under load
+- **Immediate Event Processing**: Events are processed within milliseconds of arrival rather than waiting for polling cycles, providing real-time responsiveness
+- **Resilient Retry Logic**: Automatic retry with visibility thresholds and cleanup of stuck or expired events
+- **Horizontal Scalability**: Multiple instances can run simultaneously with coordinated work distribution across all instances
+- **AI-Powered Responses**: Pydantic-AI Agents using the model of your choice with (optional) MCP server integrations
+- **Extensible Architecture**: No coding required for basic bots and easy customization via Python for more specialized use cases
+- **Complete Observability**: Full Logfire instrumentation provides detailed tracing of event flow, worker activity, and database operations
 
 How does Tiger Agent provide all of these features? Read the [docs](/docs/README.md).
 
@@ -32,7 +32,7 @@ How does Tiger Agent provide all of these features? Read the [docs](/docs/README
 
 ```bash
 # clone the repo
-git clone https://github.com/timescale/tiger-agent
+git clone https://github.com/timescale/tiger-agents-for-work
 cd tiger-agent
 
 # install the dependencies
@@ -93,7 +93,7 @@ Edit the .env file.
 Run the Tiger Agent.
 
 ```bash
-uv run tiger_agent run 
+uv run tiger_agent run
 ```
 
 Now, Tiger Agent will be receiving `app_mention` events from your Slack workspace!

@@ -8,22 +8,22 @@ The EventHarness orchestrates a sophisticated event processing pipeline that rec
 
 ## Key Features & Benefits
 
-### 🎯 **Immediate Responsiveness**
+### **Immediate Responsiveness**
 Events are processed immediately upon arrival rather than waiting for periodic polling cycles. When a Slack mention occurs, processing begins within milliseconds.
 
-### ⚡ **Bounded Concurrency**
+### **Bounded Concurrency**
 Fixed worker pool prevents resource exhaustion and provides predictable performance characteristics. No matter how many events arrive, the system maintains controlled resource usage.
 
-### 🔒 **Atomic Event Processing**
+### **Atomic Event Processing**
 Database-level event claiming ensures exactly-once processing with no duplicates, even under high concurrency and failure conditions.
 
-### 🔄 **Resilient Retry Logic**
+### **Resilient Retry Logic**
 Failed events are automatically retried with visibility thresholds. Stuck or expired events are cleaned up automatically.
 
-### 📈 **Horizontal Scalability**
+### **Horizontal Scalability**
 Multiple harness instances can run simultaneously, with PostgreSQL coordinating work distribution across all instances.
 
-### 🔍 **Full Observability**
+### **Full Observability**
 Complete instrumentation with Logfire provides detailed tracing of event flow, worker activity, and database operations.
 
 ## High-Level Flow
