@@ -28,7 +28,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
@@ -286,8 +286,15 @@ class EventHarness:
             row: dict[str, Any] | None = await cur.fetchone()
             if not row:
                 return None
-            assert row["id"] is not None, "claimed an empty event"
-            return Event(**row)
+            try:
+                assert row["id"] is not None, "claimed an empty event"
+                return Event(**row)
+            except ValidationError as e:
+                logger.exception("failed to parse claimed event", exc_info=e, extra={"id": row.get("id")})
+                if row["id"] is not None:
+                    # if we got a malformed event, delete it to avoid retry loops
+                    await cur.execute("select agent.delete_event(%s, false)", (row["id"],))
+                return None
 
     @logfire.instrument("delete_event", extract_args=False)
     async def _delete_event(self, event: Event) -> None:
