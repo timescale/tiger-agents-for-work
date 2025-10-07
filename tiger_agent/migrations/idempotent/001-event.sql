@@ -52,7 +52,7 @@ $func$ language sql volatile security invoker
 
 -----------------------------------------------------------------------
 -- agent.delete_event
-create or replace function agent.delete_event(_id int8) returns void
+create or replace function agent.delete_event(_id int8, _processed boolean default true) returns void
 as $func$
     with d as
     (
@@ -67,6 +67,7 @@ as $func$
     , vt
     , claimed
     , event
+    , processed
     )
     select
       d.id
@@ -75,6 +76,7 @@ as $func$
     , d.vt
     , d.claimed
     , d.event
+    , _processed
     from d
     ;
 $func$ language sql volatile security invoker
