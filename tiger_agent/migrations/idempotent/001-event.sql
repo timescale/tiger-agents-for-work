@@ -7,10 +7,14 @@ as $func$
     insert into agent.event
     ( event_ts
     , event
+    , type
+    , subtype
     )
     select
       agent.to_timestamptz((_event->>'event_ts')::numeric)
     , _event
+    , _event->>'type'
+    , _event->>'subtype'
     ;
 $func$ language sql volatile security invoker
 ;
@@ -67,6 +71,8 @@ as $func$
     , vt
     , claimed
     , event
+    , type
+    , subtype
     , processed
     )
     select
@@ -76,6 +82,8 @@ as $func$
     , d.vt
     , d.claimed
     , d.event
+    , d.type
+    , d.subtype
     , _processed
     from d
     ;
@@ -104,6 +112,8 @@ as $func$
     , vt
     , claimed
     , event
+    , type
+    , subtype
     )
     select
       d.id
@@ -112,6 +122,8 @@ as $func$
     , d.vt
     , d.claimed
     , d.event
+    , d.type
+    , d.subtype
     from d
     ;
 $func$ language sql volatile security invoker

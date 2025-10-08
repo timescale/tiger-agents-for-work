@@ -16,6 +16,7 @@
         "app_mentions:read",
         "chat:write",
         "chat:write.public",
+        "im:history",
         "reactions:read",
         "reactions:write",
         "users:read"
@@ -25,7 +26,8 @@
   "settings": {
     "event_subscriptions": {
       "bot_events": [
-        "app_mention"
+        "app_mention",
+        "message.im"
       ]
     },
     "interactivity": {

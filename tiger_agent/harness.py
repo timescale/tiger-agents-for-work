@@ -34,6 +34,7 @@ from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
 from tiger_agent.migrations import runner
+from tiger_agent.slack import fetch_bot_info
 
 logger = logging.getLogger(__name__)
 
@@ -462,19 +463,34 @@ class EventHarness:
         """
         await self._pool.open(wait=True)
 
+        bot_info = await fetch_bot_info(self._app.client)
+
         async with asyncio.TaskGroup() as tasks:
             async with self._pool.connection() as con:
                 await runner.migrate_db(con)
-
-            async def on_event(ack: AsyncAck, event: dict[str, Any]):
-                await self._on_event(ack, event)
 
             logger.info(f"creating {self._num_workers} workers")
             for worker_id, initial_sleep in self._worker_args(self._num_workers):
                 logger.info("creating worker", extra={"worker_id": worker_id})
                 tasks.create_task(self._worker(worker_id, initial_sleep))
 
+            async def on_event(ack: AsyncAck, event: dict[str, Any]):
+                await self._on_event(ack, event)
             self._app.event("app_mention")(on_event)
+
+            async def on_message(ack: AsyncAck, event: dict[str, Any]):
+                if event["user"] == bot_info.user_id:
+                    await ack()
+                    return
+                event["subtype"] = event["channel_type"]
+                # We don't also handle message.mpim events here, since we only
+                # respond there if the bot is explicitly mentioned, which will
+                # trigger the app_mention handler above.
+                if event["subtype"] not in ("im"):
+                    await ack()
+                    return
+                await self._on_event(ack, event)
+            self._app.event("message")(on_message)
 
             handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
