@@ -79,8 +79,8 @@ class HarnessContext:
     pool: AsyncConnectionPool
 
 
-class AppMentionEvent(BaseModel):
-    """Pydantic model for Slack app_mention events.
+class BaseEvent(BaseModel):
+    """Base Pydantic model for Slack events.
 
     Represents the structure of a Slack app mention event as received from
     the Slack Events API. The model allows extra fields to accommodate
@@ -111,6 +111,17 @@ class AppMentionEvent(BaseModel):
     event_ts: str
     client_msg_id: str
 
+class AppMentionEvent(BaseEvent):
+    """Pydantic model for Slack app_mention events."""
+    type: str = "app_mention"
+
+
+
+class MessageEvent(BaseEvent):
+    """Pydantic model for Slack message events."""
+    type: str = "message"
+    subtype: str | None = None
+
 
 class Event(BaseModel):
     """Database representation of an event from the agent.event table.
@@ -131,7 +142,7 @@ class Event(BaseModel):
     attempts: int
     vt: datetime
     claimed: list[datetime]
-    event: AppMentionEvent
+    event: AppMentionEvent | MessageEvent
 
 
 # Type alias for event processing callback
