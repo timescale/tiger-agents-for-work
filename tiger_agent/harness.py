@@ -353,7 +353,7 @@ class EventHarness:
         Returns:
             bool: True if processing succeeded, False if it failed
         """
-        with logfire.span("process_event", event_id=event.id) as _:
+        with logfire.span("process_event", event=event) as _:
             try:
                 await self._event_processor(self._make_harness_context(), event)
                 await self._delete_event(event)
