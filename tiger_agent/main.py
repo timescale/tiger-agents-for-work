@@ -13,7 +13,7 @@ def cli():
 
 
 @cli.command()
-@click.option("--model", default="anthropic:claude-sonnet-4-20250514", help="AI model to use")
+@click.option("--model", default="anthropic:claude-sonnet-4-5-20250929", help="AI model to use")
 @click.option("--prompts", type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path), default=Path("prompts"), help="Directory containing prompt templates")
 @click.option("--mcp-config", type=click.Path(exists=True, path_type=Path), default=None, help="Path to MCP config file")
 @click.option("--env", type=click.Path(exists=True, path_type=Path), default=None, help="Path to environment file")
@@ -55,7 +55,7 @@ def run(
             loader=FileSystemLoader(prompts)
         )
     )
-    
+
     # create a harness for the processor
     harness = EventHarness(
         agent,
@@ -84,7 +84,7 @@ def migrate(
     from psycopg import AsyncConnection
 
     from tiger_agent.migrations import runner
-    
+
     async def do():
         async with await AsyncConnection.connect() as con:
             await runner.migrate_db(con)
