@@ -221,11 +221,12 @@ class TigerAgent:
         """
         ctx: dict[str, Any] = {}
         ctx["event"] = event
-        ctx["mention"] = event.event
+        mention = event.event
+        ctx["mention"] = mention
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
         ctx["bot"] = self.bot_info
-        user_info = await fetch_user_info(hctx.app.client, event_obj.user)
+        user_info = await fetch_user_info(hctx.app.client, mention.user)
         if user_info:
             ctx["user"] = user_info
             ctx["local_time"] = event.event_ts.astimezone(ZoneInfo(user_info.tz))
