@@ -38,7 +38,7 @@ from tiger_agent.slack import fetch_bot_info
 
 logger = logging.getLogger(__name__)
 
-pg_max_pool_size: int = int(os.getenv("PG_MAX_POOL_SIZE", "100"))
+pg_max_pool_size: int = int(os.getenv("PG_MAX_POOL_SIZE", "10"))
 
 async def _configure_database_connection(con: AsyncConnection) -> None:
     """Configure new database connections with autocommit enabled."""
