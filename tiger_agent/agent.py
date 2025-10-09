@@ -221,9 +221,7 @@ class TigerAgent:
         """
         ctx: dict[str, Any] = {}
         ctx["event"] = event
-        event_obj = event.event
-        if isinstance(event, AppMentionEvent):
-            ctx["mention"] = event_obj
+        ctx["mention"] = event.event
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
         ctx["bot"] = self.bot_info
