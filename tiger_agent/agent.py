@@ -221,7 +221,7 @@ class TigerAgent:
         """
         ctx: dict[str, Any] = {}
         ctx["event"] = event
-        mention: AppMentionEvent = event.event
+        mention = event.event
         ctx["mention"] = mention
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
