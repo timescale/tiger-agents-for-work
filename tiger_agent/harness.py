@@ -38,6 +38,8 @@ from tiger_agent.slack import fetch_bot_info
 
 logger = logging.getLogger(__name__)
 
+MAX_NUMBER_OF_CONNECTIONS = 100
+
 
 async def _configure_database_connection(con: AsyncConnection) -> None:
     """Configure new database connections with autocommit enabled."""
@@ -49,7 +51,7 @@ async def _reset_database_connection(con: AsyncConnection) -> None:
     await con.set_autocommit(True)
 
 
-def _create_default_pool() -> AsyncConnectionPool:
+def _create_default_pool(min_size: int, max_size: int) -> AsyncConnectionPool:
     """Create a default PostgreSQL connection pool with standard configuration.
 
     Returns:
@@ -58,8 +60,10 @@ def _create_default_pool() -> AsyncConnectionPool:
     return AsyncConnectionPool(
         check=AsyncConnectionPool.check_connection,
         configure=_configure_database_connection,
-        reset=_reset_database_connection,
+        min_size=min_size,
+        max_size=max_size,
         open=False,
+        reset=_reset_database_connection,
     )
 
 
@@ -212,7 +216,7 @@ class EventHarness:
         slack_app_token: str | None = None,
     ):
         self._task_group: TaskGroup | None = None
-        self._pool = pool if pool is not None else _create_default_pool()
+        self._pool = pool if pool is not None else _create_default_pool(num_workers + 1, MAX_NUMBER_OF_CONNECTIONS)
         self._trigger = asyncio.Queue()
         self._event_processor = event_processor
         self._worker_sleep_seconds = worker_sleep_seconds
