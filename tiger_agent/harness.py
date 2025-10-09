@@ -38,8 +38,7 @@ from tiger_agent.slack import fetch_bot_info
 
 logger = logging.getLogger(__name__)
 
-MAX_NUMBER_OF_CONNECTIONS = 100
-
+pg_max_pool_size: int = int(os.getenv("PG_MAX_POOL_SIZE", "100"))
 
 async def _configure_database_connection(con: AsyncConnection) -> None:
     """Configure new database connections with autocommit enabled."""
@@ -216,7 +215,7 @@ class EventHarness:
         slack_app_token: str | None = None,
     ):
         self._task_group: TaskGroup | None = None
-        self._pool = pool if pool is not None else _create_default_pool(num_workers + 1, MAX_NUMBER_OF_CONNECTIONS)
+        self._pool = pool if pool is not None else _create_default_pool(num_workers + 1, pg_max_pool_size)
         self._trigger = asyncio.Queue()
         self._event_processor = event_processor
         self._worker_sleep_seconds = worker_sleep_seconds
