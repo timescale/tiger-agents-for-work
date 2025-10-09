@@ -111,10 +111,10 @@ class BaseEvent(BaseModel):
     event_ts: str
     client_msg_id: str
 
+
 class AppMentionEvent(BaseEvent):
     """Pydantic model for Slack app_mention events."""
     type: str = "app_mention"
-
 
 
 class MessageEvent(BaseEvent):
