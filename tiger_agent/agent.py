@@ -28,8 +28,8 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
-from tiger_agent import HarnessContext, Event
-from tiger_agent.harness import AppMentionEvent
+from tiger_agent import HarnessContext, Interaction
+from tiger_agent.harness import AppMentionEvent, BaseEvent, Command, SlackProcessor
 from tiger_agent.slack import fetch_user_info, fetch_bot_info, BotInfo, add_reaction, \
     post_response, remove_reaction
 
@@ -103,7 +103,7 @@ class MCPLoader:
         return create_mcp_servers(self._config)
 
 
-class TigerAgent:
+class TigerAgent(SlackProcessor):
     """AI-powered Slack bot using Pydantic-AI with MCP server integration.
 
     TigerAgent serves as an EventProcessor for the EventHarness system, processing
@@ -195,18 +195,18 @@ class TigerAgent:
         pass
 
     @logfire.instrument("generate_response", extract_args=False)
-    async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
+    async def generate_response(self, hctx: HarnessContext, event: BaseEvent) -> str:
         """Generate AI response to a Slack app_mention event.
 
         This is the core logic that:
-        1. Builds context from event data, user info, and bot info
+        1. Builds context from interaction data, user info, and bot info
         2. Renders system and user prompts from Jinja2 templates
         3. Creates a Pydantic-AI agent with MCP server toolsets
         4. Runs the AI model to generate a response
         5. Returns the generated response text
 
         The context dictionary provides templates with access to:
-        - event: The full Event object with processing metadata
+        - interaction: The full Interaction object with processing metadata
         - mention: The AppMentionEvent with Slack message details
         - bot: Bot information and capabilities
         - user: User profile information including timezone
@@ -214,19 +214,17 @@ class TigerAgent:
 
         Args:
             hctx: Harness context providing Slack app and database access
-            event: The Slack event to process
+            interaction: The Slack interaction to process
 
         Returns:
             Generated AI response text ready for posting to Slack
         """
         ctx: dict[str, Any] = {}
         ctx["event"] = event
-        mention = event.event
-        ctx["mention"] = mention
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
         ctx["bot"] = self.bot_info
-        user_info = await fetch_user_info(hctx.app.client, mention.user)
+        user_info = await fetch_user_info(hctx.app.client, event.user)
         if user_info:
             ctx["user"] = user_info
             ctx["local_time"] = event.event_ts.astimezone(ZoneInfo(user_info.tz))
@@ -251,11 +249,11 @@ class TigerAgent:
             )
             return response.output
 
-    async def __call__(self, hctx: HarnessContext, event: Event) -> None:
+    async def event_processor(self, hctx: HarnessContext, event: BaseEvent) -> None:
         """Process a Slack app_mention event with full interaction flow.
 
         This method implements the complete EventProcessor interface for the
-        EventHarness system. It provides rich Slack interaction patterns:
+        SlackHarness system. It provides rich Slack interaction patterns:
 
         Success Flow:
         1. Add :spinthinking: reaction to show processing started
@@ -267,7 +265,7 @@ class TigerAgent:
         1. Remove :spinthinking: reaction
         2. Add :x: reaction to indicate failure
         3. Post user-friendly error message
-        4. Re-raise exception for EventHarness retry logic
+        4. Re-raise exception for SlackHarness retry logic
 
         The error message adapts based on retry attempts:
         - During retries: "I will try again."
@@ -275,29 +273,26 @@ class TigerAgent:
 
         Args:
             hctx: Harness context providing Slack app and database access
-            event: The Slack event to process
+            event: The Slack event to process (not the full Interaction object)
 
         Raises:
-            Exception: Re-raises any processing exceptions for EventHarness retry handling
+            Exception: Re-raises any processing exceptions for SlackHarness retry handling
         """
         client = hctx.app.client
-        mention = event.event
         try:
-            await add_reaction(client, mention.channel, mention.ts, "spinthinking")
+            await add_reaction(client, event.channel, event.ts, "spinthinking")
             response = await self.generate_response(hctx, event)
-            await post_response(client, mention.channel, mention.thread_ts if mention.thread_ts else mention.ts, response)
-            await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
-            await add_reaction(client, mention.channel, mention.ts, "white_check_mark")
+            await post_response(client, event.channel, event.thread_ts if event.thread_ts else event.ts, response)
+            await remove_reaction(client, event.channel, event.ts, "spinthinking")
+            await add_reaction(client, event.channel, event.ts, "white_check_mark")
         except Exception as e:
             logger.exception("response failed", exc_info=e)
-            await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
-            await add_reaction(client, mention.channel, mention.ts, "x")
+            await remove_reaction(client, event.channel, event.ts, "spinthinking")
+            await add_reaction(client, event.channel, event.ts, "x")
             await post_response(
                 client,
-                mention.channel,
-                mention.thread_ts if mention.thread_ts else mention.ts,
-                "I experienced an issue trying to respond. I will try again."
-                if event.attempts < self.max_attempts
-                else " I give up. Sorry.",
+                event.channel,
+                event.thread_ts if event.thread_ts else event.ts,
+                "I experienced an issue trying to respond. I will try again.",
             )
             raise e

@@ -7,21 +7,25 @@ The harness manages Slack app_mention events through a multi-worker architecture
 with atomic event claiming, retry logic, and automatic cleanup.
 
 Key Components:
-- EventHarness: Main orchestrator for event processing
+- SlackHarness (EventHarness): Main orchestrator for event processing
 - HarnessContext: Shared resources (Slack app, database pool, task group) for event processors
-- Event/AppMentionEvent: Data models for Slack events
-- Database integration with agent.event table as work queue
+- Interaction: Database representation with interaction type (Event/Command)
+- AppMentionEvent/MessageEvent/Command: Data models for Slack interactions
+- Database integration with agent.interaction table as work queue
 """
 
 import asyncio
 import logging
 import os
+import re
 import random
+from abc import ABC, abstractmethod
 from asyncio import QueueShutDown, TaskGroup
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from time import time
+from typing import Any, Literal
 
 import logfire
 from psycopg import AsyncConnection
@@ -34,7 +38,6 @@ from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 
 from tiger_agent.migrations import runner
-from tiger_agent.slack import fetch_bot_info
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +114,7 @@ class BaseEvent(BaseModel):
     user: str
     blocks: list[dict[str, Any]] | None = None
     channel: str
-    event_ts: str
+    event_ts: datetime
     client_msg_id: str
 
 
@@ -126,37 +129,75 @@ class MessageEvent(BaseEvent):
     subtype: str | None = None
 
 
-class Event(BaseModel):
-    """Database representation of an event from the agent.event table.
+class Command(BaseModel):
+    """Pydantic model for Slack slash command events."""
+    channel_id: str | None = None
+    command: str
+    team_id: str | None = None
+    text: str
+    trigger_id: str
+    user_id: str
 
-    This model represents events stored in the PostgreSQL work queue table,
+
+class Interaction(BaseModel):
+    """Database representation of an interaction from the agent.interaction table.
+
+    This model represents interactions stored in the PostgreSQL work queue table,
     including metadata for retry logic and worker coordination.
 
     Attributes:
-        id: Primary key from agent.event table
-        event_ts: Timestamp when the event occurred
+        id: Primary key from agent.interaction table
+        interaction_ts: Timestamp when the interaction occurred
         attempts: Number of processing attempts made
-        vt: Visibility threshold - when event becomes available for processing
-        claimed: Array of timestamps when event was claimed by workers
-        event: The original Slack app mention event data
+        vt: Visibility threshold - when interaction becomes available for processing
+        claimed: Array of timestamps when interaction was claimed by workers
+        interaction: The original Slack interaction data (Event or Command)
     """
     id: int
-    event_ts: datetime
+    interaction_ts: datetime
     attempts: int
     vt: datetime
     claimed: list[datetime]
-    event: AppMentionEvent | MessageEvent
+    interaction: BaseEvent | Command
 
 
 # Type alias for event processing callback
-EventProcessor = Callable[[HarnessContext, Event], Awaitable[None]]
+EventProcessorFn = Callable[[HarnessContext, BaseEvent], Awaitable[None]]
+
+class SlackProcessor(ABC):
+    @abstractmethod
+    async def event_processor(self, hctx: HarnessContext, event: BaseEvent) -> None:
+        """Process a claimed event.
+
+        This method should be overridden by subclasses to implement
+        custom event processing logic.
+
+        Args:
+            context: Shared harness context with Slack app and database pool
+            event: The claimed event to process
+
+        Returns:
+            Awaitable[None]: Coroutine that completes when processing is done
+        """
+        pass
+
+    async def command_processor(self, hctx: HarnessContext, command: Command) -> None:
+        """Process a slash command.
+
+        This method can be overridden by subclasses to implement
+        custom slash command processing logic.
+
+        Returns:
+            Awaitable[None]: Coroutine that completes when processing is done
+        """
+        pass
 
 
-class EventHarness:
+class SlackHarness:
     """
     Core event processing harness for Tiger Agent with bounded concurrency and immediate responsiveness.
 
-    The EventHarness orchestrates the entire event processing pipeline:
+    The SlackHarness orchestrates the entire event processing pipeline:
     1. Receives Slack app_mention events via Socket Mode
     2. Stores events durably in PostgreSQL (agent.event table)
     3. Coordinates multiple workers to claim and process events
@@ -201,7 +242,7 @@ class EventHarness:
     """
     def __init__(
         self,
-        event_processor: EventProcessor,
+        slack_processor: SlackProcessor | EventProcessorFn,
         app: AsyncApp | None = None,
         pool: AsyncConnectionPool | None = None,
         worker_sleep_seconds: int = 60,
@@ -217,7 +258,7 @@ class EventHarness:
         self._task_group: TaskGroup | None = None
         self._pool = pool if pool is not None else _create_default_pool(num_workers + 1, pg_max_pool_size)
         self._trigger = asyncio.Queue()
-        self._event_processor = event_processor
+        self._slack_processor = slack_processor
         self._worker_sleep_seconds = worker_sleep_seconds
         self._worker_min_jitter_seconds = worker_min_jitter_seconds
         self._worker_max_jitter_seconds = worker_max_jitter_seconds
@@ -227,65 +268,66 @@ class EventHarness:
         self._invisibility_minutes = invisibility_minutes
         self._slack_bot_token = slack_bot_token or os.getenv("SLACK_BOT_TOKEN")
         assert self._slack_bot_token is not None, "no SLACK_BOT_TOKEN found"
-        self._slack_app_token = slack_app_token or os.getenv("SLACK_APP_TOKEN")
-        assert self._slack_app_token is not None, "no SLACK_APP_TOKEN found"
+        slack_app_token = slack_app_token or os.getenv("SLACK_APP_TOKEN")
+        assert slack_app_token is not None, "no SLACK_APP_TOKEN found"
+        self._slack_app_token = slack_app_token
         assert worker_sleep_seconds > 0
         assert worker_sleep_seconds - worker_min_jitter_seconds > 0
         assert worker_max_jitter_seconds > worker_min_jitter_seconds
         self._app = app if app is not None else AsyncApp(
             token=self._slack_bot_token,
-            ignoring_self_events_enabled=False,
+            ignoring_self_events_enabled=True,
         )
 
-    @logfire.instrument("insert_event", extract_args=False)
-    async def _insert_event(self, event: dict[str, Any]) -> None:
-        """Insert a Slack event into the database work queue.
+    @logfire.instrument("insert_interaction", extract_args=False)
+    async def _insert_interaction(self, interaction_type: Literal['command', 'event'], interaction: dict[str, Any]) -> None:
+        """Insert a Slack interaction into the database work queue.
 
-        Uses the agent.insert_event() database function to store the event
+        Uses the agent.insert_interaction() database function to store the interaction
         with proper timestamp conversion and initial queue state.
 
         Args:
-            event: Raw Slack event payload as dictionary
+            interaction: Raw Slack interaction payload as dictionary
         """
         async with (
             self._pool.connection() as con,
             con.transaction() as _,
             con.cursor() as cur,
         ):
-            await cur.execute("select agent.insert_event(%s)", (Jsonb(event),))
+            await cur.execute("select agent.insert_interaction(%s, %s)", (interaction_type, Jsonb(interaction),))
 
-    @logfire.instrument("on_event", extract_args=False)
-    async def _on_event(self, ack: AsyncAck, event: dict[str, Any]):
-        """Handle incoming Slack app_mention events with immediate worker notification.
+    @logfire.instrument("on_interaction", extract_args=False)
+    async def _on_interaction(self, ack: AsyncAck, interaction_type: Literal['command', 'event'], interaction: dict[str, Any]):
+        """Handle incoming Slack interactions with immediate worker notification.
 
-        This method implements the "poke" mechanism for immediate event processing:
-        1. Stores the event durably in the database
+        This method implements the "poke" mechanism for immediate interaction processing:
+        1. Stores the interaction durably in the database
         2. Acknowledges to Slack to prevent retries
         3. "Pokes" exactly one worker via asyncio.Queue trigger for immediate processing
 
-        The trigger ensures that one worker wakes up immediately to process available events
+        The trigger ensures that one worker wakes up immediately to process available interactions
         rather than waiting for the next polling cycle. This provides excellent responsiveness
         while maintaining the resilience of periodic polling for retries and avoiding
         thundering herd effects.
 
         Args:
             ack: Slack acknowledgment callback
-            event: Raw Slack event payload
+            interaction: Raw Slack interaction payload
         """
-        await self._insert_event(event)
+        await self._insert_interaction(interaction_type, interaction)
         await ack()
         await self._trigger.put(True)
 
-    @logfire.instrument("claim_event", extract_args=False)
-    async def _claim_event(self) -> Event | None:
-        """Atomically claim an event for processing.
+    @logfire.instrument("claim_interaction", extract_args=False)
+    async def _claim_interaction(self) -> Interaction | None:
+        """Atomically claim an interaction for processing.
 
-        Uses agent.claim_event() to find and lock an available event,
+        Uses agent.claim_interaction() to find and lock an available interaction,
         updating its visibility threshold to prevent other workers from
         claiming it simultaneously.
 
         Returns:
-            Event: Claimed event ready for processing, or None if no events available
+            Interaction: Claimed interaction ready for processing, or None if no interactions available
         """
         async with (
             self._pool.connection() as con,
@@ -293,44 +335,44 @@ class EventHarness:
             con.cursor(row_factory=dict_row) as cur,
         ):
             await cur.execute(
-                "select * from agent.claim_event(%s, %s::int8 * interval '1m')",
+                "select * from agent.claim_interaction(%s, %s::int8 * interval '1m')",
                 (self._max_attempts, self._invisibility_minutes)
             )
             row: dict[str, Any] | None = await cur.fetchone()
             if not row:
                 return None
             try:
-                assert row["id"] is not None, "claimed an empty event"
-                return Event(**row)
+                assert row["id"] is not None, "claimed an empty interaction"
+                return Interaction(**row)
             except ValidationError as e:
-                logger.exception("failed to parse claimed event", exc_info=e, extra={"id": row.get("id")})
+                logger.exception("failed to parse claimed interaction", exc_info=e, extra={"id": row.get("id")})
                 if row["id"] is not None:
-                    # if we got a malformed event, delete it to avoid retry loops
-                    await cur.execute("select agent.delete_event(%s, false)", (row["id"],))
+                    # if we got a malformed interaction, delete it to avoid retry loops
+                    await cur.execute("select agent.delete_interaction(%s, false)", (row["id"],))
                 return None
 
-    @logfire.instrument("delete_event", extract_args=False)
-    async def _delete_event(self, event: Event) -> None:
-        """Mark an event as successfully processed.
+    @logfire.instrument("delete_interaction", extract_args=False)
+    async def _delete_interaction(self, interaction: Interaction) -> None:
+        """Mark an interaction as successfully processed.
 
-        Uses agent.delete_event() to atomically move the event from
-        agent.event to agent.event_hist, indicating successful processing.
+        Uses agent.delete_interaction() to atomically move the interaction from
+        agent.interaction to agent.interaction_hist, indicating successful processing.
 
         Args:
-            event: The event that was successfully processed
+            interaction: The interaction that was successfully processed
         """
         async with (
             self._pool.connection() as con,
             con.transaction() as _,
             con.cursor() as cur,
         ):
-            await cur.execute("select agent.delete_event(%s)", (event.id,))
+            await cur.execute("select agent.delete_interaction(%s)", (interaction.id,))
 
-    @logfire.instrument("delete_expired_events", extract_args=False)
-    async def _delete_expired_events(self) -> None:
-        """Clean up events that have exceeded retry limits or are too old.
+    @logfire.instrument("delete_expired_interactions", extract_args=False)
+    async def _delete_expired_interactions(self) -> None:
+        """Clean up interactions that have exceeded retry limits or are too old.
 
-        Uses agent.delete_expired_events() to move events that have been
+        Uses agent.delete_expired_interactions() to move interactions that have been
         attempted too many times or are stuck invisible for too long to
         the history table.
         """
@@ -340,7 +382,7 @@ class EventHarness:
             con.cursor() as cur,
         ):
             await cur.execute(
-                "select agent.delete_expired_events(%s, %s::int8 * interval '1m')",
+                "select agent.delete_expired_interactions(%s, %s::int8 * interval '1m')",
                 (self._max_attempts, self._max_age_minutes)
             )
 
@@ -355,47 +397,55 @@ class EventHarness:
             self._pool,
         )
 
-    async def _process_event(self, event: Event) -> bool:
-        """Process a single claimed event.
+    async def _process_interaction(self, interaction: Interaction) -> bool:
+        """Process a single claimed interaction.
 
-        Calls the registered event processor with the event and harness context.
-        On success, marks the event as completed. On failure, leaves the event
+        Calls the registered event processor with the interaction and harness context.
+        On success, marks the interaction as completed. On failure, leaves the interaction
         in the queue for retry by other workers.
 
         Args:
-            event: The claimed event to process
+            interaction: The claimed interaction to process
 
         Returns:
             bool: True if processing succeeded, False if it failed
         """
-        with logfire.span("process_event", event=event) as _:
+        with logfire.span("process_interaction", interaction=interaction) as _:
             try:
-                await self._event_processor(self._make_harness_context(), event)
-                await self._delete_event(event)
+                # TODO: Handle different interaction types (Event vs Command)
+                if isinstance(interaction.interaction, (AppMentionEvent, MessageEvent)):
+                    if callable(self._slack_processor):
+                        await self._slack_processor(self._make_harness_context(), interaction.interaction)
+                    else:
+                        await self._slack_processor.event_processor(self._make_harness_context(), interaction.interaction)
+                elif isinstance(interaction.interaction, Command):
+                    if isinstance(self._slack_processor, SlackProcessor) and hasattr(self._slack_processor, 'command_processor'):
+                        await self._slack_processor.command_processor(self._make_harness_context(), interaction.interaction)
+                await self._delete_interaction(interaction)
                 return True
             except Exception as e:
                 logger.exception(
-                    "event processing failed", extra={"event_id": event.id}, exc_info=e
+                    "interaction processing failed", extra={"interaction_id": interaction.id}, exc_info=e
                 )
-                # Event remains in database for retry
+                # Interaction remains in database for retry
             return False
 
-    @logfire.instrument("process_events", extract_args=False)
-    async def _process_events(self):
-        """Process available events in a batch.
+    @logfire.instrument("process_interactions", extract_args=False)
+    async def _process_interactions(self):
+        """Process available interactions in a batch.
 
-        Attempts to claim and process up to 20 events in sequence.
-        Stops early if no events are available or if processing fails,
+        Attempts to claim and process up to 20 interactions in sequence.
+        Stops early if no interactions are available or if processing fails,
         allowing the worker to sleep and try again later.
         """
-        # while we are finding events to claim, keep working for a bit but not forever
+        # while we are finding interactions to claim, keep working for a bit but not forever
         for _ in range(20):
-            event = await self._claim_event()
-            if not event:
-                logger.info("no event found")
+            interaction = await self._claim_interaction()
+            if not interaction:
+                logger.info("no interaction found")
                 return
-            if not await self._process_event(event):
-                # if we failed to process the event, stop working for now
+            if not await self._process_interaction(interaction):
+                # if we failed to process the interaction, stop working for now
                 return
 
     def _calc_worker_sleep(self) -> int:
@@ -425,8 +475,8 @@ class EventHarness:
         """
         async def worker_run(reason: str):
             with logfire.span("worker_run", worker_id=worker_id, reason=reason) as _:
-                await self._process_events()
-                await self._delete_expired_events()
+                await self._process_interactions()
+                await self._delete_expired_interactions()
 
         # initial staggering of workers
         if initial_sleep_seconds > 0:
@@ -477,8 +527,6 @@ class EventHarness:
         """
         await self._pool.open(wait=True)
 
-        bot_info = await fetch_bot_info(self._app.client)
-
         async with asyncio.TaskGroup() as tasks:
             async with self._pool.connection() as con:
                 await runner.migrate_db(con)
@@ -489,23 +537,18 @@ class EventHarness:
                 tasks.create_task(self._worker(worker_id, initial_sleep))
 
             async def on_event(ack: AsyncAck, event: dict[str, Any]):
-                await self._on_event(ack, event)
-            self._app.event("app_mention")(on_event)
+                if "subtype" not in event and "channel_type" in event:
+                    event["subtype"] = event["channel_type"]
+                event["interaction_ts"] = event["event_ts"]
+                await self._on_interaction(ack, 'event', event)
+            self._app.event(re.compile(r".+"))(on_event)
 
-            async def on_message(ack: AsyncAck, event: dict[str, Any]):
-                if event["user"] == bot_info.user_id:
-                    await ack()
-                    return
-                event["subtype"] = event["channel_type"]
-                # We don't also handle message.mpim events here, since we only
-                # respond there if the bot is explicitly mentioned, which will
-                # trigger the app_mention handler above.
-                if event["subtype"] not in ("im"):
-                    await ack()
-                    return
-                await self._on_event(ack, event)
-            self._app.event("message")(on_message)
+            async def on_command(ack: AsyncAck, command: dict[str, Any]):
+                command["interaction_ts"] = time()
+                await self._on_interaction(ack, 'command', command)
+            self._app.command(re.compile(r"/.+"))(on_command)
 
             handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
 
+EventHarness = SlackHarness  # alias for backward compatibility
