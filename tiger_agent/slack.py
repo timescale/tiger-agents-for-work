@@ -142,7 +142,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
     except Exception as e:
         logfire.error("Failed to fetch user info", user_id=user_id, error=str(e))
         return None
-        
+
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
 async def post_response(
