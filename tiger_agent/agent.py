@@ -39,6 +39,7 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
+from tiger_agent.utils import get_all_fields
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,8 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
         # if we pass them in, an error will be thrown. Previously, we were pop()'ing the parameters
         # off, but was destructive -- in other words, an mcp config would only be disabled the first time
         # this method was called & and it is called each time an agent handles an event
-        server_cfg = {k: v for k, v in cfg.items() if k not in ("disabled", "internal_only")}
+        valid_mcp_fields = set(get_all_fields(MCPServerStdio) + get_all_fields(MCPServerStreamableHTTP))
+        server_cfg = {k: v for k, v in cfg.items() if k in valid_mcp_fields}
 
         if not server_cfg.get("tool_prefix"):
             server_cfg["tool_prefix"] = name
