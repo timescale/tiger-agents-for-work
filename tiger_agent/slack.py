@@ -173,6 +173,36 @@ async def post_response(
     )
 
 
+@logfire.instrument("post_ephermal", extract_args=["channel", "user"])
+async def post_ephermal(
+    client: AsyncWebClient, channel: str, user: str, text: str, **kwargs
+) -> None:
+    """Post an ephermal (private) message to a Slack user in a channel.
+
+    Posts a private message visible only to the specified user within the given
+    channel. Uses markdown blocks for rich text formatting and disables link/media
+    unfurling to keep responses clean.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel: Slack channel ID to post in
+        user: Slack user ID to send the ephermal message to
+        text: Message content with markdown formatting support
+
+    Raises:
+        SlackApiError: If message posting fails (not caught, allows caller to handle)
+    """
+    await client.chat_postEphemeral(
+        channel=channel,
+        user=user,
+        text=text,
+        blocks=[{"type": "markdown", "text": text}],
+        unfurl_links=False,
+        unfurl_media=False,
+        **kwargs,
+    )
+
+
 class BotInfo(BaseModel):
     """Pydantic model for Slack bot information.
 
