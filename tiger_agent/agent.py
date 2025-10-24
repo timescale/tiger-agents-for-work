@@ -274,6 +274,13 @@ class TigerAgent:
             channel_is_shared = channel_info.is_ext_shared or channel_info.is_shared
         
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values() if not channel_is_shared or not mcp_config.internal_only]
+
+        if channel_is_shared:
+            total_tools = len(mcp_servers)
+            available_tools = len(toolsets)
+            removed_count = total_tools - available_tools
+            if removed_count > 0:
+                logfire.info(f"{removed_count} tools were removed as channel ({event.event.channel}) is shared with external users")
         agent = Agent(
             model=self.model,
             deps_type=dict[str, Any],
