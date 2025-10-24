@@ -280,7 +280,7 @@ class TigerAgent:
             available_tools = len(toolsets)
             removed_count = total_tools - available_tools
             if removed_count > 0:
-                logfire.info(f"{removed_count} tools were removed as channel is shared with external users")
+                logfire.info("Tools were removed as channel is shared with external users", extra={"removed_count": removed_count, "channel_id": event.event.channel})
         agent = Agent(
             model=self.model,
             deps_type=dict[str, Any],
