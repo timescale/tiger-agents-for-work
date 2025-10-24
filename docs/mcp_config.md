@@ -21,7 +21,8 @@ MCP servers are configured via a JSON configuration file (typically `mcp_config.
     "tool_prefix": "prefix",
     "url": "http://example.com/mcp",
     "allow_sampling": true,
-    "disabled": false
+    "disabled": false,
+    "internal_only": false // if this is true, the tool can only be used in non-shared slack channels
   }
 }
 ```
