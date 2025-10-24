@@ -19,8 +19,9 @@ The TigerAgent processes Slack app_mention events by:
 
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import logfire
@@ -28,14 +29,30 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
-from tiger_agent import HarnessContext, Event
-from tiger_agent.harness import AppMentionEvent
-from tiger_agent.slack import fetch_user_info, fetch_bot_info, BotInfo, add_reaction, \
-    post_response, remove_reaction
+from tiger_agent import Event, HarnessContext
+from tiger_agent.slack import (
+    BotInfo,
+    add_reaction,
+    fetch_bot_info,
+    fetch_channel_info,
+    fetch_user_info,
+    post_response,
+    remove_reaction,
+)
 
 logger = logging.getLogger(__name__)
 
-MCPDict: TypeAlias = dict[str, MCPServerStreamableHTTP | MCPServerStdio]
+@dataclass
+class McpConfig:
+    """
+    Attributes:
+        internal_only: Specifies if this can be used in externally shared channels
+        mcp_server: The MCP server instance
+    """
+    internal_only: bool
+    mcp_server: MCPServerStreamableHTTP | MCPServerStdio
+
+type MCPDict = dict[str, McpConfig]
 
 @logfire.instrument("load_mcp_config")
 def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
@@ -69,14 +86,27 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
     """
     mcp_servers: MCPDict = {}
     for name, cfg in mcp_config.items():
-        if cfg.pop("disabled", False):
+        if cfg.get("disabled", False):
             continue
-        if not cfg.get("tool_prefix"):
-            cfg["tool_prefix"] = name
-        if cfg.get("command"):
-            mcp_servers[name] = MCPServerStdio(**cfg)
-        elif cfg.get("url"):
-            mcp_servers[name] = MCPServerStreamableHTTP(**cfg)
+
+        internal_only = cfg.get("internal_only", False)
+        
+        # our mcp_config.json items have fields that do not exist on pydantic's MCPServer object
+        # if we pass them in, an error will be thrown. Previously, we were pop()'ing the parameters
+        # off, but was destructive -- in other words, an mcp config would only be disabled the first time
+        # this method was called & and it is called each time an agent handles an event
+        server_cfg = {k: v for k, v in cfg.items() if k not in ("disabled", "internal_only")}
+
+        if not server_cfg.get("tool_prefix"):
+            server_cfg["tool_prefix"] = name
+
+        mcp_server: MCPServerStdio | MCPServerStreamableHTTP
+
+        if server_cfg.get("command"):
+            mcp_server = MCPServerStdio(**server_cfg)
+        elif server_cfg.get("url"):
+            mcp_server = MCPServerStreamableHTTP(**server_cfg)
+        mcp_servers[name] = McpConfig(internal_only=internal_only, mcp_server=mcp_server)
     return mcp_servers
 
 
@@ -192,7 +222,6 @@ class TigerAgent:
         Args:
             mcp_servers: Dictionary of loaded MCP servers
         """
-        pass
 
     @logfire.instrument("generate_response", extract_args=False)
     async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
@@ -234,7 +263,15 @@ class TigerAgent:
         user_prompt = await self.make_user_prompt(ctx)
         mcp_servers = self.mcp_loader()
         self.augment_mcp_servers(mcp_servers)
-        toolsets = [mcp_server for mcp_server in mcp_servers.values()]
+        
+        channel_info = await fetch_channel_info(client=hctx.app.client, channel_id=event.event.channel)
+        if channel_info is None:
+            # default to shared if we can't fetch channel info to be conservative
+            channel_is_shared = True
+        else:
+            channel_is_shared = channel_info.is_ext_shared or channel_info.is_shared
+        
+        toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values() if not channel_is_shared or not mcp_config.internal_only]
         agent = Agent(
             model=self.model,
             deps_type=dict[str, Any],

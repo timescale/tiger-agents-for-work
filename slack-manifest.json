@@ -14,6 +14,7 @@
     "scopes": {
       "bot": [
         "app_mentions:read",
+        "channels:read",
         "chat:write",
         "chat:write.public",
         "im:history",

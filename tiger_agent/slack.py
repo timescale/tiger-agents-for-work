@@ -12,7 +12,6 @@ All functions are designed to be resilient, gracefully handling API errors and p
 structured data models for Slack entities.
 """
 
-from typing import Optional
 
 import logfire
 from pydantic import BaseModel
@@ -77,14 +76,14 @@ class UserProfile(BaseModel):
     """
     model_config = {"extra": "allow"}
 
-    status_text: Optional[str] = None
-    status_emoji: Optional[str] = None
-    real_name: Optional[str] = None
-    display_name: Optional[str] = None
-    real_name_normalized: Optional[str] = None
-    display_name_normalized: Optional[str] = None
-    email: Optional[str] = None
-    team: Optional[str] = None
+    status_text: str | None = None
+    status_emoji: str | None = None
+    real_name: str | None = None
+    display_name: str | None = None
+    real_name_normalized: str | None = None
+    display_name_normalized: str | None = None
+    email: str | None = None
+    team: str | None = None
 
 
 class UserInfo(BaseModel):
@@ -142,6 +141,8 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
         return UserInfo(**(resp.data["user"]))
     except SlackApiError:
         return None
+    except AssertionError:
+        return None
 
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
@@ -171,6 +172,40 @@ async def post_response(
         unfurl_links=False,
         unfurl_media=False,
     )
+
+
+class ChannelInfo(BaseModel):
+    """Pydantic model for Slack channel information.
+
+    Represents channel metadata and properties within a Slack workspace.
+    Used for building context-aware responses based on channel type and settings.
+
+    Attributes:
+        id: Unique channel identifier
+        name: Channel name
+        is_channel: Whether this is a public channel
+        is_group: Whether this is a private group
+        is_im: Whether this is a direct message
+        is_mpim: Whether this is a multi-party direct message
+        is_private: Whether the channel is private
+        is_archived: Whether the channel is archived
+        is_shared: Whether the channel is shared with external orgs
+        is_ext_shared: Whether externally shared
+        is_member: Whether the bot is a member
+    """
+    model_config = {"extra": "allow"}
+
+    id: str
+    name: str | None = None
+    is_channel: bool | None = None
+    is_group: bool | None = None
+    is_im: bool | None = None
+    is_mpim: bool | None = None
+    is_private: bool | None = None
+    is_archived: bool | None = None
+    is_shared: bool | None = None
+    is_ext_shared: bool | None = None
+    is_member: bool | None = None
 
 
 class BotInfo(BaseModel):
@@ -241,3 +276,28 @@ async def fetch_bot_info(client: AsyncWebClient) -> BotInfo:
 
     return bot_info
 
+@logfire.instrument("fetch_channel_info", extract_args=["channel_id"])
+async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> ChannelInfo | None:
+    """Fetch comprehensive channel information from Slack API.
+
+    Retrieves channel metadata including privacy settings and sharing status.
+    Returns None on any API error to allow graceful degradation when channel
+    info is unavailable.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel_id: Slack channel ID to fetch information for
+
+    Returns:
+        ChannelInfo object with complete channel data, or None if fetch failed
+    """
+    try:
+        resp = await client.conversations_info(channel=channel_id)
+        assert isinstance(resp.data, dict)
+        assert resp.data["ok"]
+        return ChannelInfo(**(resp.data["channel"]))
+    except SlackApiError as e:
+        logfire.error("Failed to fetch channel info", channel_id=channel_id, error=str(e))
+        return None
+    except AssertionError:
+        return None
