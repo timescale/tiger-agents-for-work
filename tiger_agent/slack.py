@@ -139,8 +139,8 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
         assert isinstance(resp.data, dict)
         assert resp.data["ok"]
         return UserInfo(**(resp.data["user"]))
-    except Exception as e:
-        logfire.error("Failed to fetch user info", user_id=user_id, error=str(e))
+    except Exception:
+        logfire.exception("Failed to fetch user info", user_id=user_id)
         return None
 
 
@@ -295,6 +295,6 @@ async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> Channel
         assert isinstance(resp.data, dict)
         assert resp.data["ok"]
         return ChannelInfo(**(resp.data["channel"]))
-    except Exception as e:
-        logfire.error("Failed to fetch channel info", channel_id=channel_id, error=str(e))
+    except Exception:
+        logfire.exception("Failed to fetch channel info", channel_id=channel_id)
         return None
