@@ -111,7 +111,7 @@ class UserInfo(BaseModel):
     id: str
     team_id: str
     name: str
-    deleted: bool
+    deleted: Optional[bool] = False
     color: Optional[str] = None
     real_name: Optional[str] = None
     tz: Optional[str] = None
