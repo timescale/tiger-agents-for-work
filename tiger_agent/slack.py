@@ -110,12 +110,12 @@ class UserInfo(BaseModel):
     id: str
     team_id: str
     name: str
-    deleted: Optional[bool] = False
-    color: Optional[str] = None
-    real_name: Optional[str] = None
-    tz: Optional[str] = None
-    tz_label: Optional[str] = None
-    tz_offset: Optional[int] = None
+    deleted: bool = False
+    color: str | None = None
+    real_name: str | None = None
+    tz: str | None = None
+    tz_label: str | None = None
+    tz_offset: int | None = None
     profile: UserProfile
 
 
