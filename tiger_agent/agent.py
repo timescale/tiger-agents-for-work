@@ -117,7 +117,7 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
         invalid_keys = [k for k in cfg if k not in all_valid_fields]
         
         if len(invalid_keys) > 0:
-            logfire.error("Received an invalid key in mcp_config", extra={"invalid_keys": invalid_keys})
+            logfire.error("Received an invalid key in mcp_config", invalid_keys=invalid_keys)
             raise ValueError("Received an invalid key in mcp_config", invalid_keys)
 
         server_cfg = {k: v for k, v in cfg.items() if k in valid_mcp_server_fields}
@@ -303,7 +303,7 @@ class TigerAgent:
             available_tools = len(toolsets)
             removed_count = total_tools - available_tools
             if removed_count > 0:
-                logfire.info("Tools were removed as channel is shared with external users", extra={"removed_count": removed_count, "channel_id": event.event.channel})
+                logfire.info("Tools were removed as channel is shared with external users", removed_count=removed_count, channel_id=event.event.channel)
         agent = Agent(
             model=self.model,
             deps_type=dict[str, Any],
