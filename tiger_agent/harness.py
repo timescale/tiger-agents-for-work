@@ -306,7 +306,7 @@ class EventHarness:
                 logger.exception("failed to parse claimed event", exc_info=e, extra={"id": row.get("id")})
                 if row["id"] is not None:
                     # if we got a malformed event, delete it to avoid retry loops
-                    await cur.execute("select agent.delete_event(%s, false)", (row["id"],))
+                    await cur.execute("select agent.delete_event(%s::int8, _processed=>false)", (row["id"],))
                 return None
 
     @logfire.instrument("delete_event", extract_args=False)
