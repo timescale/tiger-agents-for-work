@@ -11,7 +11,7 @@ def get_all_fields(cls) -> set:
             fields.update(klass.__annotations__.keys())
     return fields
 
-async def should_process_request(pool: AsyncConnectionPool, user_id: str, interval: timedelta, allowed_requests: int | None) -> bool:
+async def usage_limit_reached(pool: AsyncConnectionPool, user_id: str, interval: timedelta, allowed_requests: int | None) -> bool:
     """Determine if the user's request should be processed."""
     if allowed_requests is None:
         return True

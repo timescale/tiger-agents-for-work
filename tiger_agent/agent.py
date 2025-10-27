@@ -40,7 +40,7 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.utils import get_all_fields, should_process_request
+from tiger_agent.utils import get_all_fields, usage_limit_reached
 
 logger = logging.getLogger(__name__)
 
@@ -283,7 +283,7 @@ class TigerAgent:
         mention = event.event
         ctx["mention"] = mention
         
-        if not await should_process_request(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
+        if not await usage_limit_reached(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
             logfire.info("User interaction limited due to usage", allowed_requests=self.rate_limit_allowed_requests, interval=self.rate_limit_interval, user_id=mention.user)
             return "I cannot process your request at this time due to usage limits. Please ask me again later."
         
