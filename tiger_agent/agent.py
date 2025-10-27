@@ -20,6 +20,7 @@ The TigerAgent processes Slack app_mention events by:
 import json
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -39,7 +40,7 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.utils import get_all_fields
+from tiger_agent.utils import get_all_fields, usage_limit_reached
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +189,8 @@ class TigerAgent:
         jinja_env: Environment | Path = Path.cwd(),
         mcp_config_path: Path | None = None,
         max_attempts: int = 3,
+        rate_limit_allowed_requests: int | None = None,
+        rate_limit_interval: timedelta = timedelta(minutes=1),
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
@@ -202,6 +205,8 @@ class TigerAgent:
             )
         self.mcp_loader = MCPLoader(mcp_config_path)
         self.max_attempts = max_attempts
+        self.rate_limit_allowed_requests = rate_limit_allowed_requests
+        self.rate_limit_interval = rate_limit_interval
 
     @logfire.instrument("make_system_prompt", extract_args=False)
     async def make_system_prompt(self, ctx: dict[str, Any]) -> str:
@@ -277,6 +282,11 @@ class TigerAgent:
         ctx["event"] = event
         mention = event.event
         ctx["mention"] = mention
+        
+        if not await usage_limit_reached(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
+            logfire.info("User interaction limited due to usage", allowed_requests=self.rate_limit_allowed_requests, interval=self.rate_limit_interval, user_id=mention.user)
+            return "I cannot process your request at this time due to usage limits. Please ask me again later."
+        
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
         ctx["bot"] = self.bot_info
