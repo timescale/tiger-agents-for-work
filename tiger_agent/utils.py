@@ -17,10 +17,20 @@ async def usage_limit_reached(pool: AsyncConnectionPool, user_id: str, interval:
         return True
     
     async with pool.connection() as con:
-        result = await con.execute("""select COUNT(*) from agent.event_hist
+        current_request_result = await con.execute("""select COUNT(*) from agent.event
                           where event->>'user' = %s
                           and event_ts >= now() - %s; """, (user_id, interval))
-        row = await result.fetchone()
-        num_requests_for_user_in_interval = int(row[0]) if row and row[0] is not None else 0
+        current_request_row = await current_request_result.fetchone()
         
-        return num_requests_for_user_in_interval < allowed_requests
+        num_current_requests_for_user_in_interval = int(current_request_row[0]) if current_request_row and current_request_row[0] is not None else 0
+        
+        if num_current_requests_for_user_in_interval > allowed_requests:
+            return True
+        
+        historic_request_result = await con.execute("""select COUNT(*) from agent.event_hist
+                          where event->>'user' = %s
+                          and event_ts >= now() - %s; """, (user_id, interval))
+        historic_request_row = await historic_request_result.fetchone()
+        num_historic_requests_for_user_in_interval = int(historic_request_row[0]) if historic_request_row and historic_request_row[0] is not None else 0
+        
+        return (num_current_requests_for_user_in_interval + num_historic_requests_for_user_in_interval) > allowed_requests

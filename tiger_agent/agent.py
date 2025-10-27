@@ -283,7 +283,7 @@ class TigerAgent:
         mention = event.event
         ctx["mention"] = mention
         
-        if not await usage_limit_reached(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
+        if await usage_limit_reached(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
             logfire.info("User interaction limited due to usage", allowed_requests=self.rate_limit_allowed_requests, interval=self.rate_limit_interval, user_id=mention.user)
             return "I cannot process your request at this time due to usage limits. Please ask me again later."
         
