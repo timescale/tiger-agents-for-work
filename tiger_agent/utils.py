@@ -3,27 +3,6 @@ from datetime import timedelta
 from psycopg_pool import AsyncConnectionPool
 
 
-def _get_combined_user_requests_query() -> str:
-    """Generate SQL query to count user requests from both agent.event and agent.event_hist tables."""
-    return """
-        SELECT COUNT(*) FROM (
-            SELECT 1 FROM agent.event
-            WHERE event->>'user' = %s AND event_ts >= now() - %s
-            UNION ALL
-            SELECT 1 FROM agent.event_hist
-            WHERE event->>'user' = %s AND event_ts >= now() - %s
-        ) combined
-    """
-
-
-async def _count_combined_user_requests(con, user_id: str, interval: timedelta) -> int:
-    """Count user requests in both agent.event and agent.event_hist tables within the given interval."""
-    query = _get_combined_user_requests_query()
-    result = await con.execute(query, (user_id, interval, user_id, interval))
-    row = await result.fetchone()
-    return int(row[0]) if row and row[0] is not None else 0
-
-
 def get_all_fields(cls) -> set:
     """Get all field names from a class and its base classes."""
     fields = set()
@@ -38,5 +17,14 @@ async def usage_limit_reached(pool: AsyncConnectionPool, user_id: str, interval:
         return True
 
     async with pool.connection() as con:
-        total_requests = await _count_combined_user_requests(con, user_id, interval)
+        """Count user requests in both agent.event and agent.event_hist tables within the given interval."""
+        result = await con.execute("""SELECT COUNT(*) FROM (
+                SELECT 1 FROM agent.event
+                WHERE event->>'user' = %s AND event_ts >= now() - %s
+                UNION ALL
+                SELECT 1 FROM agent.event_hist
+                WHERE event->>'user' = %s AND event_ts >= now() - %s
+            ) combined""", (user_id, interval, user_id, interval))
+        row = await result.fetchone()
+        total_requests =  int(row[0]) if row and row[0] is not None else 0
         return total_requests > allowed_requests
