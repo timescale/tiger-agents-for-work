@@ -99,7 +99,6 @@ class BaseEvent(BaseModel):
         blocks: Slack Block Kit blocks if present
         channel: Channel ID where the mention occurred
         event_ts: Event timestamp from Slack
-        client_msg_id: Unique client message identifier
     """
     model_config = {"extra": "allow"}
 
@@ -112,7 +111,6 @@ class BaseEvent(BaseModel):
     blocks: list[dict[str, Any]] | None = None
     channel: str
     event_ts: str
-    client_msg_id: str
 
 
 class AppMentionEvent(BaseEvent):
