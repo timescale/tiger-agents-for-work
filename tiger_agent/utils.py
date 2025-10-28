@@ -14,7 +14,7 @@ def get_all_fields(cls) -> set:
 async def usage_limit_reached(pool: AsyncConnectionPool, user_id: str, interval: timedelta, allowed_requests: int | None) -> bool:
     """Determine if the user's request should be processed."""
     if allowed_requests is None:
-        return True
+        return False
 
     async with pool.connection() as con:
         """Count user requests in both agent.event and agent.event_hist tables within the given interval."""
