@@ -8,7 +8,14 @@
     "bot_user": {
       "display_name": "your-bot-name",
       "always_online": true
-    }
+    },
+    "slash_commands": [
+        {
+            "command": "/your-bot-name",
+            "description": "Slash commands for your Agent",
+            "should_escape": true
+        }
+    ]
   },
   "oauth_config": {
     "scopes": {
