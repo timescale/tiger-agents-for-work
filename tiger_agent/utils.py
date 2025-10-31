@@ -58,3 +58,11 @@ async def user_ignored(pool: AsyncConnectionPool, user_id: str) -> bool:
         result = await con.execute("SELECT agent.is_user_ignored(%s)", (user_id,))
         row = await result.fetchone()
         return bool(row[0]) if row and row[0] is not None else False
+
+
+async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
+    """Check if a user is an admin."""
+    async with pool.connection() as con:
+        result = await con.execute("SELECT EXISTS(SELECT 1 FROM agent.admin_users WHERE user_id = %s)", (user_id,))
+        row = await result.fetchone()
+        return bool(row[0]) if row and row[0] is not None else False
