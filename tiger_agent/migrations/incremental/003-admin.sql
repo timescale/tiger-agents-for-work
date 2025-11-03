@@ -1,0 +1,26 @@
+--003-admin.sql
+
+-----------------------------------------------------------------------
+-- agent.admin_users
+create table if not exists agent.admin_users
+( event_ts timestamptz not null default now()
+, user_id text primary key
+, event jsonb
+);
+
+
+-----------------------------------------------------------------------
+-- agent.ignored_users
+create table if not exists agent.ignored_users
+( id serial primary key
+, event_ts timestamptz not null default now()
+, user_id text not null
+, deleted timestamptz null
+, event jsonb
+, unique (user_id, deleted)
+);
+
+-- Create partial unique constraint to ensure only one active ignore per user
+alter table agent.ignored_users
+add constraint ignored_users_active_user_constraint
+exclude (user_id with =) where (deleted is null);

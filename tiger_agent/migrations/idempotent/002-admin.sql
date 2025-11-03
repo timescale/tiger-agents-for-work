@@ -9,14 +9,6 @@ $func$ language sql immutable security invoker
 ;
 
 -----------------------------------------------------------------------
--- agent.admin_users
-create table if not exists agent.admin_users
-( event_ts timestamptz not null default now()
-, user_id text primary key
-, event jsonb
-);
-
------------------------------------------------------------------------
 -- slack.insert_admin_user
 create or replace function agent.insert_admin_user(_event jsonb) returns void
 as $func$
@@ -26,22 +18,6 @@ as $func$
     on conflict (user_id) do nothing
 $func$ language sql volatile security invoker
 ;
-
------------------------------------------------------------------------
--- agent.ignored_users
-create table if not exists agent.ignored_users
-( id serial primary key
-, event_ts timestamptz not null default now()
-, user_id text not null
-, deleted timestamptz null
-, event jsonb
-, unique (user_id, deleted)
-);
-
--- Create partial unique constraint to ensure only one active ignore per user
-alter table agent.ignored_users
-add constraint ignored_users_active_user_constraint
-exclude (user_id with =) where (deleted is null);
 
 -----------------------------------------------------------------------
 -- agent.insert_ignored_user
