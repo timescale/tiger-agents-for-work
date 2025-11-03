@@ -1,3 +1,14 @@
+import asyncio
+import re
+from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+
+from psycopg.types.json import Jsonb
+
+from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
+from tiger_agent.utils import parse_slack_user_name, user_is_admin
+
 """
 Command System for Tiger Agent Slack Bot
 
@@ -43,18 +54,6 @@ If no command matches, the system returns available subcommands for that level.
 Commands can validate argument counts and return appropriate error messages.
 """
 
-import asyncio
-import re
-from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-
-from psycopg.types.json import Jsonb
-
-from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
-from tiger_agent.utils import parse_slack_user_name, user_is_admin
-
-
 @dataclass
 class CommandBase(ABC):
     # this is used to match the command, can be a regex pattern or just a string
@@ -90,6 +89,10 @@ class Command(CommandBase):
 @dataclass
 class CommandGroup(CommandBase):
     commands: list[CommandBase] = field(default_factory=list)
+    _commands_dict: dict[str, CommandBase] = field(default_factory=dict, init=False)
+
+    def __post_init__(self):
+        self._commands_dict = {x.key: x for x in self.commands}
 
     def _get_commands(self):
         lines = []
@@ -111,13 +114,7 @@ class CommandGroup(CommandBase):
         curr = args.pop(0) if has_more_args else None
         matching_command = None
         if curr is not None:
-            # find first command where regex matches
-            for cmd in self.commands:
-                if cmd.key is not None and re.match(cmd.key, curr):
-                    if cmd.key != curr:
-                        args.insert(0, curr)
-                    matching_command = cmd
-                    break
+            matching_command = self._commands_dict.get(curr)
         
         if matching_command is None:
             result = f"{f"<{curr}> is an invalid command.\n" if curr is not None else ""}Available commands:\n{self._get_commands()}"
@@ -125,7 +122,32 @@ class CommandGroup(CommandBase):
         
         return await matching_command(args, ctx)
 
-async def handle_ignore_command(ctx: CommandContext, args: list[str]) -> str:
+async def handle_admins_add_command(ctx: CommandContext, args: list[str]) -> str:
+    username, user_id = parse_slack_user_name(args[0])
+    if username is None or user_id is None:
+        return "Argument needs to be a Slack username"
+    async with (
+        ctx.hctx.pool.connection() as con,
+        con.transaction() as _,
+        con.cursor() as cur,
+    ):
+        await cur.execute("select agent.insert_admin_user(%s)", (Jsonb(ctx.command),))
+    return f"Unignored <{username}>"
+
+
+async def handle_admins_remove_command(ctx: CommandContext, args: list[str]) -> str:
+    username, user_id = parse_slack_user_name(args[0])
+    if username is None or user_id is None:
+        return "Argument needs to be a Slack username"
+    async with (
+        ctx.hctx.pool.connection() as con,
+        con.transaction() as _,
+        con.cursor() as cur,
+    ):
+        await cur.execute("select agent.delete_admin_user(%s)", (Jsonb(ctx.command),))
+    return f"Removed admin <{username}>"
+
+async def handle_ignored_add_command(ctx: CommandContext, args: list[str]) -> str:
     username, user_id = parse_slack_user_name(args[0])
     if username is None or user_id is None:
         return "Argument needs to be a Slack username"
@@ -138,7 +160,7 @@ async def handle_ignore_command(ctx: CommandContext, args: list[str]) -> str:
     return f"Ignored <{username}>"
 
 
-async def handle_unignore_command(ctx: CommandContext, args: list[str]) -> str:
+async def handle_ignored_remove_command(ctx: CommandContext, args: list[str]) -> str:
     username, user_id = parse_slack_user_name(args[0])
     if username is None or user_id is None:
         return "Argument needs to be a Slack username"
@@ -156,7 +178,7 @@ async def handle_ignore_list_command(ctx: CommandContext, args: list[str]) -> st
         ctx.hctx.pool.connection() as con,
         con.cursor() as cur,
     ):
-        await cur.execute("select user_id, event_ts from agent.ignored_user_list()")
+        await cur.execute("select user_id from agent.ignored_user_list()")
         rows = await cur.fetchall()
 
         if not rows:
@@ -164,10 +186,29 @@ async def handle_ignore_list_command(ctx: CommandContext, args: list[str]) -> st
 
         user_list = []
         for row in rows:
-            user_id, event_ts = row
-            user_list.append(f"<@{user_id}> (ignored since {event_ts.strftime('%Y-%m-%d %H:%M')})")
+            user_id = row[0]
+            user_list.append(f"<@{user_id}>")
 
         return f"Currently ignored users ({len(user_list)}):\n" + "\n".join(user_list)
+
+
+async def handle_admins_list_command(ctx: CommandContext, args: list[str]) -> str:
+    async with (
+        ctx.hctx.pool.connection() as con,
+        con.cursor() as cur,
+    ):
+        await cur.execute("select user_id from agent.admin_user_list()")
+        rows = await cur.fetchall()
+
+        if not rows:
+            return "No admin users are currently configured."
+
+        user_list = []
+        for row in rows:
+            user_id = row[0]
+            user_list.append(f"<@{user_id}>")
+
+        return f"Current admin users ({len(user_list)}):\n" + "\n".join(user_list)
 
 _slash_commands: CommandGroup | None = None
 
@@ -175,30 +216,49 @@ def _build_command_handlers() -> CommandGroup:
     global _slash_commands
     if _slash_commands is None:
         _slash_commands = CommandGroup(
-            commands=[
-                CommandGroup(
-                    key="admin",
-                    commands=[
-                        CommandGroup(key="ignore",
-                            commands=[
-                                Command(
-                                    key=r"<@[A-Z0-9]+\|[^>]+>",
-                                    name="<@username>",
-                                    expected_parameters=1,
-                                    func=handle_ignore_command
-                                ), Command(
-                                    key="list",
-                                    func=handle_ignore_list_command
-                                )
-                            ]
-                        ),
-    
-                        Command(key="unignore",
-                            expected_parameters=1,
-                            func=handle_unignore_command)
+            commands=[CommandGroup(
+                key="users",
+                commands=[
+                    CommandGroup(
+                        key="admins",
+                        commands=[
+                            Command(
+                                key="add",
+                                func=handle_admins_add_command,
+                                expected_parameters=1
+                            ),
+                            Command(
+                                key="list",
+                                func=handle_admins_list_command
+                            ),
+                            Command(
+                                key="remove",
+                                func=handle_admins_remove_command,
+                                expected_parameters=1
+                            )
                         ]
-                )
-            ]
+                    ),
+                    CommandGroup(
+                        key="ignored",
+                        commands=[
+                            Command(
+                                key="add",
+                                expected_parameters=1,
+                                func=handle_ignored_add_command
+                            ),
+                            Command(
+                                key="list",
+                                func=handle_ignore_list_command
+                            ),
+                            Command(
+                                key="remove",
+                                expected_parameters=1,
+                                func=handle_ignored_remove_command
+                            )
+                        ]
+                    )
+                ]
+            )]
         )
     return _slash_commands
 

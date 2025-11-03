@@ -22,6 +22,17 @@ $func$ language sql volatile security invoker
 ;
 
 -----------------------------------------------------------------------
+-- agent.delete_admin_user
+create or replace function agent.delete_admin_user(_event jsonb) returns void
+as $func$
+    delete from agent.admin_users
+    where user_id = agent.extract_user_id_from_event(_event);
+
+    insert into agent.admin_audits (event) values (_event);
+$func$ language sql volatile security invoker
+;
+
+-----------------------------------------------------------------------
 -- agent.insert_ignored_user
 create or replace function agent.insert_ignored_user(_event jsonb) returns void
 as $func$
@@ -61,6 +72,15 @@ $func$ language sql immutable security invoker
 create or replace function agent.ignored_user_list() returns setof agent.ignored_users
 as $func$
     select * from agent.ignored_users
+    order by user_id
+$func$ language sql immutable security invoker
+;
+
+-----------------------------------------------------------------------
+-- agent.admin_user_list
+create or replace function agent.admin_user_list() returns setof agent.admin_users
+as $func$
+    select * from agent.admin_users
     order by user_id
 $func$ language sql immutable security invoker
 ;
