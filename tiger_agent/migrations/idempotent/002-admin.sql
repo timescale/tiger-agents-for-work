@@ -15,7 +15,9 @@ as $func$
     insert into agent.admin_users (user_id, event)
     select agent.extract_user_id_from_event(_event), _event
     where agent.extract_user_id_from_event(_event) is not null
-    on conflict (user_id) do nothing
+    on conflict (user_id) do nothing;
+
+    insert into agent.admin_audits (event) values (_event);
 $func$ language sql volatile security invoker
 ;
 
@@ -23,10 +25,12 @@ $func$ language sql volatile security invoker
 -- agent.insert_ignored_user
 create or replace function agent.insert_ignored_user(_event jsonb) returns void
 as $func$
-    insert into agent.ignored_users (user_id, deleted, event)
-    select agent.extract_user_id_from_event(_event), null, _event
+    insert into agent.ignored_users (user_id, event)
+    select agent.extract_user_id_from_event(_event), _event
     where agent.extract_user_id_from_event(_event) is not null
-    on conflict on constraint ignored_users_active_user_constraint do nothing
+    on conflict (user_id) do nothing;
+
+    insert into agent.admin_audits (event) values (_event);
 $func$ language sql volatile security invoker
 ;
 
@@ -34,10 +38,10 @@ $func$ language sql volatile security invoker
 -- agent.delete_ignored_user
 create or replace function agent.delete_ignored_user(_event jsonb) returns void
 as $func$
-    update agent.ignored_users
-    set deleted = now()
-    where user_id = agent.extract_user_id_from_event(_event)
-      and deleted is null
+    delete from agent.ignored_users
+    where user_id = agent.extract_user_id_from_event(_event);
+
+    insert into agent.admin_audits (event) values (_event);
 $func$ language sql volatile security invoker
 ;
 
@@ -48,7 +52,6 @@ as $func$
     select exists (
         select 1 from agent.ignored_users
         where user_id = _user_id
-          and deleted is null
     )
 $func$ language sql immutable security invoker
 ;
@@ -58,7 +61,6 @@ $func$ language sql immutable security invoker
 create or replace function agent.ignored_user_list() returns setof agent.ignored_users
 as $func$
     select * from agent.ignored_users
-    where deleted is null
-    order by event_ts desc
+    order by user_id
 $func$ language sql immutable security invoker
 ;
