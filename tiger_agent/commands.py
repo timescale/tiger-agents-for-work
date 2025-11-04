@@ -192,12 +192,12 @@ async def handle_ignore_list_command(ctx: CommandContext, args: list[str]) -> st
         return f"Currently ignored users ({len(user_list)}):\n" + "\n".join(user_list)
 
 
-async def handle_admins_list_command(ctx: CommandContext, args: list[str]) -> str:
+async def handle_admins_list_command(ctx: CommandContext, _: list[str]) -> str:
     async with (
         ctx.hctx.pool.connection() as con,
         con.cursor() as cur,
     ):
-        await cur.execute("select user_id from agent.admin_user_list()")
+        await cur.execute("select * from agent.admin_users")
         rows = await cur.fetchall()
 
         if not rows:

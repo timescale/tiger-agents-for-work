@@ -75,12 +75,3 @@ as $func$
     order by user_id
 $func$ language sql immutable security invoker
 ;
-
------------------------------------------------------------------------
--- agent.admin_user_list
-create or replace function agent.admin_user_list() returns setof agent.admin_users
-as $func$
-    select * from agent.admin_users
-    order by user_id
-$func$ language sql immutable security invoker
-;
