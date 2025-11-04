@@ -64,7 +64,7 @@ as $func$
         select 1 from agent.ignored_users
         where user_id = _user_id
     )
-$func$ language sql immutable security invoker
+$func$ language sql stable security invoker
 ;
 
 -----------------------------------------------------------------------
@@ -73,5 +73,5 @@ create or replace function agent.ignored_user_list() returns setof agent.ignored
 as $func$
     select * from agent.ignored_users
     order by user_id
-$func$ language sql immutable security invoker
+$func$ language sql stable security invoker
 ;
