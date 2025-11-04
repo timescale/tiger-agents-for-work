@@ -62,7 +62,7 @@ class BaseEvent(BaseModel):
 
     ts: str
     thread_ts: str | None = None
-    team: str
+    team: str | None = None
     text: str
     type: str
     user: str
