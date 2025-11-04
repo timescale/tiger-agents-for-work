@@ -173,12 +173,12 @@ async def handle_ignored_remove_command(ctx: CommandContext, args: list[str]) ->
     return f"Unignored <{username}>"
 
 
-async def handle_ignore_list_command(ctx: CommandContext, args: list[str]) -> str:
+async def handle_ignore_list_command(ctx: CommandContext, _: list[str]) -> str:
     async with (
         ctx.hctx.pool.connection() as con,
         con.cursor() as cur,
     ):
-        await cur.execute("select user_id from agent.ignored_user_list()")
+        await cur.execute("select * from agent.ignored_users")
         rows = await cur.fetchall()
 
         if not rows:

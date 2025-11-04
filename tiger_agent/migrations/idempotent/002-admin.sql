@@ -66,12 +66,3 @@ as $func$
     )
 $func$ language sql stable security invoker
 ;
-
------------------------------------------------------------------------
--- agent.ignored_user_list
-create or replace function agent.ignored_user_list() returns setof agent.ignored_users
-as $func$
-    select * from agent.ignored_users
-    order by user_id
-$func$ language sql stable security invoker
-;
