@@ -263,8 +263,8 @@ def _build_command_handlers() -> CommandGroup:
     return _slash_commands
 
 async def handle_command(command: SlackCommand, hctx: HarnessContext) -> str:
-    if not await user_is_admin(pool=hctx.pool, user_id=command.get("user_id")):
+    if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
         return "Slash commands can only be used by admins."
     ctx = CommandContext(hctx=hctx, command=command)
     handlers = _build_command_handlers()
-    return await handlers(command.get("text"), ctx)
+    return await handlers(command.text, ctx)

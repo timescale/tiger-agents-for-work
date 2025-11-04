@@ -2,21 +2,21 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, TypedDict
+from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 from slack_bolt.app.async_app import AsyncApp
 
 
-class SlackCommand(TypedDict, total=False):
+class SlackCommand(BaseModel):
     """This represents a partial definition of the command object emitted to a handler for a slash command."""
-    channel_id: str
-    channel_name: str
-    user_id: str
-    user_name: str
-    command: str
-    text: str
+    channel_id: str | None = None
+    channel_name: str | None = None
+    user_id: str | None = None
+    user_name: str | None = None
+    command: str | None = None
+    text: str | None = None
 
 
 @dataclass
