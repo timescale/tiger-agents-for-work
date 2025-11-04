@@ -4,10 +4,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from psycopg.types.json import Jsonb
-
 from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
-from tiger_agent.utils import parse_slack_user_name, user_is_admin
+from tiger_agent.utils import parse_slack_user_name, serialize_to_jsonb, user_is_admin
 
 """
 Command System for Tiger Agent Slack Bot
@@ -131,8 +129,8 @@ async def handle_admins_add_command(ctx: CommandContext, args: list[str]) -> str
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.insert_admin_user(%s)", (Jsonb(ctx.command),))
-    return f"Unignored <{username}>"
+        await cur.execute("select agent.insert_admin_user(%s)", (serialize_to_jsonb(ctx.command),))
+    return f"Added admin <{username}>"
 
 
 async def handle_admins_remove_command(ctx: CommandContext, args: list[str]) -> str:
@@ -144,7 +142,7 @@ async def handle_admins_remove_command(ctx: CommandContext, args: list[str]) -> 
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.delete_admin_user(%s)", (Jsonb(ctx.command),))
+        await cur.execute("select agent.delete_admin_user(%s)", (serialize_to_jsonb(ctx.command),))
     return f"Removed admin <{username}>"
 
 async def handle_ignored_add_command(ctx: CommandContext, args: list[str]) -> str:
@@ -156,7 +154,7 @@ async def handle_ignored_add_command(ctx: CommandContext, args: list[str]) -> st
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.insert_ignored_user(%s)", (Jsonb(ctx.command),))
+        await cur.execute("select agent.insert_ignored_user(%s)", (serialize_to_jsonb(ctx.command),))
     return f"Ignored <{username}>"
 
 
@@ -169,7 +167,7 @@ async def handle_ignored_remove_command(ctx: CommandContext, args: list[str]) ->
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.delete_ignored_user(%s)", (Jsonb(ctx.command),))
+        await cur.execute("select agent.delete_ignored_user(%s)", (serialize_to_jsonb(ctx.command),))
     return f"Unignored <{username}>"
 
 

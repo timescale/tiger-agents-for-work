@@ -3,6 +3,13 @@ from datetime import timedelta
 
 import logfire
 from psycopg_pool import AsyncConnectionPool
+from psycopg.types.json import Jsonb
+from pydantic import BaseModel
+
+
+def serialize_to_jsonb(model: BaseModel) -> Jsonb:
+    """Convert a Pydantic BaseModel to a PostgreSQL Jsonb object."""
+    return Jsonb(model.model_dump())
 
 
 def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
