@@ -30,7 +30,6 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
-from tiger_agent import Event, HarnessContext
 from tiger_agent.slack import (
     BotInfo,
     add_reaction,
@@ -40,7 +39,8 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.utils import get_all_fields, usage_limit_reached
+from tiger_agent.types import Event, HarnessContext
+from tiger_agent.utils import get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +362,9 @@ class TigerAgent:
         client = hctx.app.client
         mention = event.event
         try:
+            if await user_ignored(pool=hctx.pool,user_id=mention.user):
+                logfire.info("Ignore user", user_id=mention.user)
+                return
             await add_reaction(client, mention.channel, mention.ts, "spinthinking")
             response = await self.generate_response(hctx, event)
             await post_response(client, mention.channel, mention.thread_ts if mention.thread_ts else mention.ts, response)

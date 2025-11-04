@@ -17,10 +17,9 @@ import asyncio
 import logging
 import os
 import random
+import re
 from asyncio import QueueShutDown, TaskGroup
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 import logfire
@@ -28,13 +27,16 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
+from slack_bolt.context.respond.async_respond import AsyncRespond
 
+from tiger_agent.commands import handle_command
 from tiger_agent.migrations import runner
 from tiger_agent.slack import fetch_bot_info
+from tiger_agent.types import Event, HarnessContext, SlackCommand
 
 logger = logging.getLogger(__name__)
 
@@ -65,85 +67,6 @@ def _create_default_pool(min_size: int, max_size: int) -> AsyncConnectionPool:
         reset=_reset_database_connection,
     )
 
-
-@dataclass
-class HarnessContext:
-    """Shared context provided to event processors.
-
-    This context gives event processors access to the Slack app for API calls,
-    the database connection pool for data operations, and the task group for
-    spawning concurrent tasks.
-
-    Attributes:
-        app: Slack Bolt AsyncApp for making Slack API calls
-        pool: Database connection pool for PostgreSQL operations
-    """
-    app: AsyncApp
-    pool: AsyncConnectionPool
-
-
-class BaseEvent(BaseModel):
-    """Base Pydantic model for Slack events.
-
-    Represents the structure of a Slack app mention event as received from
-    the Slack Events API. The model allows extra fields to accommodate
-    future Slack API changes.
-
-    Attributes:
-        ts: Message timestamp
-        thread_ts: Thread timestamp if this is a threaded message
-        team: Slack team/workspace ID
-        text: The text content of the message
-        type: Event type (always 'app_mention')
-        user: User ID who mentioned the app
-        blocks: Slack Block Kit blocks if present
-        channel: Channel ID where the mention occurred
-        event_ts: Event timestamp from Slack
-    """
-    model_config = {"extra": "allow"}
-
-    ts: str
-    thread_ts: str | None = None
-    team: str
-    text: str
-    type: str
-    user: str
-    blocks: list[dict[str, Any]] | None = None
-    channel: str
-    event_ts: str
-
-
-class AppMentionEvent(BaseEvent):
-    """Pydantic model for Slack app_mention events."""
-    type: str = "app_mention"
-
-
-class MessageEvent(BaseEvent):
-    """Pydantic model for Slack message events."""
-    type: str = "message"
-    subtype: str | None = None
-
-
-class Event(BaseModel):
-    """Database representation of an event from the agent.event table.
-
-    This model represents events stored in the PostgreSQL work queue table,
-    including metadata for retry logic and worker coordination.
-
-    Attributes:
-        id: Primary key from agent.event table
-        event_ts: Timestamp when the event occurred
-        attempts: Number of processing attempts made
-        vt: Visibility threshold - when event becomes available for processing
-        claimed: Array of timestamps when event was claimed by workers
-        event: The original Slack app mention event data
-    """
-    id: int
-    event_ts: datetime
-    attempts: int
-    vt: datetime
-    claimed: list[datetime]
-    event: AppMentionEvent | MessageEvent
 
 
 # Type alias for event processing callback
@@ -488,6 +411,15 @@ class EventHarness:
 
             async def on_event(ack: AsyncAck, event: dict[str, Any]):
                 await self._on_event(ack, event)
+                
+            async def on_command(ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]):
+                slack_command = SlackCommand(**command)
+                await ack()
+                response = await handle_command(command=slack_command, hctx=self._make_harness_context())
+                await respond(text=response, response_type="ephemeral", delete_original=True)
+                
+
+            self._app.command(re.compile(r"\/.*"))(on_command)
             self._app.event("app_mention")(on_event)
 
             async def on_message(ack: AsyncAck, event: dict[str, Any]):
