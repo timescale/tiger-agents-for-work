@@ -412,9 +412,10 @@ class EventHarness:
             async def on_event(ack: AsyncAck, event: dict[str, Any]):
                 await self._on_event(ack, event)
                 
-            async def on_command(ack: AsyncAck, respond: AsyncRespond, command: SlackCommand):
+            async def on_command(ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]):
+                slack_command = SlackCommand(**command)
                 await ack()
-                response = await handle_command(command=command, hctx=self._make_harness_context())
+                response = await handle_command(command=slack_command, hctx=self._make_harness_context())
                 await respond(text=response, response_type="ephemeral", delete_original=True)
                 
 
