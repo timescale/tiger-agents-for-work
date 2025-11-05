@@ -331,7 +331,6 @@ class TigerAgent:
             system_prompt=system_prompt,
             toolsets=toolsets
         )
-    
         async with agent as a:
             response = await a.run(
                 user_prompt=user_prompt,

@@ -119,13 +119,12 @@ class HarnessContext:
     """
     app: AsyncApp
     pool: AsyncConnectionPool
-    
+
 @dataclass
 class CommandContext:
     """Shared context provided to the command handlers."""
     hctx: HarnessContext
     command: SlackCommand
-
 
 class SlackFile(BaseModel):
     """Pydantic model for Slack file objects.
