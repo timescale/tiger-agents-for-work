@@ -23,13 +23,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import logfire
 from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
+# from pydantic_ai.messages import UserContent, BinaryContent
 from tiger_agent.slack import (
     BotInfo,
     add_reaction,
@@ -39,7 +39,7 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.types import Event, HarnessContext
+from tiger_agent.types import AgentResponseContext, Event, HarnessContext
 from tiger_agent.utils import get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
@@ -209,7 +209,7 @@ class TigerAgent:
         self.rate_limit_interval = rate_limit_interval
 
     @logfire.instrument("make_system_prompt", extract_args=False)
-    async def make_system_prompt(self, ctx: dict[str, Any]) -> str:
+    async def make_system_prompt(self, ctx: AgentResponseContext) -> str:
         """Generate system prompt from Jinja2 template.
 
         Renders the 'system_prompt.md' template with the provided context,
@@ -226,7 +226,7 @@ class TigerAgent:
         return await tmpl.render_async(**ctx)
 
     @logfire.instrument("make_user_prompt", extract_args=False)
-    async def make_user_prompt(self, ctx: dict[str, Any]) -> str:
+    async def make_user_prompt(self, ctx: AgentResponseContext) -> str:
         """Generate user prompt from Jinja2 template.
 
         Renders the 'user_prompt.md' template with the provided context,
@@ -278,10 +278,7 @@ class TigerAgent:
         Returns:
             Generated AI response text ready for posting to Slack
         """
-        ctx: dict[str, Any] = {}
-        ctx["event"] = event
         mention = event.event
-        ctx["mention"] = mention
         
         if await usage_limit_reached(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
             logfire.info("User interaction limited due to usage", allowed_requests=self.rate_limit_allowed_requests, interval=self.rate_limit_interval, user_id=mention.user)
@@ -289,11 +286,10 @@ class TigerAgent:
         
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
-        ctx["bot"] = self.bot_info
+        
         user_info = await fetch_user_info(hctx.app.client, mention.user)
-        if user_info:
-            ctx["user"] = user_info
-            ctx["local_time"] = event.event_ts.astimezone(ZoneInfo(user_info.tz))
+        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info)
+
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
         mcp_servers = self.mcp_loader()
@@ -320,6 +316,7 @@ class TigerAgent:
             system_prompt=system_prompt,
             toolsets=toolsets
         )
+    
         async with agent as a:
             response = await a.run(
                 user_prompt=user_prompt,
