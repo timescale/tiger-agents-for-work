@@ -2,8 +2,8 @@ import re
 from datetime import timedelta
 
 import logfire
-from psycopg_pool import AsyncConnectionPool
 from psycopg.types.json import Jsonb
+from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 
 

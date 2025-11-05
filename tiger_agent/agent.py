@@ -19,6 +19,7 @@ The TigerAgent processes Slack app_mention events by:
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -28,11 +29,12 @@ import logfire
 from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+from pydantic_ai.messages import UserContent
 
-# from pydantic_ai.messages import UserContent, BinaryContent
 from tiger_agent.slack import (
     BotInfo,
     add_reaction,
+    download_private_file,
     fetch_bot_info,
     fetch_channel_info,
     fetch_user_info,
@@ -223,10 +225,10 @@ class TigerAgent:
             Rendered system prompt string
         """
         tmpl = self.jinja_env.get_template("system_prompt.md")
-        return await tmpl.render_async(**ctx)
+        return await tmpl.render_async(**ctx.model_dump())
 
     @logfire.instrument("make_user_prompt", extract_args=False)
-    async def make_user_prompt(self, ctx: AgentResponseContext) -> str:
+    async def make_user_prompt(self, ctx: AgentResponseContext) -> str | Sequence[UserContent]:
         """Generate user prompt from Jinja2 template.
 
         Renders the 'user_prompt.md' template with the provided context,
@@ -240,7 +242,15 @@ class TigerAgent:
             Rendered user prompt string
         """
         tmpl = self.jinja_env.get_template("user_prompt.md")
-        return await tmpl.render_async(**ctx)
+        text_prompt =  await tmpl.render_async(**ctx.model_dump())
+        
+        if ctx.mention.files is None or not len(ctx.mention.files):
+            return text_prompt
+        
+        user_contents = [await download_private_file(file) for file in ctx.mention.files]
+        user_contents.insert(0, text_prompt)
+        
+        return user_contents
 
     def augment_mcp_servers(self, mcp_servers: MCPDict):
         """Hook to augment loaded MCP servers before use.
