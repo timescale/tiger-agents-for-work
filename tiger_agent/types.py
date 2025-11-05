@@ -143,6 +143,7 @@ class SlackFile(BaseModel):
     pretty_type: str
     url_private_download: str
     media_display_type: str
+    size: int
 
 class BaseEvent(BaseModel):
     """Base Pydantic model for Slack events.
