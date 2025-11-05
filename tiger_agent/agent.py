@@ -235,11 +235,16 @@ class TigerAgent:
         creating a dynamic user prompt that typically contains the actual
         Slack message content and relevant contextual information.
 
+        If the mention contains attached files, downloads them and returns
+        a sequence of UserContent objects (text + binary files) for multimodal
+        processing by the AI agent.
+
         Args:
             ctx: Template context containing event, user, bot info, etc.
 
         Returns:
-            Rendered user prompt string
+            Rendered user prompt string if no files are attached, or a sequence
+            of UserContent objects (text prompt + file contents) if files are present
         """
         tmpl = self.jinja_env.get_template("user_prompt.md")
         text_prompt =  await tmpl.render_async(**ctx.model_dump())

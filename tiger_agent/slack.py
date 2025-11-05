@@ -221,12 +221,28 @@ async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> Channel
         return None
     
 async def download_private_file(file: SlackFile) -> BinaryContent:
+    """Download a private Slack file using the bot token for authentication.
+
+    Downloads the binary content of a private Slack file by making an authenticated
+    HTTP request to the file's private download URL. This is necessary because
+    private files require authorization headers to access.
+
+    Args:
+        file: SlackFile object containing the private download URL and metadata
+
+    Returns:
+        BinaryContent object containing the file data and MIME type
+
+    Raises:
+        Could raise HTTP errors if the download fails or token is invalid
+    """
     bot_token = os.getenv("SLACK_BOT_TOKEN")
-    
+
     if not bot_token:
-        #dunno
+        # TODO: Handle missing bot token case - should raise exception or return error
         pass
-        
+
     async with httpx.AsyncClient() as client:
+        # Download file using bot token for authentication
         resp = await client.get(url=file.url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
         return BinaryContent(data=resp.content, media_type=file.mimetype)
