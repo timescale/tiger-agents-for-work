@@ -13,10 +13,16 @@ structured data models for Slack entities.
 """
 
 
+import os
+
+import httpx
 import logfire
 from pydantic import BaseModel
+from pydantic_ai.messages import BinaryContent
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
+
+from tiger_agent.types import BotInfo, SlackFile, UserInfo
 
 
 @logfire.instrument("add_reaction", extract_args=["channel", "ts", "emoji"])
@@ -57,66 +63,7 @@ async def remove_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: 
         pass
 
 
-class UserProfile(BaseModel):
-    """Pydantic model for Slack user profile information.
 
-    Represents the profile section of a Slack user, containing display names,
-    status information, and contact details. Allows extra fields to accommodate
-    future Slack API changes.
-
-    Attributes:
-        status_text: User's current status message
-        status_emoji: Emoji associated with user's status
-        real_name: User's full real name
-        display_name: User's chosen display name
-        real_name_normalized: Normalized version of real name
-        display_name_normalized: Normalized version of display name
-        email: User's email address (if accessible)
-        team: Team identifier
-    """
-    model_config = {"extra": "allow"}
-
-    status_text: str | None = None
-    status_emoji: str | None = None
-    real_name: str | None = None
-    display_name: str | None = None
-    real_name_normalized: str | None = None
-    display_name_normalized: str | None = None
-    email: str | None = None
-    team: str | None = None
-
-
-class UserInfo(BaseModel):
-    """Pydantic model for complete Slack user information.
-
-    Represents a Slack user with all associated metadata including timezone,
-    team membership, and profile details. Used for building context-aware
-    responses that can reference user preferences and local time.
-
-    Attributes:
-        id: Unique user identifier
-        team_id: Team/workspace identifier
-        name: Username/handle
-        deleted: Whether the user account is deleted
-        color: User's display color in Slack UI
-        real_name: User's real name (may differ from profile.real_name)
-        tz: Timezone identifier (e.g., 'America/New_York')
-        tz_label: Human-readable timezone label
-        tz_offset: Timezone offset in seconds from UTC
-        profile: Detailed profile information
-    """
-    model_config = {"extra": "allow"}
-
-    id: str
-    team_id: str
-    name: str
-    deleted: bool = False
-    color: str | None = None
-    real_name: str | None = None
-    tz: str | None = None
-    tz_label: str | None = None
-    tz_offset: int | None = None
-    profile: UserProfile
 
 
 @logfire.instrument("fetch_user_info", extract_args=["user_id"])
@@ -207,32 +154,6 @@ class ChannelInfo(BaseModel):
     is_member: bool | None = None
 
 
-class BotInfo(BaseModel):
-    """Pydantic model for Slack bot information.
-
-    Represents the bot's identity and metadata within a Slack workspace.
-    Used for building context-aware responses that can reference the bot's
-    capabilities and identity.
-
-    Attributes:
-        url: Bot's workspace URL
-        team: Team/workspace name
-        team_id: Team/workspace identifier
-        bot_id: Unique bot identifier
-        name: Bot's display name
-        app_id: Associated Slack app identifier
-        user_id: Bot's user account identifier
-    """
-    model_config = {"extra": "allow"}
-
-    url: str
-    team: str
-    team_id: str
-    bot_id: str
-    name: str
-    app_id: str
-    user_id: str
-
 
 @logfire.instrument("fetch_bot_info", extract_args=False)
 async def fetch_bot_info(client: AsyncWebClient) -> BotInfo:
@@ -298,3 +219,47 @@ async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> Channel
     except Exception:
         logfire.exception("Failed to fetch channel info", channel_id=channel_id)
         return None
+    
+async def download_private_file(url_private_download: str) -> BinaryContent | str | None:
+    """Download a private Slack file using the bot token for authentication.
+
+    Downloads the content of a private Slack file by making an authenticated
+    HTTP request to the file's private download URL. This is necessary because
+    private files require authorization headers to access.
+
+    Args:
+        file: SlackFile object containing the private download URL and metadata
+
+    Returns:
+        BinaryContent object for binary files, string for text files, or error message string if download fails
+
+    Raises:
+        Returns error message string instead of raising exceptions for validation errors,
+        HTTP errors, or authentication failures
+    """
+    try:
+        if url_private_download is None:
+            raise ValueError("No private url provided")
+
+        bot_token = os.getenv("SLACK_BOT_TOKEN")
+        if not bot_token:
+            raise ValueError("Cannot fetch file without a token")
+
+        async with httpx.AsyncClient() as client:
+            # Download file using bot token for authentication
+            resp = await client.get(url=url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
+            resp.raise_for_status()
+
+            media_type = resp.headers['content-type']
+            
+            if not media_type:
+                raise ValueError("Cannot determine file content type")
+            
+            # For text files, return string content
+            if media_type.startswith("text/"):
+                return resp.content.decode("utf-8")
+
+            # For binary files, return BinaryContent
+            return BinaryContent(data=resp.content, media_type=media_type)
+    except Exception as e:
+        return f"Could not fetch file: {str(e)}"

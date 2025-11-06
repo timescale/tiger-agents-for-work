@@ -30,7 +30,8 @@
         "channels:read",
         "groups:read",
         "mpim:read",
-        "im:read"
+        "im:read",
+        "files:read"
       ]
     }
   },

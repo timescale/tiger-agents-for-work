@@ -19,28 +19,30 @@ The TigerAgent processes Slack app_mention events by:
 
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import logfire
 from jinja2 import Environment, FileSystemLoader
-from pydantic_ai import Agent, UsageLimits, models
+from pydantic_ai import Agent, BinaryContent, RunContext, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+from pydantic_ai.messages import UserContent
 
 from tiger_agent.slack import (
     BotInfo,
     add_reaction,
+    download_private_file,
     fetch_bot_info,
     fetch_channel_info,
     fetch_user_info,
     post_response,
     remove_reaction,
 )
-from tiger_agent.types import Event, HarnessContext
-from tiger_agent.utils import get_all_fields, usage_limit_reached, user_ignored
+from tiger_agent.types import AgentResponseContext, Event, HarnessContext, SlackFile
+from tiger_agent.utils import file_type_supported, get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +211,7 @@ class TigerAgent:
         self.rate_limit_interval = rate_limit_interval
 
     @logfire.instrument("make_system_prompt", extract_args=False)
-    async def make_system_prompt(self, ctx: dict[str, Any]) -> str:
+    async def make_system_prompt(self, ctx: AgentResponseContext) -> str:
         """Generate system prompt from Jinja2 template.
 
         Renders the 'system_prompt.md' template with the provided context,
@@ -223,24 +225,37 @@ class TigerAgent:
             Rendered system prompt string
         """
         tmpl = self.jinja_env.get_template("system_prompt.md")
-        return await tmpl.render_async(**ctx)
+        return await tmpl.render_async(**ctx.model_dump())
 
     @logfire.instrument("make_user_prompt", extract_args=False)
-    async def make_user_prompt(self, ctx: dict[str, Any]) -> str:
+    async def make_user_prompt(self, ctx: AgentResponseContext) -> str | Sequence[UserContent]:
         """Generate user prompt from Jinja2 template.
 
         Renders the 'user_prompt.md' template with the provided context,
         creating a dynamic user prompt that typically contains the actual
         Slack message content and relevant contextual information.
 
+        If the mention contains attached files, downloads them and returns
+        a sequence of UserContent objects (text + binary files) for multimodal
+        processing by the AI agent.
+
         Args:
             ctx: Template context containing event, user, bot info, etc.
 
         Returns:
-            Rendered user prompt string
+            Rendered user prompt string if no files are attached, or a sequence
+            of UserContent objects (text prompt + file contents) if files are present
         """
         tmpl = self.jinja_env.get_template("user_prompt.md")
-        return await tmpl.render_async(**ctx)
+        text_prompt =  await tmpl.render_async(**ctx.model_dump())
+        
+        if ctx.mention.files is None or not len(ctx.mention.files):
+            return text_prompt
+        
+        user_contents: list[UserContent] = [await download_private_file(url_private_download=file.url_private_download) for file in ctx.mention.files if file_type_supported(file.mimetype)]
+        user_contents.insert(0, text_prompt)
+        
+        return user_contents
 
     def augment_mcp_servers(self, mcp_servers: MCPDict):
         """Hook to augment loaded MCP servers before use.
@@ -278,10 +293,7 @@ class TigerAgent:
         Returns:
             Generated AI response text ready for posting to Slack
         """
-        ctx: dict[str, Any] = {}
-        ctx["event"] = event
         mention = event.event
-        ctx["mention"] = mention
         
         if await usage_limit_reached(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
             logfire.info("User interaction limited due to usage", allowed_requests=self.rate_limit_allowed_requests, interval=self.rate_limit_interval, user_id=mention.user)
@@ -289,11 +301,10 @@ class TigerAgent:
         
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
-        ctx["bot"] = self.bot_info
+        
         user_info = await fetch_user_info(hctx.app.client, mention.user)
-        if user_info:
-            ctx["user"] = user_info
-            ctx["local_time"] = event.event_ts.astimezone(ZoneInfo(user_info.tz))
+        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info)
+
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
         mcp_servers = self.mcp_loader()
@@ -320,6 +331,14 @@ class TigerAgent:
             system_prompt=system_prompt,
             toolsets=toolsets
         )
+        @agent.tool_plain
+        async def download_slack_hosted_file(file: SlackFile) -> BinaryContent | str | None:
+            """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
+            if not file_type_supported(file.mimetype):
+                return "File type not supported"
+
+            return await download_private_file(url_private_download=file.url_private_download)
+
         async with agent as a:
             response = await a.run(
                 user_prompt=user_prompt,
