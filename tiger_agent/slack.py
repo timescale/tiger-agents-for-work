@@ -245,8 +245,7 @@ async def download_private_file(file: SlackFile) -> BinaryContent | str | None:
     bot_token = os.getenv("SLACK_BOT_TOKEN")
 
     if not bot_token:
-        # TODO: Handle missing bot token case - should raise exception or return error
-        pass
+        return "Cannot fetch image without a token."
 
     async with httpx.AsyncClient() as client:
         # Download file using bot token for authentication
