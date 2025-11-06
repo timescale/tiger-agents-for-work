@@ -95,6 +95,7 @@ class UserInfo(BaseModel):
     tz_label: str | None = None
     tz_offset: int | None = None
     profile: UserProfile
+
 class SlackCommand(BaseModel):
     """This represents a partial definition of the command object emitted to a handler for a slash command."""
     channel_id: str | None = None
