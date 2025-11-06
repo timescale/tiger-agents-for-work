@@ -333,7 +333,7 @@ class TigerAgent:
         )
         @agent.tool_plain
         async def download_slack_hosted_file(file: SlackFile) -> BinaryContent | str | None:
-            """This will download a file associated with a Slack message and return its contents."""
+            """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
             return await download_private_file(file)
         
         async with agent as a:

@@ -231,29 +231,33 @@ async def download_private_file(file: SlackFile) -> BinaryContent | str | None:
         file: SlackFile object containing the private download URL and metadata
 
     Returns:
-        BinaryContent object for binary files, string for text files, or None if no download URL
+        BinaryContent object for binary files, string for text files, or error message string if download fails
 
     Raises:
-        Could raise HTTP errors if the download fails or token is invalid
+        Returns error message string instead of raising exceptions for validation errors,
+        HTTP errors, or authentication failures
     """
-    if file.url_private_download is None:
-        return "No private url provided"
-    
-    if file.mimetype != "application/pdf" and not file.mimetype.startswith(("text/", "image/")):
-        return f"Cannot handle filetype {file.mimetype}"
+    try:
+        if file.url_private_download is None:
+            raise ValueError("No private url provided")
 
-    bot_token = os.getenv("SLACK_BOT_TOKEN")
+        if file.mimetype != "application/pdf" and not file.mimetype.startswith(("text/", "image/")):
+            raise ValueError(f"Cannot handle filetype {file.mimetype}")
 
-    if not bot_token:
-        return "Cannot fetch image without a token."
+        bot_token = os.getenv("SLACK_BOT_TOKEN")
+        if not bot_token:
+            raise ValueError("Cannot fetch file without a token")
 
-    async with httpx.AsyncClient() as client:
-        # Download file using bot token for authentication
-        resp = await client.get(url=file.url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
+        async with httpx.AsyncClient() as client:
+            # Download file using bot token for authentication
+            resp = await client.get(url=file.url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
+            resp.raise_for_status()
 
-        # For text files, return string content
-        if file.mimetype.startswith("text/"):
-            return resp.content.decode("utf-8")
+            # For text files, return string content
+            if file.mimetype.startswith("text/"):
+                return resp.content.decode("utf-8")
 
-        # For binary files, return BinaryContent
-        return BinaryContent(data=resp.content, media_type=file.mimetype)
+            # For binary files, return BinaryContent
+            return BinaryContent(data=resp.content, media_type=file.mimetype)
+    except Exception as e:
+        return f"Could not fetch file: {str(e)}"
