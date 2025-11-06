@@ -220,10 +220,10 @@ async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> Channel
         logfire.exception("Failed to fetch channel info", channel_id=channel_id)
         return None
     
-async def download_private_file(file: SlackFile) -> BinaryContent:
+async def download_private_file(file: SlackFile) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
-    Downloads the binary content of a private Slack file by making an authenticated
+    Downloads the content of a private Slack file by making an authenticated
     HTTP request to the file's private download URL. This is necessary because
     private files require authorization headers to access.
 
@@ -231,11 +231,17 @@ async def download_private_file(file: SlackFile) -> BinaryContent:
         file: SlackFile object containing the private download URL and metadata
 
     Returns:
-        BinaryContent object containing the file data and MIME type
+        BinaryContent object for binary files, string for text files, or None if no download URL
 
     Raises:
         Could raise HTTP errors if the download fails or token is invalid
     """
+    if file.url_private_download is None:
+        return "No private url provided"
+    
+    if file.mimetype != "application/pdf" and not file.mimetype.startswith(("text/", "image/")):
+        return f"Cannot handle filetype {file.mimetype}"
+
     bot_token = os.getenv("SLACK_BOT_TOKEN")
 
     if not bot_token:
@@ -245,4 +251,10 @@ async def download_private_file(file: SlackFile) -> BinaryContent:
     async with httpx.AsyncClient() as client:
         # Download file using bot token for authentication
         resp = await client.get(url=file.url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
+
+        # For text files, return string content
+        if file.mimetype.startswith("text/"):
+            return resp.content.decode("utf-8")
+
+        # For binary files, return BinaryContent
         return BinaryContent(data=resp.content, media_type=file.mimetype)

@@ -135,14 +135,14 @@ class SlackFile(BaseModel):
     model_config = {"extra": "allow"}
 
     id: str
-    name: str
-    title: str
-    mimetype: str
-    filetype: str
-    pretty_type: str
-    url_private_download: str
-    media_display_type: str
-    size: int
+    name: str | None = None
+    title: str | None = None
+    mimetype: str | None = None
+    filetype: str | None = None
+    pretty_type: str | None = None
+    url_private_download: str | None = None
+    media_display_type: str | None = None
+    size: int | None = None
 
 class BaseEvent(BaseModel):
     """Base Pydantic model for Slack events.
