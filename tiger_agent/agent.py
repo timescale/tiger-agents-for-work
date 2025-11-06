@@ -252,7 +252,7 @@ class TigerAgent:
         if ctx.mention.files is None or not len(ctx.mention.files):
             return text_prompt
         
-        user_contents = [await download_private_file(file) for file in ctx.mention.files]
+        user_contents: list[UserContent] = [await download_private_file(file) for file in ctx.mention.files]
         user_contents.insert(0, text_prompt)
         
         return user_contents
