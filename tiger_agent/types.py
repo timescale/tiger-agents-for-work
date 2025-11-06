@@ -236,5 +236,5 @@ class AgentResponseContext(BaseModel):
         user's timezone if user information is available. This ensures templates
         always have access to properly localized time information.
         """
-        if self.user is not None:
+        if self.user is not None and self.user.tz is not None:
             self.local_time = self.event.event_ts.astimezone(ZoneInfo(self.user.tz))
