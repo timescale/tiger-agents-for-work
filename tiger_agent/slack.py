@@ -220,7 +220,7 @@ async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> Channel
         logfire.exception("Failed to fetch channel info", channel_id=channel_id)
         return None
     
-async def download_private_file(file: SlackFile) -> BinaryContent | str | None:
+async def download_private_file(url_private_download: str) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
     Downloads the content of a private Slack file by making an authenticated
@@ -238,11 +238,8 @@ async def download_private_file(file: SlackFile) -> BinaryContent | str | None:
         HTTP errors, or authentication failures
     """
     try:
-        if file.url_private_download is None:
+        if url_private_download is None:
             raise ValueError("No private url provided")
-
-        if file.mimetype != "application/pdf" and not file.mimetype.startswith(("text/", "image/")):
-            raise ValueError(f"Cannot handle filetype {file.mimetype}")
 
         bot_token = os.getenv("SLACK_BOT_TOKEN")
         if not bot_token:
@@ -250,14 +247,19 @@ async def download_private_file(file: SlackFile) -> BinaryContent | str | None:
 
         async with httpx.AsyncClient() as client:
             # Download file using bot token for authentication
-            resp = await client.get(url=file.url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
+            resp = await client.get(url=url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
             resp.raise_for_status()
 
+            media_type = resp.headers['content-type']
+            
+            if not media_type:
+                raise ValueError("Cannot determine file content type")
+            
             # For text files, return string content
-            if file.mimetype.startswith("text/"):
+            if media_type.startswith("text/"):
                 return resp.content.decode("utf-8")
 
             # For binary files, return BinaryContent
-            return BinaryContent(data=resp.content, media_type=file.mimetype)
+            return BinaryContent(data=resp.content, media_type=media_type)
     except Exception as e:
         return f"Could not fetch file: {str(e)}"

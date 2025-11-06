@@ -73,3 +73,6 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
         result = await con.execute("SELECT EXISTS(SELECT 1 FROM agent.admin_users WHERE user_id = %s)", (user_id,))
         row = await result.fetchone()
         return bool(row[0]) if row and row[0] is not None else False
+
+def file_type_supported(mimetype: str) -> bool:
+    return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))

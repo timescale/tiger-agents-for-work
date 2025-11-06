@@ -42,7 +42,7 @@ from tiger_agent.slack import (
     remove_reaction,
 )
 from tiger_agent.types import AgentResponseContext, Event, HarnessContext, SlackFile
-from tiger_agent.utils import get_all_fields, usage_limit_reached, user_ignored
+from tiger_agent.utils import file_type_supported, get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +252,7 @@ class TigerAgent:
         if ctx.mention.files is None or not len(ctx.mention.files):
             return text_prompt
         
-        user_contents: list[UserContent] = [await download_private_file(file) for file in ctx.mention.files]
+        user_contents: list[UserContent] = [await download_private_file(url_private_download=file.url_private_download) for file in ctx.mention.files if file_type_supported(file.mimetype)]
         user_contents.insert(0, text_prompt)
         
         return user_contents
@@ -334,8 +334,11 @@ class TigerAgent:
         @agent.tool_plain
         async def download_slack_hosted_file(file: SlackFile) -> BinaryContent | str | None:
             """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
-            return await download_private_file(file)
-        
+            if not file_type_supported(file.mimetype):
+                return "File type not supported"
+
+            return await download_private_file(url_private_download=file.url_private_download)
+
         async with agent as a:
             response = await a.run(
                 user_prompt=user_prompt,
