@@ -27,7 +27,7 @@ from typing import Any
 
 import logfire
 from jinja2 import Environment, FileSystemLoader
-from pydantic_ai import Agent, UsageLimits, models
+from pydantic_ai import Agent, BinaryContent, RunContext, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from pydantic_ai.messages import UserContent
 
@@ -41,7 +41,7 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.types import AgentResponseContext, Event, HarnessContext
+from tiger_agent.types import AgentResponseContext, Event, HarnessContext, SlackFile
 from tiger_agent.utils import get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
@@ -331,6 +331,11 @@ class TigerAgent:
             system_prompt=system_prompt,
             toolsets=toolsets
         )
+        @agent.tool_plain
+        async def download_slack_hosted_file(file: SlackFile) -> BinaryContent | str | None:
+            """This will download a file associated with a Slack message and return its contents."""
+            return await download_private_file(file)
+        
         async with agent as a:
             response = await a.run(
                 user_prompt=user_prompt,
