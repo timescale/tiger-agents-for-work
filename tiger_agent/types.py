@@ -225,6 +225,7 @@ class AgentResponseContext(BaseModel):
         bot: Information about the bot user (display name, user ID, etc.)
         user: Slack user information including timezone, or None if unavailable
         local_time: Event timestamp converted to user's local timezone, set automatically
+        mcp_servers: Dictionary of mcp servers that the Agent has as its disposal
     """
     event: Event
     mention: AppMentionEvent | MessageEvent
