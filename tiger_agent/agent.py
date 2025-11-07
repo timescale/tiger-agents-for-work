@@ -42,7 +42,7 @@ from tiger_agent.slack import (
     remove_reaction,
 )
 from tiger_agent.types import AgentResponseContext, Event, HarnessContext, MCPDict, McpConfig, McpConfigExtraFields, SlackFile
-from tiger_agent.utils import file_type_supported, get_all_fields, usage_limit_reached, user_ignored
+from tiger_agent.utils import file_type_supported, filter_mcp_servers, get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
 
@@ -281,29 +281,20 @@ class TigerAgent:
         user_info = await fetch_user_info(hctx.app.client, mention.user)
         
         mcp_servers = self.mcp_loader()
-        self.augment_mcp_servers(mcp_servers)
         
-        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=mcp_servers)
+        filtered_mcp_servers = await filter_mcp_servers(client=hctx.app.client, channel_id=mention.channel, mcp_servers=mcp_servers)
+        
+        self.augment_mcp_servers(filtered_mcp_servers)
+        
+        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=filtered_mcp_servers)
 
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
-        
-        
-        channel_info = await fetch_channel_info(client=hctx.app.client, channel_id=event.event.channel)
-        if channel_info is None:
-            # default to shared if we can't fetch channel info to be conservative
-            channel_is_shared = True
-        else:
-            channel_is_shared = channel_info.is_ext_shared or channel_info.is_shared
-        
-        toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values() if not channel_is_shared or not mcp_config.internal_only]
 
-        if channel_is_shared:
-            total_tools = len(mcp_servers)
-            available_tools = len(toolsets)
-            removed_count = total_tools - available_tools
-            if removed_count > 0:
-                logfire.info("Tools were removed as channel is shared with external users", removed_count=removed_count, channel_id=event.event.channel)
+        
+        toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
+
+        
         agent = Agent(
             model=self.model,
             deps_type=dict[str, Any],

@@ -6,6 +6,11 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 
+from tiger_agent.slack import fetch_channel_info
+from tiger_agent.types import MCPDict
+
+from slack_bolt.app.async_app import AsyncApp
+
 
 def serialize_to_jsonb(model: BaseModel) -> Jsonb:
     """Convert a Pydantic BaseModel to a PostgreSQL Jsonb object."""
@@ -76,3 +81,42 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
 
 def file_type_supported(mimetype: str) -> bool:
     return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
+
+async def filter_mcp_servers(client: AsyncApp, channel_id: str, mcp_servers: MCPDict) -> MCPDict:
+    """Filter MCP servers based on channel sharing status.
+
+    Removes internal-only MCP servers when the channel is shared with external users
+    to prevent exposure of sensitive tools and data.
+
+    Args:
+        client: Slack app client for fetching channel information
+        channel_id: ID of the Slack channel to check
+        mcp_servers: Dictionary of MCP server configurations to filter
+
+    Returns:
+        Filtered dictionary containing only MCP servers appropriate for the channel type
+    """
+    # determine if channel is shared
+    channel_info = await fetch_channel_info(client=client, channel_id=channel_id)
+    if channel_info is None:
+        # default to shared if we can't fetch channel info to be conservative
+        channel_is_shared = True
+    else:
+        channel_is_shared = channel_info.is_ext_shared or channel_info.is_shared
+    
+    
+    # filter out internal-only tools when event is from a shared channel
+    filtered_mcp_servers: MCPDict = {
+        name: mcp_config 
+        for name, mcp_config in mcp_servers.items() 
+        if not channel_is_shared or not mcp_config.internal_only
+    }
+    
+    if channel_is_shared:
+        total_tools = len(mcp_servers)
+        available_tools = len(filtered_mcp_servers)
+        removed_count = total_tools - available_tools
+        if removed_count > 0:
+            logfire.info("Tools were removed as channel is shared with external users", removed_count=removed_count, channel_id=channel_id)
+            
+    return filtered_mcp_servers
