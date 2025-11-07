@@ -1,7 +1,14 @@
 from tiger_agent.types import McpConfigExtraFields
-from tiger_agent.utils import get_all_fields
 
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+
+def get_all_fields(cls) -> set:
+    """Get all field names from a class and its base classes."""
+    fields = set()
+    for klass in cls.__mro__:  # Method Resolution Order - includes base classes
+        if hasattr(klass, "__annotations__"):
+            fields.update(klass.__annotations__.keys())
+    return fields
 
 # our mcp_config.json items have fields that do not exist on pydantic's MCPServer object
 # if we pass them in, an error will be thrown. Previously, we were pop()'ing the parameters

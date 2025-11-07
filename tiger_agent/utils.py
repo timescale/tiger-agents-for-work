@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from tiger_agent.fields import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
 from tiger_agent.slack import fetch_channel_info
-from tiger_agent.types import MCPDict, McpConfig, McpConfigExtraFields
+from tiger_agent.types import MCPDict, McpConfig
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
 from slack_bolt.app.async_app import AsyncApp
@@ -121,15 +121,6 @@ def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
         return (username, user_id)
     logfire.warning("Argument was not of expected format for a <@USER_ID|username> formatted Slack username + user id")
     return (None, None)
-
-
-def get_all_fields(cls) -> set:
-    """Get all field names from a class and its base classes."""
-    fields = set()
-    for klass in cls.__mro__:  # Method Resolution Order - includes base classes
-        if hasattr(klass, "__annotations__"):
-            fields.update(klass.__annotations__.keys())
-    return fields
 
 async def usage_limit_reached(pool: AsyncConnectionPool, user_id: str, interval: timedelta, allowed_requests: int | None) -> bool:
     """Determine if the user's request should be processed."""
