@@ -192,15 +192,10 @@ async def get_filtered_mcp_servers(mcp_loader: MCPLoader, client: AsyncApp, chan
         Filtered dictionary containing only MCP servers appropriate for the channel type
     """
     mcp_servers = mcp_loader()
-    # determine if channel is shared
     channel_info = await fetch_channel_info(client=client, channel_id=channel_id)
-    if channel_info is None:
-        # default to shared if we can't fetch channel info to be conservative
-        channel_is_shared = True
-    else:
-        channel_is_shared = channel_info.is_ext_shared or channel_info.is_shared
     
-    if not channel_is_shared:
+    # if channel is not shared, just return the full list
+    if channel_info is not None and not channel_info.is_ext_shared and not channel_info.is_shared:
         return mcp_servers
     
     # filter out internal-only tools
