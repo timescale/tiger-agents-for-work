@@ -10,11 +10,10 @@ def get_all_fields(cls) -> set:
             fields.update(klass.__annotations__.keys())
     return fields
 
-# our mcp_config.json items have fields that do not exist on pydantic's MCPServer object
-# if we pass them in, an error will be thrown. Previously, we were pop()'ing the parameters
-# off, but was destructive -- in other words, an mcp config would only be disabled the first time
-# this method was called & and it is called each time an agent handles an event
+# fields that Pydantics MCP-classes are expecting
 VALID_MCP_SERVER_FIELDS = get_all_fields(MCPServerStdio) | get_all_fields(MCPServerStreamableHTTP)
+
+# additional fields that we support in our mcp_config.json
 VALID_EXTRA_FIELDS = get_all_fields(McpConfigExtraFields)
 
 # Get keys that are not in the intersection of valid fields

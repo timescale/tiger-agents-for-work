@@ -47,6 +47,10 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
         Dictionary mapping server names to configured MCP server instances
     """
     mcp_servers: MCPDict = {}
+    
+    # our mcp_config.json items are Pydantic MCPServer* properties with additional properties to control
+    # tiger-agent behavior. These extra properties need to be excluded from the parameters that we pass
+    # into the MCPServer* configurations. Also, we want to throw if there are any fields that we are not expecting
     for name, cfg in mcp_config.items():
         if cfg.get("disabled", False):
             continue
