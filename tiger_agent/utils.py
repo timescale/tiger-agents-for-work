@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 
+from tiger_agent.fields import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
 from tiger_agent.slack import fetch_channel_info
 from tiger_agent.types import MCPDict, McpConfig, McpConfigExtraFields
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
@@ -51,24 +52,14 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
             continue
 
         internal_only = cfg.get("internal_only", False)
-        
-        # our mcp_config.json items have fields that do not exist on pydantic's MCPServer object
-        # if we pass them in, an error will be thrown. Previously, we were pop()'ing the parameters
-        # off, but was destructive -- in other words, an mcp config would only be disabled the first time
-        # this method was called & and it is called each time an agent handles an event
-        valid_mcp_server_fields = get_all_fields(MCPServerStdio) | get_all_fields(MCPServerStreamableHTTP)
-        valid_extra_fields = get_all_fields(McpConfigExtraFields)
 
-        # Get keys that are not in the intersection of valid fields
-        all_valid_fields = valid_mcp_server_fields | valid_extra_fields
-        
-        invalid_keys = [k for k in cfg if k not in all_valid_fields]
-        
+        invalid_keys = [k for k in cfg if k not in ALL_VALID_FIELDS]
+
         if len(invalid_keys) > 0:
             logfire.error("Received an invalid key in mcp_config", invalid_keys=invalid_keys)
             raise ValueError("Received an invalid key in mcp_config", invalid_keys)
 
-        server_cfg = {k: v for k, v in cfg.items() if k in valid_mcp_server_fields}
+        server_cfg = {k: v for k, v in cfg.items() if k in VALID_MCP_SERVER_FIELDS}
 
         if not server_cfg.get("tool_prefix"):
             server_cfg["tool_prefix"] = name
