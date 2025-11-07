@@ -34,7 +34,6 @@ from tiger_agent.slack import (
     add_reaction,
     download_private_file,
     fetch_bot_info,
-    fetch_channel_info,
     fetch_user_info,
     post_response,
     remove_reaction,
