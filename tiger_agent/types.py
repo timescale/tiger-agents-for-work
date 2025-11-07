@@ -9,6 +9,31 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 from slack_bolt.app.async_app import AsyncApp
 
+from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+
+@dataclass
+class McpConfigExtraFields:
+    """
+    This represents the custom-properties on the config items in the mcp_config.json file.
+    Each item can use properties from MCPServerStreamableHTTP or MCPServerStdio, plus these fields
+    Attributes:
+        internal_only: Specifies if this can be used in externally shared channels
+        
+    """
+    internal_only: bool
+    disabled: bool
+
+@dataclass
+class McpConfig:
+    """
+    Attributes:
+        internal_only: Specifies if this can be used in externally shared channels
+        mcp_server: The MCP server instance
+    """
+    internal_only: bool
+    mcp_server: MCPServerStreamableHTTP | MCPServerStdio
+
+type MCPDict = dict[str, McpConfig]
 
 class BotInfo(BaseModel):
     """Pydantic model for Slack bot information.
@@ -223,12 +248,14 @@ class AgentResponseContext(BaseModel):
         bot: Information about the bot user (display name, user ID, etc.)
         user: Slack user information including timezone, or None if unavailable
         local_time: Event timestamp converted to user's local timezone, set automatically
+        mcp_servers: Dictionary of mcp servers that the Agent has as its disposal
     """
     event: Event
     mention: AppMentionEvent | MessageEvent
     bot: BotInfo
     user: UserInfo | None = None
     local_time: datetime | None = None
+    mcp_servers: MCPDict | None = None
 
     def model_post_init(self, __context):
         """Automatically compute derived fields after model initialization.

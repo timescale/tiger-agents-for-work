@@ -27,7 +27,7 @@ from typing import Any
 
 import logfire
 from jinja2 import Environment, FileSystemLoader
-from pydantic_ai import Agent, BinaryContent, RunContext, UsageLimits, models
+from pydantic_ai import Agent, BinaryContent, UsageLimits, models
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from pydantic_ai.messages import UserContent
 
@@ -41,34 +41,10 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.types import AgentResponseContext, Event, HarnessContext, SlackFile
+from tiger_agent.types import AgentResponseContext, Event, HarnessContext, MCPDict, McpConfig, McpConfigExtraFields, SlackFile
 from tiger_agent.utils import file_type_supported, get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class McpConfigExtraFields:
-    """
-    This represents the custom-properties on the config items in the mcp_config.json file.
-    Each item can use properties from MCPServerStreamableHTTP or MCPServerStdio, plus these fields
-    Attributes:
-        internal_only: Specifies if this can be used in externally shared channels
-        
-    """
-    internal_only: bool
-    disabled: bool
-
-@dataclass
-class McpConfig:
-    """
-    Attributes:
-        internal_only: Specifies if this can be used in externally shared channels
-        mcp_server: The MCP server instance
-    """
-    internal_only: bool
-    mcp_server: MCPServerStreamableHTTP | MCPServerStdio
-
-type MCPDict = dict[str, McpConfig]
 
 @logfire.instrument("load_mcp_config")
 def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
@@ -211,7 +187,7 @@ class TigerAgent:
         self.rate_limit_interval = rate_limit_interval
 
     @logfire.instrument("make_system_prompt", extract_args=False)
-    async def make_system_prompt(self, ctx: AgentResponseContext) -> str:
+    async def make_system_prompt(self, ctx: AgentResponseContext) -> str | Sequence[str]:
         """Generate system prompt from Jinja2 template.
 
         Renders the 'system_prompt.md' template with the provided context,
@@ -303,12 +279,15 @@ class TigerAgent:
             self.bot_info = await fetch_bot_info(hctx.app.client)
         
         user_info = await fetch_user_info(hctx.app.client, mention.user)
-        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info)
+        
+        mcp_servers = self.mcp_loader()
+        self.augment_mcp_servers(mcp_servers)
+        
+        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=mcp_servers)
 
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
-        mcp_servers = self.mcp_loader()
-        self.augment_mcp_servers(mcp_servers)
+        
         
         channel_info = await fetch_channel_info(client=hctx.app.client, channel_id=event.event.channel)
         if channel_info is None:
