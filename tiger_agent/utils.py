@@ -200,19 +200,20 @@ async def get_filtered_mcp_servers(mcp_loader: MCPLoader, client: AsyncApp, chan
     else:
         channel_is_shared = channel_info.is_ext_shared or channel_info.is_shared
     
+    if not channel_is_shared:
+        return mcp_servers
     
-    # filter out internal-only tools when event is from a shared channel
+    # filter out internal-only tools
     filtered_mcp_servers: MCPDict = {
         name: mcp_config 
         for name, mcp_config in mcp_servers.items() 
-        if not channel_is_shared or not mcp_config.internal_only
+        if not mcp_config.internal_only
     }
-    
-    if channel_is_shared:
-        total_tools = len(mcp_servers)
-        available_tools = len(filtered_mcp_servers)
-        removed_count = total_tools - available_tools
-        if removed_count > 0:
-            logfire.info("Tools were removed as channel is shared with external users", removed_count=removed_count, channel_id=channel_id)
+
+    total_tools = len(mcp_servers)
+    available_tools = len(filtered_mcp_servers)
+    removed_count = total_tools - available_tools
+    if removed_count > 0:
+        logfire.info("Tools were removed as channel is shared with external users", removed_count=removed_count, channel_id=channel_id)
             
     return filtered_mcp_servers
