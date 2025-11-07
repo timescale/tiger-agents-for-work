@@ -16,5 +16,5 @@ VALID_MCP_SERVER_FIELDS = get_all_fields(MCPServerStdio) | get_all_fields(MCPSer
 # additional fields that we support in our mcp_config.json
 VALID_EXTRA_FIELDS = get_all_fields(McpConfigExtraFields)
 
-# Get keys that are not in the intersection of valid fields
+# all of the fields that are supported in mcp_config.json items
 ALL_VALID_FIELDS = VALID_MCP_SERVER_FIELDS | VALID_EXTRA_FIELDS
