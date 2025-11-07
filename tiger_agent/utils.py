@@ -177,6 +177,7 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
 def file_type_supported(mimetype: str) -> bool:
     return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
 
+@logfire.instrument("get_filtered_mcp_servers", extract_args=False)
 async def get_filtered_mcp_servers(mcp_loader: MCPLoader, client: AsyncApp, channel_id: str) -> MCPDict:
     """Filter MCP servers based on channel sharing status.
 
