@@ -1,5 +1,8 @@
+import json
+from pathlib import Path
 import re
 from datetime import timedelta
+from typing import Any
 
 import logfire
 from psycopg.types.json import Jsonb
@@ -7,9 +10,101 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 
 from tiger_agent.slack import fetch_channel_info
-from tiger_agent.types import MCPDict
+from tiger_agent.types import MCPDict, McpConfig, McpConfigExtraFields
+from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
 from slack_bolt.app.async_app import AsyncApp
+
+@logfire.instrument("load_mcp_config")
+def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
+    """Load MCP server configuration from a JSON file.
+
+    Args:
+        mcp_config: Path to JSON configuration file
+
+    Returns:
+        Dictionary mapping server names to their configuration dictionaries
+    """
+    loaded_mcp_config: dict[str, dict[str, Any]] = json.loads(mcp_config.read_text()) if mcp_config else {}
+    return loaded_mcp_config
+
+
+@logfire.instrument("create_mcp_servers", extract_args=False)
+def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
+    """Create MCP server instances from configuration.
+
+    Supports two types of MCP servers:
+    - MCPServerStdio: For command-line MCP servers (uses 'command' and 'args')
+    - MCPServerStreamableHTTP: For HTTP-based MCP servers (uses 'url')
+
+    Servers marked with 'disabled': true are skipped.
+
+    Args:
+        mcp_config: Dictionary of server configurations
+
+    Returns:
+        Dictionary mapping server names to configured MCP server instances
+    """
+    mcp_servers: MCPDict = {}
+    for name, cfg in mcp_config.items():
+        if cfg.get("disabled", False):
+            continue
+
+        internal_only = cfg.get("internal_only", False)
+        
+        # our mcp_config.json items have fields that do not exist on pydantic's MCPServer object
+        # if we pass them in, an error will be thrown. Previously, we were pop()'ing the parameters
+        # off, but was destructive -- in other words, an mcp config would only be disabled the first time
+        # this method was called & and it is called each time an agent handles an event
+        valid_mcp_server_fields = get_all_fields(MCPServerStdio) | get_all_fields(MCPServerStreamableHTTP)
+        valid_extra_fields = get_all_fields(McpConfigExtraFields)
+
+        # Get keys that are not in the intersection of valid fields
+        all_valid_fields = valid_mcp_server_fields | valid_extra_fields
+        
+        invalid_keys = [k for k in cfg if k not in all_valid_fields]
+        
+        if len(invalid_keys) > 0:
+            logfire.error("Received an invalid key in mcp_config", invalid_keys=invalid_keys)
+            raise ValueError("Received an invalid key in mcp_config", invalid_keys)
+
+        server_cfg = {k: v for k, v in cfg.items() if k in valid_mcp_server_fields}
+
+        if not server_cfg.get("tool_prefix"):
+            server_cfg["tool_prefix"] = name
+
+        mcp_server: MCPServerStdio | MCPServerStreamableHTTP
+
+        if server_cfg.get("command"):
+            mcp_server = MCPServerStdio(**server_cfg)
+        elif server_cfg.get("url"):
+            mcp_server = MCPServerStreamableHTTP(**server_cfg)
+        mcp_servers[name] = McpConfig(internal_only=internal_only, mcp_server=mcp_server)
+    return mcp_servers
+
+
+class MCPLoader:
+    """Lazy loader for MCP server configurations.
+
+    This class loads MCP server configuration once during initialization
+    and creates fresh server instances each time it's called. This pattern
+    allows TigerAgent to reconnect to MCP servers for each request while
+    reusing the same configuration.
+
+    Args:
+        config: Path to MCP configuration JSON file, or None for no servers
+    """
+    def __init__(self, config: Path | None):
+        self._config = load_mcp_config(config) if config else {}
+
+    def __call__(self) -> MCPDict:
+        """Create fresh MCP server instances from the loaded configuration.
+
+        Returns:
+            Dictionary of configured MCP server instances ready for use
+        """
+        return create_mcp_servers(self._config)
+
 
 
 def serialize_to_jsonb(model: BaseModel) -> Jsonb:
@@ -82,20 +177,21 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
 def file_type_supported(mimetype: str) -> bool:
     return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
 
-async def filter_mcp_servers(client: AsyncApp, channel_id: str, mcp_servers: MCPDict) -> MCPDict:
+async def get_filtered_mcp_servers(mcp_loader: MCPLoader, client: AsyncApp, channel_id: str) -> MCPDict:
     """Filter MCP servers based on channel sharing status.
 
     Removes internal-only MCP servers when the channel is shared with external users
     to prevent exposure of sensitive tools and data.
 
     Args:
+        mcp_loader: Function that loads and returns the MCP server configurations
         client: Slack app client for fetching channel information
         channel_id: ID of the Slack channel to check
-        mcp_servers: Dictionary of MCP server configurations to filter
 
     Returns:
         Filtered dictionary containing only MCP servers appropriate for the channel type
     """
+    mcp_servers = mcp_loader()
     # determine if channel is shared
     channel_info = await fetch_channel_info(client=client, channel_id=channel_id)
     if channel_info is None:

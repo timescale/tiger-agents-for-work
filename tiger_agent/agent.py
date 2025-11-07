@@ -17,10 +17,8 @@ The TigerAgent processes Slack app_mention events by:
 5. Posting responses to Slack with appropriate visual feedback
 """
 
-import json
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -28,7 +26,7 @@ from typing import Any
 import logfire
 from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, BinaryContent, UsageLimits, models
-from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+
 from pydantic_ai.messages import UserContent
 
 from tiger_agent.slack import (
@@ -42,99 +40,9 @@ from tiger_agent.slack import (
     remove_reaction,
 )
 from tiger_agent.types import AgentResponseContext, Event, HarnessContext, MCPDict, McpConfig, McpConfigExtraFields, SlackFile
-from tiger_agent.utils import file_type_supported, filter_mcp_servers, get_all_fields, usage_limit_reached, user_ignored
+from tiger_agent.utils import MCPLoader, file_type_supported, get_filtered_mcp_servers, get_all_fields, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
-
-@logfire.instrument("load_mcp_config")
-def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
-    """Load MCP server configuration from a JSON file.
-
-    Args:
-        mcp_config: Path to JSON configuration file
-
-    Returns:
-        Dictionary mapping server names to their configuration dictionaries
-    """
-    loaded_mcp_config: dict[str, dict[str, Any]] = json.loads(mcp_config.read_text()) if mcp_config else {}
-    return loaded_mcp_config
-
-
-@logfire.instrument("create_mcp_servers", extract_args=False)
-def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
-    """Create MCP server instances from configuration.
-
-    Supports two types of MCP servers:
-    - MCPServerStdio: For command-line MCP servers (uses 'command' and 'args')
-    - MCPServerStreamableHTTP: For HTTP-based MCP servers (uses 'url')
-
-    Servers marked with 'disabled': true are skipped.
-
-    Args:
-        mcp_config: Dictionary of server configurations
-
-    Returns:
-        Dictionary mapping server names to configured MCP server instances
-    """
-    mcp_servers: MCPDict = {}
-    for name, cfg in mcp_config.items():
-        if cfg.get("disabled", False):
-            continue
-
-        internal_only = cfg.get("internal_only", False)
-        
-        # our mcp_config.json items have fields that do not exist on pydantic's MCPServer object
-        # if we pass them in, an error will be thrown. Previously, we were pop()'ing the parameters
-        # off, but was destructive -- in other words, an mcp config would only be disabled the first time
-        # this method was called & and it is called each time an agent handles an event
-        valid_mcp_server_fields = get_all_fields(MCPServerStdio) | get_all_fields(MCPServerStreamableHTTP)
-        valid_extra_fields = get_all_fields(McpConfigExtraFields)
-
-        # Get keys that are not in the intersection of valid fields
-        all_valid_fields = valid_mcp_server_fields | valid_extra_fields
-        
-        invalid_keys = [k for k in cfg if k not in all_valid_fields]
-        
-        if len(invalid_keys) > 0:
-            logfire.error("Received an invalid key in mcp_config", invalid_keys=invalid_keys)
-            raise ValueError("Received an invalid key in mcp_config", invalid_keys)
-
-        server_cfg = {k: v for k, v in cfg.items() if k in valid_mcp_server_fields}
-
-        if not server_cfg.get("tool_prefix"):
-            server_cfg["tool_prefix"] = name
-
-        mcp_server: MCPServerStdio | MCPServerStreamableHTTP
-
-        if server_cfg.get("command"):
-            mcp_server = MCPServerStdio(**server_cfg)
-        elif server_cfg.get("url"):
-            mcp_server = MCPServerStreamableHTTP(**server_cfg)
-        mcp_servers[name] = McpConfig(internal_only=internal_only, mcp_server=mcp_server)
-    return mcp_servers
-
-
-class MCPLoader:
-    """Lazy loader for MCP server configurations.
-
-    This class loads MCP server configuration once during initialization
-    and creates fresh server instances each time it's called. This pattern
-    allows TigerAgent to reconnect to MCP servers for each request while
-    reusing the same configuration.
-
-    Args:
-        config: Path to MCP configuration JSON file, or None for no servers
-    """
-    def __init__(self, config: Path | None):
-        self._config = load_mcp_config(config) if config else {}
-
-    def __call__(self) -> MCPDict:
-        """Create fresh MCP server instances from the loaded configuration.
-
-        Returns:
-            Dictionary of configured MCP server instances ready for use
-        """
-        return create_mcp_servers(self._config)
 
 
 class TigerAgent:
@@ -280,21 +188,17 @@ class TigerAgent:
         
         user_info = await fetch_user_info(hctx.app.client, mention.user)
         
-        mcp_servers = self.mcp_loader()
+        mcp_servers = await get_filtered_mcp_servers(mcp_loader=self.mcp_loader, client=hctx.app.client, channel_id=mention.channel)
         
-        filtered_mcp_servers = await filter_mcp_servers(client=hctx.app.client, channel_id=mention.channel, mcp_servers=mcp_servers)
+        self.augment_mcp_servers(mcp_servers)
         
-        self.augment_mcp_servers(filtered_mcp_servers)
-        
-        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=filtered_mcp_servers)
+        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=mcp_servers)
 
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
 
-        
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 
-        
         agent = Agent(
             model=self.model,
             deps_type=dict[str, Any],
