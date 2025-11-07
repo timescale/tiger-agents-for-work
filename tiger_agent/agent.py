@@ -303,12 +303,15 @@ class TigerAgent:
             self.bot_info = await fetch_bot_info(hctx.app.client)
         
         user_info = await fetch_user_info(hctx.app.client, mention.user)
-        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info)
+        
+        mcp_servers = self.mcp_loader()
+        self.augment_mcp_servers(mcp_servers)
+        
+        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=mcp_servers)
 
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
-        mcp_servers = self.mcp_loader()
-        self.augment_mcp_servers(mcp_servers)
+        
         
         channel_info = await fetch_channel_info(client=hctx.app.client, channel_id=event.event.channel)
         if channel_info is None:
