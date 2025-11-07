@@ -211,7 +211,7 @@ class TigerAgent:
         self.rate_limit_interval = rate_limit_interval
 
     @logfire.instrument("make_system_prompt", extract_args=False)
-    async def make_system_prompt(self, ctx: AgentResponseContext) -> str:
+    async def make_system_prompt(self, ctx: AgentResponseContext) -> str | Sequence[str]:
         """Generate system prompt from Jinja2 template.
 
         Renders the 'system_prompt.md' template with the provided context,

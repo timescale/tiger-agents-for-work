@@ -9,6 +9,8 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 from slack_bolt.app.async_app import AsyncApp
 
+from tiger_agent.agent import MCPDict
+
 
 class BotInfo(BaseModel):
     """Pydantic model for Slack bot information.
@@ -229,6 +231,7 @@ class AgentResponseContext(BaseModel):
     bot: BotInfo
     user: UserInfo | None = None
     local_time: datetime | None = None
+    mcp_servers: MCPDict | None = None
 
     def model_post_init(self, __context):
         """Automatically compute derived fields after model initialization.
