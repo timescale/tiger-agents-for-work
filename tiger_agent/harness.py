@@ -36,7 +36,7 @@ from slack_bolt.context.respond.async_respond import AsyncRespond
 from tiger_agent.commands import handle_command
 from tiger_agent.migrations import runner
 from tiger_agent.slack import fetch_bot_info
-from tiger_agent.types import Event, HarnessContext, SlackCommand
+from tiger_agent.models import Event, HarnessContext, SlackCommand
 
 logger = logging.getLogger(__name__)
 
