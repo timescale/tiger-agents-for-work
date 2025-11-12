@@ -22,7 +22,7 @@ from pydantic_ai.messages import BinaryContent
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
-from tiger_agent.types import BotInfo, SlackFile, UserInfo
+from tiger_agent.models import BotInfo, SlackFile, UserInfo
 
 
 @logfire.instrument("add_reaction", extract_args=["channel", "ts", "emoji"])

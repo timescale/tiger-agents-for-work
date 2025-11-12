@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
+from tiger_agent.models import CommandContext, HarnessContext, SlackCommand
 from tiger_agent.utils import parse_slack_user_name, serialize_to_jsonb, user_is_admin
 
 """
