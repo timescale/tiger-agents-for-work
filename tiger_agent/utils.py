@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from tiger_agent.fields import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
 from tiger_agent.slack import fetch_channel_info
-from tiger_agent.models import MCPDict, McpConfig
+from tiger_agent.types import MCPDict, McpConfig
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
 from slack_bolt.app.async_app import AsyncApp
