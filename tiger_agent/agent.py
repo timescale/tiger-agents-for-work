@@ -135,7 +135,7 @@ class TigerAgent:
         if ctx.mention.files is None or not len(ctx.mention.files):
             return text_prompt
         
-        user_contents: list[UserContent] = [await download_private_file(url_private_download=file.url_private_download) for file in ctx.mention.files if file_type_supported(file.mimetype)]
+        user_contents: list[UserContent] = [await download_private_file(url_private_download=file.url_private_download, slack_bot_token=ctx.slack_bot_token) for file in ctx.mention.files if file_type_supported(file.mimetype)]
         user_contents.insert(0, text_prompt)
         
         return user_contents
@@ -191,7 +191,7 @@ class TigerAgent:
         
         self.augment_mcp_servers(mcp_servers)
         
-        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=mcp_servers)
+        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=mcp_servers, slack_bot_token=hctx.slack_bot_token)
 
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
@@ -210,7 +210,7 @@ class TigerAgent:
             if not file_type_supported(file.mimetype):
                 return "File type not supported"
 
-            return await download_private_file(url_private_download=file.url_private_download)
+            return await download_private_file(url_private_download=file.url_private_download, slack_bot_token=hctx.slack_bot_token)
 
         async with agent as a:
             response = await a.run(
