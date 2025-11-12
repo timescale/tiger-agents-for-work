@@ -220,7 +220,7 @@ async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> Channel
         logfire.exception("Failed to fetch channel info", channel_id=channel_id)
         return None
     
-async def download_private_file(url_private_download: str) -> BinaryContent | str | None:
+async def download_private_file(url_private_download: str, slack_bot_token: str = os.getenv("SLACK_BOT_TOKEN")) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
     Downloads the content of a private Slack file by making an authenticated
@@ -241,13 +241,12 @@ async def download_private_file(url_private_download: str) -> BinaryContent | st
         if url_private_download is None:
             raise ValueError("No private url provided")
 
-        bot_token = os.getenv("SLACK_BOT_TOKEN")
-        if not bot_token:
+        if not slack_bot_token:
             raise ValueError("Cannot fetch file without a token")
 
         async with httpx.AsyncClient() as client:
             # Download file using bot token for authentication
-            resp = await client.get(url=url_private_download, headers={"Authorization": f"Bearer {bot_token}"})
+            resp = await client.get(url=url_private_download, headers={"Authorization": f"Bearer {slack_bot_token}"})
             resp.raise_for_status()
 
             media_type = resp.headers['content-type']

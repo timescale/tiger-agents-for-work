@@ -145,6 +145,7 @@ class HarnessContext:
     """
     app: AsyncApp
     pool: AsyncConnectionPool
+    slack_bot_token: str
 
 @dataclass
 class CommandContext:
@@ -256,6 +257,7 @@ class AgentResponseContext(BaseModel):
     user: UserInfo | None = None
     local_time: datetime | None = None
     mcp_servers: MCPDict | None = None
+    slack_bot_token: str
 
     def model_post_init(self, __context):
         """Automatically compute derived fields after model initialization.

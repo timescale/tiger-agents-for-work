@@ -274,6 +274,7 @@ class EventHarness:
         return HarnessContext(
             self._app,
             self._pool,
+            self._slack_bot_token
         )
 
     async def _process_event(self, event: Event) -> bool:
