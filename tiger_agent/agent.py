@@ -38,7 +38,7 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.models import AgentResponseContext, Event, HarnessContext, MCPDict, SlackFile
+from tiger_agent.types import AgentResponseContext, Event, HarnessContext, MCPDict, SlackFile
 from tiger_agent.utils import MCPLoader, file_type_supported, get_filtered_mcp_servers, usage_limit_reached, user_ignored
 
 logger = logging.getLogger(__name__)
