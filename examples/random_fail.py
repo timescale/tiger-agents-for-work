@@ -19,9 +19,7 @@ async def random_fail(ctx: HarnessContext, event: Event):
     ts = event.event["ts"]
     dice = randint(1, 6)
     msg = f"I failed. dice={dice}" if dice >= 4 else "Success"
-    await ctx.app.client.chat_postMessage(
-        channel=channel, thread_ts=ts, text=msg
-    )
+    await ctx.app.client.chat_postMessage(channel=channel, thread_ts=ts, text=msg)
     if msg != "Success":
         raise ValueError(msg)
 

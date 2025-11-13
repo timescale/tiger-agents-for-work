@@ -14,19 +14,76 @@ def cli():
 
 
 @cli.command()
-@click.option("--model", default="anthropic:claude-sonnet-4-5-20250929", help="AI model to use")
-@click.option("--prompts", type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path), default=Path("prompts"), help="Directory containing prompt templates")
-@click.option("--mcp-config", type=click.Path(exists=True, path_type=Path), default=None, help="Path to MCP config file")
-@click.option("--env", type=click.Path(exists=True, path_type=Path), default=None, help="Path to environment file")
-@click.option("--worker-sleep-seconds", type=int, default=60, help="Worker sleep duration in seconds")
-@click.option("--worker-min-jitter-seconds", type=int, default=-15, help="Minimum jitter for worker sleep")
-@click.option("--worker-max-jitter-seconds", type=int, default=15, help="Maximum jitter for worker sleep")
-@click.option("--max-attempts", type=int, default=3, help="Maximum retry attempts for failed tasks")
-@click.option("--max-age-minutes", type=int, default=60, help="Maximum age of an event before expiring")
-@click.option("--invisibility-minutes", type=int, default=10, help="Task invisibility timeout in minutes")
+@click.option(
+    "--model", default="anthropic:claude-sonnet-4-5-20250929", help="AI model to use"
+)
+@click.option(
+    "--prompts",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
+    default=Path("prompts"),
+    help="Directory containing prompt templates",
+)
+@click.option(
+    "--mcp-config",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to MCP config file",
+)
+@click.option(
+    "--env",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to environment file",
+)
+@click.option(
+    "--worker-sleep-seconds",
+    type=int,
+    default=60,
+    help="Worker sleep duration in seconds",
+)
+@click.option(
+    "--worker-min-jitter-seconds",
+    type=int,
+    default=-15,
+    help="Minimum jitter for worker sleep",
+)
+@click.option(
+    "--worker-max-jitter-seconds",
+    type=int,
+    default=15,
+    help="Maximum jitter for worker sleep",
+)
+@click.option(
+    "--max-attempts",
+    type=int,
+    default=3,
+    help="Maximum retry attempts for failed tasks",
+)
+@click.option(
+    "--max-age-minutes",
+    type=int,
+    default=60,
+    help="Maximum age of an event before expiring",
+)
+@click.option(
+    "--invisibility-minutes",
+    type=int,
+    default=10,
+    help="Task invisibility timeout in minutes",
+)
 @click.option("--num-workers", type=int, default=5, help="Number of worker processes")
-@click.option("--rate-limit-allowed-requests", type=int, default=None, help="Number of allowed requests per user, per interval (interval is, by default 1 minute, use --rate-limit-interval to override)")
-@click.option("--rate-limit-interval", type=int, default=1, help="The rate limit interval in minutes, used to determine if a user has exceeded the rate limit. Only used if --rate-limit-count is set")
+@click.option(
+    "--rate-limit-allowed-requests",
+    type=int,
+    default=None,
+    help="Number of allowed requests per user, per interval (interval is, by default 1 minute, use --rate-limit-interval to override)",
+)
+@click.option(
+    "--rate-limit-interval",
+    type=int,
+    default=1,
+    help="The rate limit interval in minutes, used to determine if a user has exceeded the rate limit. Only used if --rate-limit-count is set",
+)
 def run(
     model: str,
     prompts: Path,
@@ -56,11 +113,10 @@ def run(
         model=model,
         mcp_config_path=mcp_config,
         jinja_env=jinja2.Environment(
-            enable_async=True,
-            loader=FileSystemLoader(prompts)
+            enable_async=True, loader=FileSystemLoader(prompts)
         ),
         rate_limit_allowed_requests=rate_limit_allowed_requests,
-        rate_limit_interval=timedelta(minutes=rate_limit_interval)
+        rate_limit_interval=timedelta(minutes=rate_limit_interval),
     )
 
     # create a harness for the processor
@@ -80,7 +136,12 @@ def run(
 
 
 @cli.command()
-@click.option("--env", type=click.Path(exists=True, path_type=Path), default=None, help="Path to environment file")
+@click.option(
+    "--env",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to environment file",
+)
 def migrate(
     env: Path | None = None,
 ):

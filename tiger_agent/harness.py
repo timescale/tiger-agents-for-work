@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 pg_max_pool_size: int = int(os.getenv("PG_MAX_POOL_SIZE", "10"))
 
+
 async def _configure_database_connection(con: AsyncConnection) -> None:
     """Configure new database connections with autocommit enabled."""
     await con.set_autocommit(True)
@@ -66,7 +67,6 @@ def _create_default_pool(min_size: int, max_size: int) -> AsyncConnectionPool:
         open=False,
         reset=_reset_database_connection,
     )
-
 
 
 # Type alias for event processing callback
@@ -120,6 +120,7 @@ class EventHarness:
         slack_bot_token: Slack bot token (uses SLACK_BOT_TOKEN env if None)
         slack_app_token: Slack app token (uses SLACK_APP_TOKEN env if None)
     """
+
     def __init__(
         self,
         event_processor: EventProcessor,
@@ -136,7 +137,11 @@ class EventHarness:
         slack_app_token: str | None = None,
     ):
         self._task_group: TaskGroup | None = None
-        self._pool = pool if pool is not None else _create_default_pool(num_workers + 1, pg_max_pool_size)
+        self._pool = (
+            pool
+            if pool is not None
+            else _create_default_pool(num_workers + 1, pg_max_pool_size)
+        )
         self._trigger = asyncio.Queue()
         self._event_processor = event_processor
         self._worker_sleep_seconds = worker_sleep_seconds
@@ -153,9 +158,13 @@ class EventHarness:
         assert worker_sleep_seconds > 0
         assert worker_sleep_seconds - worker_min_jitter_seconds > 0
         assert worker_max_jitter_seconds > worker_min_jitter_seconds
-        self._app = app if app is not None else AsyncApp(
-            token=self._slack_bot_token,
-            ignoring_self_events_enabled=False,
+        self._app = (
+            app
+            if app is not None
+            else AsyncApp(
+                token=self._slack_bot_token,
+                ignoring_self_events_enabled=False,
+            )
         )
 
     @logfire.instrument("insert_event", extract_args=False)
@@ -215,7 +224,7 @@ class EventHarness:
         ):
             await cur.execute(
                 "select * from agent.claim_event(%s, %s::int8 * interval '1m')",
-                (self._max_attempts, self._invisibility_minutes)
+                (self._max_attempts, self._invisibility_minutes),
             )
             row: dict[str, Any] | None = await cur.fetchone()
             if not row:
@@ -224,10 +233,17 @@ class EventHarness:
                 assert row["id"] is not None, "claimed an empty event"
                 return Event(**row)
             except ValidationError as e:
-                logger.exception("failed to parse claimed event", exc_info=e, extra={"id": row.get("id")})
+                logger.exception(
+                    "failed to parse claimed event",
+                    exc_info=e,
+                    extra={"id": row.get("id")},
+                )
                 if row["id"] is not None:
                     # if we got a malformed event, delete it to avoid retry loops
-                    await cur.execute("select agent.delete_event(%s::int8, _processed=>false)", (row["id"],))
+                    await cur.execute(
+                        "select agent.delete_event(%s::int8, _processed=>false)",
+                        (row["id"],),
+                    )
                 return None
 
     @logfire.instrument("delete_event", extract_args=False)
@@ -262,7 +278,7 @@ class EventHarness:
         ):
             await cur.execute(
                 "select agent.delete_expired_events(%s, %s::int8 * interval '1m')",
-                (self._max_attempts, self._max_age_minutes)
+                (self._max_attempts, self._max_age_minutes),
             )
 
     def _make_harness_context(self) -> HarnessContext:
@@ -271,11 +287,7 @@ class EventHarness:
         Returns:
             HarnessContext: Context containing Slack app, database pool, and task group
         """
-        return HarnessContext(
-            self._app,
-            self._pool,
-            self._slack_bot_token
-        )
+        return HarnessContext(self._app, self._pool, self._slack_bot_token)
 
     async def _process_event(self, event: Event) -> bool:
         """Process a single claimed event.
@@ -345,6 +357,7 @@ class EventHarness:
             worker_id: Unique identifier for this worker
             initial_sleep_seconds: Initial delay before starting work
         """
+
         async def worker_run(reason: str):
             with logfire.span("worker_run", worker_id=worker_id, reason=reason) as _:
                 await self._process_events()
@@ -352,7 +365,13 @@ class EventHarness:
 
         # initial staggering of workers
         if initial_sleep_seconds > 0:
-            logger.info("worker initial sleep", extra={"worker_id": worker_id, "initial_sleep_seconds": initial_sleep_seconds})
+            logger.info(
+                "worker initial sleep",
+                extra={
+                    "worker_id": worker_id,
+                    "initial_sleep_seconds": initial_sleep_seconds,
+                },
+            )
             await asyncio.sleep(initial_sleep_seconds)
 
         logger.info("starting worker", extra={"worker_id": worker_id})
@@ -381,8 +400,13 @@ class EventHarness:
         """
         initial_sleeps: list[int] = [0]  # first worker starts immediately
         # pick num_workers - 1 unique initial sleep values
-        initial_sleeps.extend(random.sample(range(1, self._worker_sleep_seconds), num_workers - 1))
-        return [(worker_id, initial_sleep) for worker_id, initial_sleep in enumerate(initial_sleeps)]
+        initial_sleeps.extend(
+            random.sample(range(1, self._worker_sleep_seconds), num_workers - 1)
+        )
+        return [
+            (worker_id, initial_sleep)
+            for worker_id, initial_sleep in enumerate(initial_sleeps)
+        ]
 
     async def run(self):
         """Start the event harness and run indefinitely.
@@ -412,13 +436,18 @@ class EventHarness:
 
             async def on_event(ack: AsyncAck, event: dict[str, Any]):
                 await self._on_event(ack, event)
-                
-            async def on_command(ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]):
+
+            async def on_command(
+                ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]
+            ):
                 slack_command = SlackCommand(**command)
                 await ack()
-                response = await handle_command(command=slack_command, hctx=self._make_harness_context())
-                await respond(text=response, response_type="ephemeral", delete_original=True)
-                
+                response = await handle_command(
+                    command=slack_command, hctx=self._make_harness_context()
+                )
+                await respond(
+                    text=response, response_type="ephemeral", delete_original=True
+                )
 
             self._app.command(re.compile(r"\/.*"))(on_command)
             self._app.event("app_mention")(on_event)
@@ -435,8 +464,8 @@ class EventHarness:
                     await ack()
                     return
                 await self._on_event(ack, event)
+
             self._app.event("message")(on_message)
 
             handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
-

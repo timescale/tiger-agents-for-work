@@ -26,7 +26,6 @@ from typing import Any
 import logfire
 from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, BinaryContent, UsageLimits, models
-
 from pydantic_ai.messages import UserContent
 
 from tiger_agent.slack import (
@@ -38,8 +37,20 @@ from tiger_agent.slack import (
     post_response,
     remove_reaction,
 )
-from tiger_agent.types import AgentResponseContext, Event, HarnessContext, MCPDict, SlackFile
-from tiger_agent.utils import MCPLoader, file_type_supported, get_filtered_mcp_servers, usage_limit_reached, user_ignored
+from tiger_agent.types import (
+    AgentResponseContext,
+    Event,
+    HarnessContext,
+    MCPDict,
+    SlackFile,
+)
+from tiger_agent.utils import (
+    MCPLoader,
+    file_type_supported,
+    get_filtered_mcp_servers,
+    usage_limit_reached,
+    user_ignored,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +79,7 @@ class TigerAgent:
     Raises:
         ValueError: If jinja_env is provided as Environment but not async-enabled
     """
+
     def __init__(
         self,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -85,8 +97,7 @@ class TigerAgent:
             self.jinja_env = jinja_env
         else:
             self.jinja_env = Environment(
-                enable_async=True,
-                loader=FileSystemLoader(jinja_env)
+                enable_async=True, loader=FileSystemLoader(jinja_env)
             )
         self.mcp_loader = MCPLoader(mcp_config_path)
         self.max_attempts = max_attempts
@@ -94,7 +105,9 @@ class TigerAgent:
         self.rate_limit_interval = rate_limit_interval
 
     @logfire.instrument("make_system_prompt", extract_args=False)
-    async def make_system_prompt(self, ctx: AgentResponseContext) -> str | Sequence[str]:
+    async def make_system_prompt(
+        self, ctx: AgentResponseContext
+    ) -> str | Sequence[str]:
         """Generate system prompt from Jinja2 template.
 
         Renders the 'system_prompt.md' template with the provided context,
@@ -111,7 +124,9 @@ class TigerAgent:
         return await tmpl.render_async(**ctx.model_dump())
 
     @logfire.instrument("make_user_prompt", extract_args=False)
-    async def make_user_prompt(self, ctx: AgentResponseContext) -> str | Sequence[UserContent]:
+    async def make_user_prompt(
+        self, ctx: AgentResponseContext
+    ) -> str | Sequence[UserContent]:
         """Generate user prompt from Jinja2 template.
 
         Renders the 'user_prompt.md' template with the provided context,
@@ -130,14 +145,21 @@ class TigerAgent:
             of UserContent objects (text prompt + file contents) if files are present
         """
         tmpl = self.jinja_env.get_template("user_prompt.md")
-        text_prompt =  await tmpl.render_async(**ctx.model_dump())
-        
+        text_prompt = await tmpl.render_async(**ctx.model_dump())
+
         if ctx.mention.files is None or not len(ctx.mention.files):
             return text_prompt
-        
-        user_contents: list[UserContent] = [await download_private_file(url_private_download=file.url_private_download, slack_bot_token=ctx.slack_bot_token) for file in ctx.mention.files if file_type_supported(file.mimetype)]
+
+        user_contents: list[UserContent] = [
+            await download_private_file(
+                url_private_download=file.url_private_download,
+                slack_bot_token=ctx.slack_bot_token,
+            )
+            for file in ctx.mention.files
+            if file_type_supported(file.mimetype)
+        ]
         user_contents.insert(0, text_prompt)
-        
+
         return user_contents
 
     def augment_mcp_servers(self, mcp_servers: MCPDict):
@@ -177,21 +199,42 @@ class TigerAgent:
             Generated AI response text ready for posting to Slack
         """
         mention = event.event
-        
-        if await usage_limit_reached(pool=hctx.pool, user_id=mention.user, interval=self.rate_limit_interval, allowed_requests=self.rate_limit_allowed_requests):
-            logfire.info("User interaction limited due to usage", allowed_requests=self.rate_limit_allowed_requests, interval=self.rate_limit_interval, user_id=mention.user)
+
+        if await usage_limit_reached(
+            pool=hctx.pool,
+            user_id=mention.user,
+            interval=self.rate_limit_interval,
+            allowed_requests=self.rate_limit_allowed_requests,
+        ):
+            logfire.info(
+                "User interaction limited due to usage",
+                allowed_requests=self.rate_limit_allowed_requests,
+                interval=self.rate_limit_interval,
+                user_id=mention.user,
+            )
             return "I cannot process your request at this time due to usage limits. Please ask me again later."
-        
+
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
-        
+
         user_info = await fetch_user_info(hctx.app.client, mention.user)
-        
-        mcp_servers = await get_filtered_mcp_servers(mcp_loader=self.mcp_loader, client=hctx.app.client, channel_id=mention.channel)
-        
+
+        mcp_servers = await get_filtered_mcp_servers(
+            mcp_loader=self.mcp_loader,
+            client=hctx.app.client,
+            channel_id=mention.channel,
+        )
+
         self.augment_mcp_servers(mcp_servers)
-        
-        ctx = AgentResponseContext(event=event, mention=mention, bot=self.bot_info, user=user_info, mcp_servers=mcp_servers, slack_bot_token=hctx.slack_bot_token)
+
+        ctx = AgentResponseContext(
+            event=event,
+            mention=mention,
+            bot=self.bot_info,
+            user=user_info,
+            mcp_servers=mcp_servers,
+            slack_bot_token=hctx.slack_bot_token,
+        )
 
         system_prompt = await self.make_system_prompt(ctx)
         user_prompt = await self.make_user_prompt(ctx)
@@ -202,23 +245,27 @@ class TigerAgent:
             model=self.model,
             deps_type=dict[str, Any],
             system_prompt=system_prompt,
-            toolsets=toolsets
+            toolsets=toolsets,
         )
+
         @agent.tool_plain
-        async def download_slack_hosted_file(file: SlackFile) -> BinaryContent | str | None:
+        async def download_slack_hosted_file(
+            file: SlackFile,
+        ) -> BinaryContent | str | None:
             """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
             if not file_type_supported(file.mimetype):
                 return "File type not supported"
 
-            return await download_private_file(url_private_download=file.url_private_download, slack_bot_token=hctx.slack_bot_token)
+            return await download_private_file(
+                url_private_download=file.url_private_download,
+                slack_bot_token=hctx.slack_bot_token,
+            )
 
         async with agent as a:
             response = await a.run(
                 user_prompt=user_prompt,
                 deps=ctx,
-                usage_limits=UsageLimits(
-                    output_tokens_limit=9_000
-                )
+                usage_limits=UsageLimits(output_tokens_limit=9_000),
             )
             return response.output
 
@@ -254,12 +301,17 @@ class TigerAgent:
         client = hctx.app.client
         mention = event.event
         try:
-            if await user_ignored(pool=hctx.pool,user_id=mention.user):
+            if await user_ignored(pool=hctx.pool, user_id=mention.user):
                 logfire.info("Ignore user", user_id=mention.user)
                 return
             await add_reaction(client, mention.channel, mention.ts, "spinthinking")
             response = await self.generate_response(hctx, event)
-            await post_response(client, mention.channel, mention.thread_ts if mention.thread_ts else mention.ts, response)
+            await post_response(
+                client,
+                mention.channel,
+                mention.thread_ts if mention.thread_ts else mention.ts,
+                response,
+            )
             await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
             await add_reaction(client, mention.channel, mention.ts, "white_check_mark")
         except Exception as e:
