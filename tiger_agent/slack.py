@@ -12,7 +12,6 @@ All functions are designed to be resilient, gracefully handling API errors and p
 structured data models for Slack entities.
 """
 
-
 import os
 
 import httpx
@@ -63,9 +62,6 @@ async def remove_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: 
         pass
 
 
-
-
-
 @logfire.instrument("fetch_user_info", extract_args=["user_id"])
 async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | None:
     """Fetch comprehensive user information from Slack API.
@@ -93,7 +89,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
 async def post_response(
-        client: AsyncWebClient, channel: str, thread_ts: str, text: str
+    client: AsyncWebClient, channel: str, thread_ts: str, text: str
 ) -> None:
     """Post a response message to Slack with rich formatting.
 
@@ -139,6 +135,7 @@ class ChannelInfo(BaseModel):
         is_ext_shared: Whether externally shared
         is_member: Whether the bot is a member
     """
+
     model_config = {"extra": "allow"}
 
     id: str
@@ -152,7 +149,6 @@ class ChannelInfo(BaseModel):
     is_shared: bool | None = None
     is_ext_shared: bool | None = None
     is_member: bool | None = None
-
 
 
 @logfire.instrument("fetch_bot_info", extract_args=False)
@@ -191,13 +187,16 @@ async def fetch_bot_info(client: AsyncWebClient) -> BotInfo:
         bot_id=bot_id,
         name=bot.get("name"),
         app_id=bot.get("app_id"),
-        user_id=bot.get("user_id")
+        user_id=bot.get("user_id"),
     )
 
     return bot_info
 
+
 @logfire.instrument("fetch_channel_info", extract_args=["channel_id"])
-async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> ChannelInfo | None:
+async def fetch_channel_info(
+    client: AsyncWebClient, channel_id: str
+) -> ChannelInfo | None:
     """Fetch comprehensive channel information from Slack API.
 
     Retrieves channel metadata including privacy settings and sharing status.
@@ -219,8 +218,11 @@ async def fetch_channel_info(client: AsyncWebClient, channel_id: str) -> Channel
     except Exception:
         logfire.exception("Failed to fetch channel info", channel_id=channel_id)
         return None
-    
-async def download_private_file(url_private_download: str, slack_bot_token: str = os.getenv("SLACK_BOT_TOKEN")) -> BinaryContent | str | None:
+
+
+async def download_private_file(
+    url_private_download: str, slack_bot_token: str = os.getenv("SLACK_BOT_TOKEN")
+) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
     Downloads the content of a private Slack file by making an authenticated
@@ -246,14 +248,17 @@ async def download_private_file(url_private_download: str, slack_bot_token: str 
 
         async with httpx.AsyncClient() as client:
             # Download file using bot token for authentication
-            resp = await client.get(url=url_private_download, headers={"Authorization": f"Bearer {slack_bot_token}"})
+            resp = await client.get(
+                url=url_private_download,
+                headers={"Authorization": f"Bearer {slack_bot_token}"},
+            )
             resp.raise_for_status()
 
-            media_type = resp.headers['content-type']
-            
+            media_type = resp.headers["content-type"]
+
             if not media_type:
                 raise ValueError("Cannot determine file content type")
-            
+
             # For text files, return string content
             if media_type.startswith("text/"):
                 return resp.content.decode("utf-8")

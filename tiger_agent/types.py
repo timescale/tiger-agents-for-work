@@ -1,5 +1,3 @@
-
-
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,6 +9,7 @@ from slack_bolt.app.async_app import AsyncApp
 
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
+
 @dataclass
 class McpConfigExtraFields:
     """
@@ -18,10 +17,12 @@ class McpConfigExtraFields:
     Each item can use properties from MCPServerStreamableHTTP or MCPServerStdio, plus these fields
     Attributes:
         internal_only: Specifies if this can be used in externally shared channels
-        
+
     """
+
     internal_only: bool
     disabled: bool
+
 
 @dataclass
 class McpConfig:
@@ -30,10 +31,13 @@ class McpConfig:
         internal_only: Specifies if this can be used in externally shared channels
         mcp_server: The MCP server instance
     """
+
     internal_only: bool
     mcp_server: MCPServerStreamableHTTP | MCPServerStdio
 
+
 type MCPDict = dict[str, McpConfig]
+
 
 class BotInfo(BaseModel):
     """Pydantic model for Slack bot information.
@@ -51,6 +55,7 @@ class BotInfo(BaseModel):
         app_id: Associated Slack app identifier
         user_id: Bot's user account identifier
     """
+
     model_config = {"extra": "allow"}
 
     url: str
@@ -60,7 +65,8 @@ class BotInfo(BaseModel):
     name: str
     app_id: str
     user_id: str
-    
+
+
 class UserProfile(BaseModel):
     """Pydantic model for Slack user profile information.
 
@@ -78,6 +84,7 @@ class UserProfile(BaseModel):
         email: User's email address (if accessible)
         team: Team identifier
     """
+
     model_config = {"extra": "allow"}
 
     status_text: str | None = None
@@ -88,6 +95,7 @@ class UserProfile(BaseModel):
     display_name_normalized: str | None = None
     email: str | None = None
     team: str | None = None
+
 
 class UserInfo(BaseModel):
     """Pydantic model for complete Slack user information.
@@ -108,6 +116,7 @@ class UserInfo(BaseModel):
         tz_offset: Timezone offset in seconds from UTC
         profile: Detailed profile information
     """
+
     model_config = {"extra": "allow"}
 
     id: str
@@ -121,8 +130,10 @@ class UserInfo(BaseModel):
     tz_offset: int | None = None
     profile: UserProfile
 
+
 class SlackCommand(BaseModel):
     """This represents a partial definition of the command object emitted to a handler for a slash command."""
+
     channel_id: str | None = None
     channel_name: str | None = None
     user_id: str | None = None
@@ -143,15 +154,19 @@ class HarnessContext:
         app: Slack Bolt AsyncApp for making Slack API calls
         pool: Database connection pool for PostgreSQL operations
     """
+
     app: AsyncApp
     pool: AsyncConnectionPool
     slack_bot_token: str
 
+
 @dataclass
 class CommandContext:
     """Shared context provided to the command handlers."""
+
     hctx: HarnessContext
     command: SlackCommand
+
 
 class SlackFile(BaseModel):
     """Pydantic model for Slack file objects.
@@ -159,6 +174,7 @@ class SlackFile(BaseModel):
     Represents files attached to Slack messages, including metadata
     about the file type, size, permissions, and various thumbnail URLs.
     """
+
     model_config = {"extra": "allow"}
 
     id: str
@@ -170,6 +186,7 @@ class SlackFile(BaseModel):
     url_private_download: str | None = None
     media_display_type: str | None = None
     size: int | None = None
+
 
 class BaseEvent(BaseModel):
     """Base Pydantic model for Slack events.
@@ -189,6 +206,7 @@ class BaseEvent(BaseModel):
         channel: Channel ID where the mention occurred
         event_ts: Event timestamp from Slack
     """
+
     model_config = {"extra": "allow"}
 
     ts: str
@@ -205,11 +223,13 @@ class BaseEvent(BaseModel):
 
 class AppMentionEvent(BaseEvent):
     """Pydantic model for Slack app_mention events."""
+
     type: str = "app_mention"
 
 
 class MessageEvent(BaseEvent):
     """Pydantic model for Slack message events."""
+
     type: str = "message"
     subtype: str | None = None
 
@@ -228,14 +248,15 @@ class Event(BaseModel):
         claimed: Array of timestamps when event was claimed by workers
         event: The original Slack app mention event data
     """
+
     id: int
     event_ts: datetime
     attempts: int
     vt: datetime
     claimed: list[datetime]
     event: AppMentionEvent | MessageEvent
-    
-    
+
+
 class AgentResponseContext(BaseModel):
     """Context object for AI agent responses containing event data and user information.
 
@@ -251,6 +272,7 @@ class AgentResponseContext(BaseModel):
         local_time: Event timestamp converted to user's local timezone, set automatically
         mcp_servers: Dictionary of mcp servers that the Agent has as its disposal
     """
+
     event: Event
     mention: AppMentionEvent | MessageEvent
     bot: BotInfo

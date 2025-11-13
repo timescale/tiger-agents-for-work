@@ -52,6 +52,7 @@ If no command matches, the system returns available subcommands for that level.
 Commands can validate argument counts and return appropriate error messages.
 """
 
+
 @dataclass
 class CommandBase(ABC):
     # this is used to match the command, can be a regex pattern or just a string
@@ -73,17 +74,22 @@ class CommandBase(ABC):
             # Split on spaces but keep content between < > together
             return re.findall(r"<[^>]+>|\S+", normalized)
         return command_text
-        
+
+
 @dataclass
 class Command(CommandBase):
     expected_parameters: int = 0
-    func: Callable[[CommandContext, str | list[str]], Awaitable[str]] = lambda _: asyncio.sleep(0)
+    func: Callable[[CommandContext, str | list[str]], Awaitable[str]] = (
+        lambda _: asyncio.sleep(0)
+    )
+
     async def __call__(self, command_text: str | list[str], ctx: CommandContext) -> str:
         args = self._get_args(command_text=command_text)
         if len(args) != self.expected_parameters:
             return f"Incorrect number of parameters given for <{self.key}>"
         return await self.func(ctx, args)
-    
+
+
 @dataclass
 class CommandGroup(CommandBase):
     commands: list[CommandBase] = field(default_factory=list)
@@ -107,18 +113,19 @@ class CommandGroup(CommandBase):
 
     async def __call__(self, command_text: str | list[str], ctx: CommandContext) -> str:
         args = self._get_args(command_text=command_text)
-        
+
         has_more_args = len(args) > 0
         curr = args.pop(0) if has_more_args else None
         matching_command = None
         if curr is not None:
             matching_command = self._commands_dict.get(curr)
-        
+
         if matching_command is None:
-            result = f"{f"<{curr}> is an invalid command.\n" if curr is not None else ""}Available commands:\n{self._get_commands()}"
+            result = f"{f'<{curr}> is an invalid command.\n' if curr is not None else ''}Available commands:\n{self._get_commands()}"
             return result
-        
+
         return await matching_command(args, ctx)
+
 
 async def handle_admins_add_command(ctx: CommandContext, args: list[str]) -> str:
     username, user_id = parse_slack_user_name(args[0])
@@ -129,7 +136,9 @@ async def handle_admins_add_command(ctx: CommandContext, args: list[str]) -> str
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.insert_admin_user(%s)", (serialize_to_jsonb(ctx.command),))
+        await cur.execute(
+            "select agent.insert_admin_user(%s)", (serialize_to_jsonb(ctx.command),)
+        )
     return f"Added admin <{username}>"
 
 
@@ -142,8 +151,11 @@ async def handle_admins_remove_command(ctx: CommandContext, args: list[str]) -> 
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.delete_admin_user(%s)", (serialize_to_jsonb(ctx.command),))
+        await cur.execute(
+            "select agent.delete_admin_user(%s)", (serialize_to_jsonb(ctx.command),)
+        )
     return f"Removed admin <{username}>"
+
 
 async def handle_ignored_add_command(ctx: CommandContext, args: list[str]) -> str:
     username, user_id = parse_slack_user_name(args[0])
@@ -154,7 +166,9 @@ async def handle_ignored_add_command(ctx: CommandContext, args: list[str]) -> st
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.insert_ignored_user(%s)", (serialize_to_jsonb(ctx.command),))
+        await cur.execute(
+            "select agent.insert_ignored_user(%s)", (serialize_to_jsonb(ctx.command),)
+        )
     return f"Ignored <{username}>"
 
 
@@ -167,7 +181,9 @@ async def handle_ignored_remove_command(ctx: CommandContext, args: list[str]) ->
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.delete_ignored_user(%s)", (serialize_to_jsonb(ctx.command),))
+        await cur.execute(
+            "select agent.delete_ignored_user(%s)", (serialize_to_jsonb(ctx.command),)
+        )
     return f"Unignored <{username}>"
 
 
@@ -208,57 +224,56 @@ async def handle_admins_list_command(ctx: CommandContext, _: list[str]) -> str:
 
         return f"Current admin users ({len(user_list)}):\n" + "\n".join(user_list)
 
+
 _slash_commands: CommandGroup | None = None
+
 
 def _build_command_handlers() -> CommandGroup:
     global _slash_commands
     if _slash_commands is None:
         _slash_commands = CommandGroup(
-            commands=[CommandGroup(
-                key="users",
-                commands=[
-                    CommandGroup(
-                        key="admins",
-                        commands=[
-                            Command(
-                                key="add",
-                                func=handle_admins_add_command,
-                                expected_parameters=1
-                            ),
-                            Command(
-                                key="list",
-                                func=handle_admins_list_command
-                            ),
-                            Command(
-                                key="remove",
-                                func=handle_admins_remove_command,
-                                expected_parameters=1
-                            )
-                        ]
-                    ),
-                    CommandGroup(
-                        key="ignored",
-                        commands=[
-                            Command(
-                                key="add",
-                                expected_parameters=1,
-                                func=handle_ignored_add_command
-                            ),
-                            Command(
-                                key="list",
-                                func=handle_ignore_list_command
-                            ),
-                            Command(
-                                key="remove",
-                                expected_parameters=1,
-                                func=handle_ignored_remove_command
-                            )
-                        ]
-                    )
-                ]
-            )]
+            commands=[
+                CommandGroup(
+                    key="users",
+                    commands=[
+                        CommandGroup(
+                            key="admins",
+                            commands=[
+                                Command(
+                                    key="add",
+                                    func=handle_admins_add_command,
+                                    expected_parameters=1,
+                                ),
+                                Command(key="list", func=handle_admins_list_command),
+                                Command(
+                                    key="remove",
+                                    func=handle_admins_remove_command,
+                                    expected_parameters=1,
+                                ),
+                            ],
+                        ),
+                        CommandGroup(
+                            key="ignored",
+                            commands=[
+                                Command(
+                                    key="add",
+                                    expected_parameters=1,
+                                    func=handle_ignored_add_command,
+                                ),
+                                Command(key="list", func=handle_ignore_list_command),
+                                Command(
+                                    key="remove",
+                                    expected_parameters=1,
+                                    func=handle_ignored_remove_command,
+                                ),
+                            ],
+                        ),
+                    ],
+                )
+            ]
         )
     return _slash_commands
+
 
 async def handle_command(command: SlackCommand, hctx: HarnessContext) -> str:
     if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
