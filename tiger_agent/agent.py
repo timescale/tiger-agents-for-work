@@ -47,7 +47,7 @@ from tiger_agent.types import (
 from tiger_agent.utils import (
     MCPLoader,
     file_type_supported,
-    get_filtered_mcp_servers,
+    filter_mcp_servers,
     usage_limit_reached,
     user_ignored,
 )
@@ -219,13 +219,14 @@ class TigerAgent:
 
         user_info = await fetch_user_info(hctx.app.client, mention.user)
 
-        mcp_servers = await get_filtered_mcp_servers(
-            mcp_loader=self.mcp_loader,
+        all_mcp_servers = self.mcp_loader()
+        self.augment_mcp_servers(all_mcp_servers)
+
+        mcp_servers = await filter_mcp_servers(
+            mcp_servers=all_mcp_servers,
             client=hctx.app.client,
             channel_id=mention.channel,
         )
-
-        self.augment_mcp_servers(mcp_servers)
 
         ctx = AgentResponseContext(
             event=event,

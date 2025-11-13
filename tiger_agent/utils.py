@@ -1,20 +1,19 @@
 import json
-from pathlib import Path
 import re
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import logfire
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
+from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent.fields import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
 from tiger_agent.slack import fetch_channel_info
-from tiger_agent.types import MCPDict, McpConfig
-from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
-
-from slack_bolt.app.async_app import AsyncApp
+from tiger_agent.types import McpConfig, MCPDict
 
 
 @logfire.instrument("load_mcp_config")
@@ -185,9 +184,9 @@ def file_type_supported(mimetype: str) -> bool:
     return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
 
 
-@logfire.instrument("get_filtered_mcp_servers", extract_args=False)
-async def get_filtered_mcp_servers(
-    mcp_loader: MCPLoader, client: AsyncApp, channel_id: str
+@logfire.instrument("filter_mcp_servers", extract_args=False)
+async def filter_mcp_servers(
+    mcp_servers: MCPDict, client: AsyncApp, channel_id: str
 ) -> MCPDict:
     """Filter MCP servers based on channel sharing status.
 
@@ -195,14 +194,13 @@ async def get_filtered_mcp_servers(
     to prevent exposure of sensitive tools and data.
 
     Args:
-        mcp_loader: Function that loads and returns the MCP server configurations
+        mcp_servers: A dictionary of {name: McpServer}
         client: Slack app client for fetching channel information
         channel_id: ID of the Slack channel to check
 
     Returns:
         Filtered dictionary containing only MCP servers appropriate for the channel type
     """
-    mcp_servers = mcp_loader()
     channel_info = await fetch_channel_info(client=client, channel_id=channel_id)
 
     # if channel is not shared, just return the full list

@@ -5,9 +5,8 @@ from zoneinfo import ZoneInfo
 
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
-from slack_bolt.app.async_app import AsyncApp
-
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+from slack_bolt.app.async_app import AsyncApp
 
 
 @dataclass
