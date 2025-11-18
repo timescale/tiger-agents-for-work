@@ -22,6 +22,7 @@ Respond in valid Markdown format, following these rules:
 - DO NOT use tildes for code blocks, always use backticks.
 - DO NOT include empty lines at beginning or end of code blocks.
 - DO NOT include tables
+- DO NOT use hyphens for creating line separators
 - When using block quotes, there MUST be an empty line after the block quote.
 - When mentioning a Slack channel or user, and you know the ID, you should ONLY reference them using the format <#CHANNEL_ID> (e.g. <#C099AQDL9CZ>) for channels and <@USER_ID> (e.g. <@U123456>) for users.
 - Your response MUST be less than 40,000 characters.
