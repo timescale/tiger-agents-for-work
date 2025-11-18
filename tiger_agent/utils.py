@@ -184,8 +184,35 @@ def file_type_supported(mimetype: str) -> bool:
     return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
 
 
-@logfire.instrument("filter_mcp_servers", extract_args=False)
-async def filter_mcp_servers(
+async def filter_unresponsive_mcp_servers(mcp_servers: MCPDict) -> MCPDict:
+    """Filter out MCP servers that are unresponsive.
+
+    Tests each MCP server by calling list_tools() and removes any servers
+    that raise exceptions during this call.
+
+    Args:
+        mcp_servers: A dictionary of {name: McpConfig}
+
+    Returns:
+        Filtered dictionary containing only responsive MCP servers
+    """
+    filtered_mcp_servers: MCPDict = {}
+
+    for name, mcp_config in mcp_servers.items():
+        try:
+            await mcp_config.mcp_server.list_tools()
+            filtered_mcp_servers[name] = mcp_config
+        except Exception:
+            logfire.error(
+                "MCP server is unresponsive, removing from available servers",
+                server_name=name,
+                server_url=mcp_config.mcp_server.url,
+            )
+
+    return filtered_mcp_servers
+
+
+async def filter_internal_only_mcp_servers(
     mcp_servers: MCPDict, client: AsyncApp, channel_id: str
 ) -> MCPDict:
     """Filter MCP servers based on channel sharing status.
@@ -227,5 +254,34 @@ async def filter_mcp_servers(
             removed_count=removed_count,
             channel_id=channel_id,
         )
+
+    return filtered_mcp_servers
+
+
+@logfire.instrument("filter_mcp_servers", extract_args=False)
+async def filter_mcp_servers(
+    mcp_servers: MCPDict, client: AsyncApp, channel_id: str
+) -> MCPDict:
+    """Filter MCP servers based on responsiveness and channel sharing status.
+
+    First removes unresponsive MCP servers, then removes internal-only MCP servers
+    when the channel is shared with external users to prevent exposure of
+    sensitive tools and data.
+
+    Args:
+        mcp_servers: A dictionary of {name: McpServer}
+        client: Slack app client for fetching channel information
+        channel_id: ID of the Slack channel to check
+
+    Returns:
+        Filtered dictionary containing only responsive MCP servers appropriate for the channel type
+    """
+    filtered_mcp_servers = await filter_unresponsive_mcp_servers(
+        mcp_servers=mcp_servers
+    )
+
+    filtered_mcp_servers = await filter_internal_only_mcp_servers(
+        mcp_servers=filtered_mcp_servers, client=client, channel_id=channel_id
+    )
 
     return filtered_mcp_servers
