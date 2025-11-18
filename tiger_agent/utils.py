@@ -8,12 +8,18 @@ import logfire
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
-from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+from pydantic_ai import RunContext
+from pydantic_ai.mcp import (
+    CallToolFunc,
+    MCPServerStdio,
+    MCPServerStreamableHTTP,
+    ProcessToolCallback,
+)
 from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent.fields import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
 from tiger_agent.slack import fetch_channel_info
-from tiger_agent.types import McpConfig, MCPDict
+from tiger_agent.types import AgentResponseContext, McpConfig, MCPDict
 
 
 @logfire.instrument("load_mcp_config")
@@ -77,6 +83,7 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
             mcp_server = MCPServerStdio(**server_cfg)
         elif server_cfg.get("url"):
             mcp_server = MCPServerStreamableHTTP(**server_cfg)
+
         mcp_servers[name] = McpConfig(
             internal_only=internal_only, mcp_server=mcp_server
         )
@@ -285,3 +292,48 @@ async def filter_mcp_servers(
     )
 
     return filtered_mcp_servers
+
+
+def create_wrapped_process_tool_call(
+    existing_func: ProcessToolCallback | None,
+) -> ProcessToolCallback:
+    async def process_tool_call(
+        ctx: RunContext[AgentResponseContext],
+        call_tool: CallToolFunc,
+        name: str,
+        tool_args: dict[str, Any],
+    ):
+        try:
+            if existing_func is not None:
+                return await existing_func(ctx, call_tool, name, tool_args)
+
+            return await call_tool(name, tool_args, None)
+        except Exception:
+            logfire.exception(
+                "Exception occurred during tool call", name=name, tool_args=tool_args
+            )
+            raise
+
+    return process_tool_call
+
+
+def wrap_mcp_servers_with_exception_handling(mcp_servers: MCPDict) -> MCPDict:
+    """Wrap MCP servers with exception handling for tool calls.
+
+    Creates wrapper functions around existing process_tool_call methods
+    to add consistent error handling and logging.
+
+    Args:
+        mcp_servers: Dictionary of MCP server configurations
+
+    Returns:
+        Modified dictionary with wrapped process_tool_call functions
+    """
+    for value in mcp_servers.values():
+        existing_process_tool_call = value.mcp_server.process_tool_call
+
+        value.mcp_server.process_tool_call = create_wrapped_process_tool_call(
+            existing_process_tool_call
+        )
+
+    return mcp_servers

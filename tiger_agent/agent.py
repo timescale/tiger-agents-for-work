@@ -55,6 +55,7 @@ from tiger_agent.utils import (
     filter_mcp_servers,
     usage_limit_reached,
     user_ignored,
+    wrap_mcp_servers_with_exception_handling,
 )
 
 logger = logging.getLogger(__name__)
@@ -336,6 +337,8 @@ class TigerAgent:
             channel_id=mention.channel,
         )
 
+        wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
+
         ctx = AgentResponseContext(
             event=event,
             mention=mention,
@@ -373,13 +376,17 @@ class TigerAgent:
                 slack_bot_token=hctx.slack_bot_token,
             )
 
-        async with agent as a:
-            response = await a.run(
-                user_prompt=user_prompt,
-                deps=ctx,
-                usage_limits=UsageLimits(output_tokens_limit=9_000),
-            )
-            return response.output
+        try:
+            async with agent as a:
+                response = await a.run(
+                    user_prompt=user_prompt,
+                    deps=ctx,
+                    usage_limits=UsageLimits(output_tokens_limit=9_000),
+                )
+                return response.output
+        except (Exception, ExceptionGroup):
+            logfire.exception("Agent initialization or run failed")
+            return "I'm having trouble connecting to my AI services right now. Please try again later."
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
