@@ -358,6 +358,9 @@ class TigerAgent:
             deps_type=dict[str, Any],
             system_prompt=system_prompt,
             toolsets=toolsets,
+            model_settings={
+                "extra_headers": {"anthropic-beta": "context-management-2025-06-27"}
+            },
         )
 
         @agent.tool_plain
