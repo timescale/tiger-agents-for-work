@@ -248,7 +248,12 @@ class TigerAgent:
             system_prompt=system_prompt,
             toolsets=toolsets,
             model_settings={
-                "extra_headers": {"anthropic-beta": "context-management-2025-06-27"}
+                "extra_headers": {"anthropic-beta": "context-management-2025-06-27"},
+                "extra_body": {
+                    "context_management": {
+                        "edits": [{"type": "clear_tool_uses_20250919"}]
+                    }
+                },
             },
         )
 
