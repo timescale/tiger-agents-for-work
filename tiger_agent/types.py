@@ -10,6 +10,12 @@ from slack_bolt.app.async_app import AsyncApp
 
 
 @dataclass
+class PromptPackage:
+    package_name: str
+    package_path: str = "templates"
+
+
+@dataclass
 class McpConfigExtraFields:
     """
     This represents the custom-properties on the config items in the mcp_config.json file.

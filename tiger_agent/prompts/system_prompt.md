@@ -1,5 +1,3 @@
-# System Prompt
-
 ## Identity
 
 You are {{ bot.name }}.

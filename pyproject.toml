@@ -24,7 +24,7 @@ dependencies = [
 tiger-agent = "tiger_agent.main:main"
 
 [tool.setuptools.packages.find]
-include = ["tiger_agent*", "prompts*"]
+include = ["tiger_agent*"]
 exclude = ["examples*", "docs*"]
 
 [tool.setuptools.dynamic]
@@ -32,7 +32,7 @@ version = {attr = "tiger_agent.__version__"}
 
 [tool.setuptools.package-data]
 "tiger_agent.migrations" = ["**/*.sql"]
-"prompts" = ["*.md"]
+"tiger_agent.prompts" = ["*.md"]
 
 [dependency-groups]
 dev = [
