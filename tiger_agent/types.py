@@ -9,8 +9,7 @@ from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from slack_bolt.app.async_app import AsyncApp
 
 
-@dataclass
-class PromptPackage:
+class PromptPackage(BaseModel):
     package_name: str
     package_path: str = "templates"
 

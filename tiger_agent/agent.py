@@ -110,7 +110,7 @@ class TigerAgent:
         if prompt_config is not None:
             for config in prompt_config:
                 if isinstance(config, PromptPackage):
-                    loaders.append(PackageLoader(**config))
+                    loaders.append(PackageLoader(**config.model_dump()))
                 elif isinstance(config, Path):
                     loaders.append(FileSystemLoader(config))
                 else:
