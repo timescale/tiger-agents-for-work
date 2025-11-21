@@ -57,8 +57,8 @@ from tiger_agent.utils import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT_REGEX = r".*system_prompt.*\.md$"
-USER_PROMPT_REGEX = r".*user_prompt.*\.md$"
+SYSTEM_PROMPT_REGEX = r"^system_prompt.*\.md$"
+USER_PROMPT_REGEX = r"^user_prompt.*\.md$"
 
 
 class TigerAgent:
@@ -149,6 +149,11 @@ class TigerAgent:
         prompt_templates_matching_regex = [
             tmpl_name for tmpl_name in all_templates if re.match(regex, tmpl_name)
         ]
+
+        # Sort: shortest name first, then alphabetically by name without .md extension
+        prompt_templates_matching_regex.sort(
+            key=lambda tmpl: (len(tmpl), tmpl.rsplit(".md", 1)[0].lower())
+        )
 
         rendered_prompts = await asyncio.gather(
             *[
