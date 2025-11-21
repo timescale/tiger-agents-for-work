@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import logfire
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
+from jinja2 import Environment, FileSystemLoader
 from pydantic_ai import Agent, BinaryContent, UsageLimits, models
 from pydantic_ai.messages import UserContent
 
@@ -101,24 +101,8 @@ class TigerAgent:
                 raise ValueError("jinja_env must have `enable_async=True`")
             self.jinja_env = jinja_env
         else:
-            # Use ChoiceLoader to try package resources first, then file system
-            # This allows the package to work both as installed dependency and in development
-            loaders = [
-                PackageLoader(
-                    "prompts", ""
-                ),  # For installed package (prompts as separate package)
-                FileSystemLoader(jinja_env),  # For development/custom templates
-            ]
-            # Try to add prompts directory relative to current file
-            try:
-                prompts_dir = Path(__file__).parent.parent / "prompts"
-                if prompts_dir.exists():
-                    loaders.insert(-1, FileSystemLoader(prompts_dir))
-            except Exception:
-                pass  # Ignore if we can't find the prompts directory
-
             self.jinja_env = Environment(
-                enable_async=True, loader=ChoiceLoader(loaders)
+                enable_async=True, loader=FileSystemLoader(jinja_env)
             )
         self.mcp_loader = MCPLoader(mcp_config_path)
         self.max_attempts = max_attempts

@@ -1,1 +1,0 @@
-"""Tiger Agent prompt templates."""
