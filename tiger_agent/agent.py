@@ -78,18 +78,22 @@ class TigerAgent:
 
     Args:
         model: Pydantic-AI model specification (defaults to configured model)
-        prompt_config: A list of package name + path or a file location for extra prompt templates
+        prompt_config: Sequence of PromptPackage instances or Path objects for extra prompt templates
+        jinja_env: Pre-configured Jinja2 Environment (mutually exclusive with prompt_config)
         mcp_config_path: Path to MCP server configuration JSON file
-        max_attempts: Maximum retry attempts for failed events
+        max_attempts: Maximum retry attempts for failed events (defaults to 3)
+        rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
+        rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
 
     Raises:
-        ValueError: If jinja_env is provided as Environment but not async-enabled
+        ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
     """
 
     def __init__(
         self,
         model: models.Model | models.KnownModelName | str | None = None,
         prompt_config: Sequence[PromptPackage | Path] | None = None,
+        jinja_env: Environment | None = None,
         mcp_config_path: Path | None = None,
         max_attempts: int = 3,
         rate_limit_allowed_requests: int | None = None,
@@ -98,31 +102,44 @@ class TigerAgent:
         self.bot_info: BotInfo | None = None
         self.model = model
 
-        # The purpose of this section is to provide a core/default prompt
-        # that can be overrided by the given prompt_config. A ChoiceLoader is
-        # used to control the order of precendence as it will find the first
-        # match in the loaders and return.
-        #
-        # Example: if there are three prompt loaders with system_prompt.md
-        # the ChoiceLoader will return the value from the first loader in the list
-        loaders = []
+        if jinja_env is not None and prompt_config is not None:
+            raise ValueError(
+                "jinja_env and prompt_config cannot both be given, choose one or the other"
+            )
 
-        if prompt_config is not None:
-            for config in prompt_config:
-                if isinstance(config, PromptPackage):
-                    loaders.append(PackageLoader(**config.model_dump()))
-                elif isinstance(config, Path):
-                    loaders.append(FileSystemLoader(config))
-                else:
-                    logfire.warning(
-                        "Received invalid prompt_config item", config=config
-                    )
+        if jinja_env is not None:
+            if not jinja_env.is_async:
+                raise ValueError("jinja_env must have `enable_async=True`")
+            self.jinja_env = jinja_env
+        else:
+            # The purpose of this section is to provide a core/default prompt
+            # that can be overrided by the given prompt_config. A ChoiceLoader is
+            # used to control the order of precendence as it will find the first
+            # match in the loaders and return.
+            #
+            # Example: if there are three prompt loaders with system_prompt.md
+            # the ChoiceLoader will return the value from the first loader in the list
+            loaders = []
 
-        # we load the default, core prompts at the end so that the provided
-        # prompts can override them
-        loaders.append(PackageLoader("tiger_agent", "prompts"))
+            if prompt_config is not None:
+                for config in prompt_config:
+                    if isinstance(config, PromptPackage):
+                        loaders.append(PackageLoader(**config.model_dump()))
+                    elif isinstance(config, Path):
+                        loaders.append(FileSystemLoader(config))
+                    else:
+                        logfire.warning(
+                            "Received invalid prompt_config item", config=config
+                        )
 
-        self.jinja_env = Environment(enable_async=True, loader=ChoiceLoader(loaders))
+            # we load the default, core prompts at the end so that the provided
+            # prompts can override them
+            loaders.append(PackageLoader("tiger_agent", "prompts"))
+
+            self.jinja_env = Environment(
+                enable_async=True, loader=ChoiceLoader(loaders)
+            )
+
         self.mcp_loader = MCPLoader(mcp_config_path)
         self.max_attempts = max_attempts
         self.rate_limit_allowed_requests = rate_limit_allowed_requests

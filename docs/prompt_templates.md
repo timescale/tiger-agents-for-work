@@ -118,7 +118,7 @@ Templates are loaded from the filesystem using Jinja2:
 
 ```python
 from pathlib import Path
-from jinja2 import Environment
+from tiger_agent.types import PromptPackage
 
 # Using a directory path
 agent = TigerAgent(
@@ -137,6 +137,11 @@ jinja_env = Environment(
 agent = TigerAgent(
     jinja_env=jinja_env,
     model="claude-3-5-sonnet-latest"
+)
+
+# Using multiple paths and packages
+agent = TigerAgent(
+    prompt_config=["~/prompts", "../test_prompts", PromptPackage(package_name="app", package_path="prompts")]
 )
 ```
 
