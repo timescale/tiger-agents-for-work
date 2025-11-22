@@ -5,6 +5,7 @@ from pathlib import Path
 import click
 from dotenv import find_dotenv, load_dotenv
 
+from tiger_agent import EventHarness, TigerAgent
 from tiger_agent.log_config import setup_logging
 
 
@@ -20,8 +21,7 @@ def cli():
 @click.option(
     "--prompts",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
-    default=Path("prompts"),
-    help="Directory containing prompt templates",
+    help="Directory containing additional and/or overriding prompt templates",
 )
 @click.option(
     "--mcp-config",
@@ -86,7 +86,7 @@ def cli():
 )
 def run(
     model: str,
-    prompts: Path,
+    prompts: Path | None,
     mcp_config: Path | None = None,
     env: Path | None = None,
     worker_sleep_seconds: int = 60,
@@ -100,10 +100,6 @@ def run(
     rate_limit_interval: int = 1,
 ):
     """Run the Tiger Agent bot"""
-    import jinja2
-    from jinja2 import FileSystemLoader
-
-    from tiger_agent import EventHarness, TigerAgent
 
     load_dotenv(dotenv_path=env if env else find_dotenv(usecwd=True))
     setup_logging()
@@ -112,9 +108,7 @@ def run(
     agent = TigerAgent(
         model=model,
         mcp_config_path=mcp_config,
-        jinja_env=jinja2.Environment(
-            enable_async=True, loader=FileSystemLoader(prompts)
-        ),
+        prompt_config=[prompts] if prompts is not None else None,
         rate_limit_allowed_requests=rate_limit_allowed_requests,
         rate_limit_interval=timedelta(minutes=rate_limit_interval),
     )

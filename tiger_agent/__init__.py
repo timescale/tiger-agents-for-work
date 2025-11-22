@@ -2,7 +2,7 @@ __version__ = "0.0.5"
 
 from .agent import TigerAgent
 from .harness import EventHarness, EventProcessor
-from .types import AppMentionEvent, Event, HarnessContext, AgentResponseContext
+from .types import AppMentionEvent, Event, HarnessContext, AgentResponseContext, PromptPackage
 
 __all__ = [
     "AgentResponseContext",
@@ -12,5 +12,6 @@ __all__ = [
     "Event",
     "AppMentionEvent",
     "EventProcessor",
+    "PromptPackage",
     "__version__",
 ]
