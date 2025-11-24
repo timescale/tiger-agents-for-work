@@ -42,6 +42,8 @@ class McpConfig:
 
 type MCPDict = dict[str, McpConfig]
 
+type ExtraContextDict = dict[str, BaseModel]
+
 
 class BotInfo(BaseModel):
     """Pydantic model for Slack bot information.

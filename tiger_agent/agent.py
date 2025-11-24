@@ -43,6 +43,7 @@ from tiger_agent.slack import (
 from tiger_agent.types import (
     AgentResponseContext,
     Event,
+    ExtraContextDict,
     HarnessContext,
     MCPDict,
     PromptPackage,
@@ -148,7 +149,7 @@ class TigerAgent:
         self.rate_limit_interval = rate_limit_interval
 
     async def render_prompts(
-        self, regex: str, ctx: AgentResponseContext
+        self, regex: str, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
     ) -> Sequence[str]:
         """Render all Jinja2 templates matching a regex pattern.
 
@@ -175,7 +176,7 @@ class TigerAgent:
         )
 
         extra_context: dict[str, Any] = (
-            {k: v.model_dump() for k, v in self.extra_context.items()}
+            {k: v.model_dump() for k, v in extra_ctx.items()}
             if self.extra_context is not None and isinstance(self.extra_context, dict)
             else {}
         )
@@ -193,7 +194,7 @@ class TigerAgent:
 
     @logfire.instrument("make_system_prompt", extract_args=False)
     async def make_system_prompt(
-        self, ctx: AgentResponseContext
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
     ) -> str | Sequence[str]:
         """Generate system prompt from Jinja2 templates matching *system_prompt.md.
 
@@ -208,13 +209,15 @@ class TigerAgent:
             Rendered system prompt strings
         """
 
-        rendered_system_prompts = await self.render_prompts(SYSTEM_PROMPT_REGEX, ctx)
+        rendered_system_prompts = await self.render_prompts(
+            SYSTEM_PROMPT_REGEX, ctx, extra_ctx
+        )
 
         return rendered_system_prompts
 
     @logfire.instrument("make_user_prompt", extract_args=False)
     async def make_user_prompt(
-        self, ctx: AgentResponseContext
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
     ) -> str | Sequence[UserContent]:
         """Generate system prompt from Jinja2 templates matching *user_prompt.md
 
@@ -233,7 +236,9 @@ class TigerAgent:
             Rendered user prompt string if no files are attached, or a sequence
             of UserContent objects (text prompt + file contents) if files are present
         """
-        rendered_user_prompts = await self.render_prompts(USER_PROMPT_REGEX, ctx)
+        rendered_user_prompts = await self.render_prompts(
+            USER_PROMPT_REGEX, ctx, extra_ctx
+        )
 
         if ctx.mention.files is None or not len(ctx.mention.files):
             return rendered_user_prompts
@@ -259,18 +264,16 @@ class TigerAgent:
             mcp_servers: Dictionary of loaded MCP servers
         """
 
-    def augment_context(self, **models: BaseModel) -> None:
+    def augment_context(self, extra_context: ExtraContextDict) -> None:
         """Hook to augment context with additional BaseModel objects.
 
-        This method stores BaseModel objects that will be available to
-        Jinja2 templates for prompt generation.
+        This method can be overridden in subclasses to modify or add to the
+        extra context dictionary in-place. This can be useful for adding
+        custom BaseModel instances that will be available in Jinja2 templates.
 
         Args:
-            **models: Dictionary of BaseModel objects keyed by name for template access
-                     Expected usage: augment_context(context_a=context_instance, context_b=another_context_instance)
+            extra_context: Dictionary of BaseModel objects keyed by name for template access
         """
-        for k, v in models.items():
-            self.extra_context[k] = v
 
     @logfire.instrument("generate_response", extract_args=False)
     async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
@@ -336,8 +339,11 @@ class TigerAgent:
             slack_bot_token=hctx.slack_bot_token,
         )
 
-        system_prompt = await self.make_system_prompt(ctx)
-        user_prompt = await self.make_user_prompt(ctx)
+        extra_ctx = {}
+        self.augment_context(extra_context=extra_ctx)
+
+        system_prompt = await self.make_system_prompt(ctx, extra_ctx)
+        user_prompt = await self.make_user_prompt(ctx, extra_ctx)
 
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 
