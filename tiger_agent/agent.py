@@ -264,7 +264,7 @@ class TigerAgent:
             mcp_servers: Dictionary of loaded MCP servers
         """
 
-    def augment_context(
+    async def augment_context(
         self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
     ) -> None:
         """Hook to augment context with additional BaseModel objects.
@@ -343,7 +343,7 @@ class TigerAgent:
         )
 
         extra_ctx = {}
-        self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
+        await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
         system_prompt = await self.make_system_prompt(ctx, extra_ctx)
         user_prompt = await self.make_user_prompt(ctx, extra_ctx)
