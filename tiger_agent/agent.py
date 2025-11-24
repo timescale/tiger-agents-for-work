@@ -264,7 +264,9 @@ class TigerAgent:
             mcp_servers: Dictionary of loaded MCP servers
         """
 
-    def augment_context(self, extra_context: ExtraContextDict) -> None:
+    def augment_context(
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
+    ) -> None:
         """Hook to augment context with additional BaseModel objects.
 
         This method can be overridden in subclasses to modify or add to the
@@ -272,7 +274,8 @@ class TigerAgent:
         custom BaseModel instances that will be available in Jinja2 templates.
 
         Args:
-            extra_context: Dictionary of BaseModel objects keyed by name for template access
+            ctx: Agent response context containing event data, user info, and bot info
+            extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
 
     @logfire.instrument("generate_response", extract_args=False)
@@ -340,7 +343,7 @@ class TigerAgent:
         )
 
         extra_ctx = {}
-        self.augment_context(extra_context=extra_ctx)
+        self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
         system_prompt = await self.make_system_prompt(ctx, extra_ctx)
         user_prompt = await self.make_user_prompt(ctx, extra_ctx)
