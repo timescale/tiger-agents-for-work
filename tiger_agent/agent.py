@@ -348,8 +348,8 @@ class TigerAgent:
         extra_ctx = {}
         await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
-        system_prompt = await self.make_system_prompt(ctx, extra_ctx)
-        user_prompt = await self.make_user_prompt(ctx, extra_ctx)
+        system_prompt = await self.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
+        user_prompt = await self.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
 
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 
