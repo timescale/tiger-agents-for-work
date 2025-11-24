@@ -102,6 +102,7 @@ class TigerAgent:
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
+        self.extra_context: dict[str, BaseModel] = {}
 
         if jinja_env is not None and prompt_config is not None:
             raise ValueError(
@@ -173,9 +174,11 @@ class TigerAgent:
             key=lambda tmpl: (len(tmpl), tmpl.rsplit(".md", 1)[0].lower())
         )
 
-        extra_context: dict[str, Any] = {
-            k: v.model_dump() for k, v in self.extra_context.items()
-        }
+        extra_context: dict[str, Any] = (
+            {k: v.model_dump() for k, v in self.extra_context.items()}
+            if self.extra_context is not None and isinstance(self.extra_context, dict)
+            else {}
+        )
 
         rendered_prompts = await asyncio.gather(
             *[
@@ -266,7 +269,8 @@ class TigerAgent:
             **models: Dictionary of BaseModel objects keyed by name for template access
                      Expected usage: augment_context(context_a=context_instance, context_b=another_context_instance)
         """
-        self.extra_context = models
+        for k, v in models.items():
+            self.extra_context[k] = v
 
     @logfire.instrument("generate_response", extract_args=False)
     async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
