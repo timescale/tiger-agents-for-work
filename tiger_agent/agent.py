@@ -149,7 +149,10 @@ class TigerAgent:
         self.rate_limit_interval = rate_limit_interval
 
     async def render_prompts(
-        self, regex: str, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
+        self,
+        regex: str,
+        ctx: AgentResponseContext,
+        extra_ctx: ExtraContextDict | None = None,
     ) -> Sequence[str]:
         """Render all Jinja2 templates matching a regex pattern.
 
@@ -194,7 +197,7 @@ class TigerAgent:
 
     @logfire.instrument("make_system_prompt", extract_args=False)
     async def make_system_prompt(
-        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict | None = None
     ) -> str | Sequence[str]:
         """Generate system prompt from Jinja2 templates matching *system_prompt.md.
 
@@ -217,7 +220,7 @@ class TigerAgent:
 
     @logfire.instrument("make_user_prompt", extract_args=False)
     async def make_user_prompt(
-        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict | None = None
     ) -> str | Sequence[UserContent]:
         """Generate system prompt from Jinja2 templates matching *user_prompt.md
 
