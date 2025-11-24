@@ -110,8 +110,33 @@ To make your Tiger Agent powerful, you'll need to customize it.
 For light customization, you can use [Jinja2](https://jinja.palletsprojects.com/en/stable/) templates to customize the system and user prompts.
 You can give your Tiger Agent custom superpowers by configuring one or more MCP servers. See the [CLI docs](/docs/cli.md) for more information.
 
-For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch.
-Check out the [Tiger Agent docs](/docs/tiger_agent.md) to see how.
+Tiger Agent supports overriding prompts and/or supplementing prompts by supplying a path to a directory containing prompts with the `--prompts` CLI argument. If you wish to override the default prompt, provide a `system_prompt.md` or `user_prompt.md` markdown file. However, if you want to supplment the default prompts, supply markdown files that have follow the regex pattern of `^system_prompt.*\.md$` or `^user_prompt.*\.md$`. Prompts will be sorted alphabetically when added to the agent.
+
+For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch. This strategy, also, supports overriding and/or supplementing the base prompts. Consider this example:
+
+```python
+class MyCoolAgent(TigerAgent):
+    # override TigerAgent.make_system_prompt
+   async def make_system_prompt(
+        self, ctx: AgentResponseContext
+    ) -> str | Sequence[str]:
+        
+        # if you want to supplment the base system prompt, grab it
+        # and add it to a sequence of prompt strings
+        base_system_prompt = await super().make_system_prompt(ctx)
+        system_prompt = (
+            [base_system_prompt]
+            if not isinstance(base_system_prompt, Sequence)
+            else base_system_prompt
+        )
+
+        # then add what you want
+        system_prompt.append("Always respond like a playful pirate. Draw your inspiration from Pirates of the Carribean.")
+
+        return system_prompt
+```
+
+Read me here [Tiger Agent docs](/docs/tiger_agent.md) to see how.
 
 #### A Full-fledged Example
 
