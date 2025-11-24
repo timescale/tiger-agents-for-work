@@ -1,6 +1,4 @@
 {% if user %}
-# User Prompt
-
 ## User Info
 
 id: {{ user.id }}
