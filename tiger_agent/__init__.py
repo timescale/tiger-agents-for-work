@@ -1,12 +1,20 @@
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 from .agent import TigerAgent
 from .harness import EventHarness, EventProcessor
-from .types import AppMentionEvent, Event, HarnessContext, AgentResponseContext, PromptPackage
+from .types import (
+    AgentResponseContext,
+    AppMentionEvent,
+    Event,
+    ExtraContextDict,
+    HarnessContext,
+    PromptPackage,
+)
 
 __all__ = [
     "AgentResponseContext",
     "EventHarness",
+    "ExtraContextDict",
     "TigerAgent",
     "HarnessContext",
     "Event",
