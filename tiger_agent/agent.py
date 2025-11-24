@@ -27,6 +27,7 @@ from typing import Any
 
 import logfire
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
+from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, UsageLimits, models
 from pydantic_ai.messages import UserContent
 
