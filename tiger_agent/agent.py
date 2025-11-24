@@ -172,9 +172,15 @@ class TigerAgent:
             key=lambda tmpl: (len(tmpl), tmpl.rsplit(".md", 1)[0].lower())
         )
 
+        extra_context: dict[str, Any] = {
+            k: v.model_dump() for k, v in self.extra_context.items()
+        }
+
         rendered_prompts = await asyncio.gather(
             *[
-                self.jinja_env.get_template(tmpl_name).render_async(**ctx.model_dump())
+                self.jinja_env.get_template(tmpl_name).render_async(
+                    **extra_context, **ctx.model_dump()
+                )
                 for tmpl_name in prompt_templates_matching_regex
             ]
         )
@@ -248,6 +254,18 @@ class TigerAgent:
         Args:
             mcp_servers: Dictionary of loaded MCP servers
         """
+
+    def augment_context(self, **models: BaseModel) -> None:
+        """Hook to augment context with additional BaseModel objects.
+
+        This method stores BaseModel objects that will be available to
+        Jinja2 templates for prompt generation.
+
+        Args:
+            **models: Dictionary of BaseModel objects keyed by name for template access
+                     Expected usage: augment_context(context_a=context_instance, context_b=another_context_instance)
+        """
+        self.extra_context = models
 
     @logfire.instrument("generate_response", extract_args=False)
     async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
