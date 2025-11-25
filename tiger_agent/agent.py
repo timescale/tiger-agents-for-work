@@ -17,14 +17,17 @@ The TigerAgent processes Slack app_mention events by:
 5. Posting responses to Slack with appropriate visual feedback
 """
 
+import asyncio
 import logging
+import re
 from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import logfire
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
+from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, UsageLimits, models
 from pydantic_ai.messages import UserContent
 
@@ -40,8 +43,10 @@ from tiger_agent.slack import (
 from tiger_agent.types import (
     AgentResponseContext,
     Event,
+    ExtraContextDict,
     HarnessContext,
     MCPDict,
+    PromptPackage,
     SlackFile,
 )
 from tiger_agent.utils import (
@@ -53,6 +58,9 @@ from tiger_agent.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+SYSTEM_PROMPT_REGEX = r"^system_prompt.*\.md$"
+USER_PROMPT_REGEX = r"^user_prompt.*\.md$"
 
 
 class TigerAgent:
@@ -72,18 +80,22 @@ class TigerAgent:
 
     Args:
         model: Pydantic-AI model specification (defaults to configured model)
-        jinja_env: Jinja2 Environment or path to template directory
+        prompt_config: Sequence of PromptPackage instances or Path objects for extra prompt templates
+        jinja_env: Pre-configured Jinja2 Environment (mutually exclusive with prompt_config)
         mcp_config_path: Path to MCP server configuration JSON file
-        max_attempts: Maximum retry attempts for failed events
+        max_attempts: Maximum retry attempts for failed events (defaults to 3)
+        rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
+        rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
 
     Raises:
-        ValueError: If jinja_env is provided as Environment but not async-enabled
+        ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
     """
 
     def __init__(
         self,
         model: models.Model | models.KnownModelName | str | None = None,
-        jinja_env: Environment | Path = Path.cwd(),
+        prompt_config: Sequence[PromptPackage | Path] | None = None,
+        jinja_env: Environment | None = None,
         mcp_config_path: Path | None = None,
         max_attempts: int = 3,
         rate_limit_allowed_requests: int | None = None,
@@ -91,26 +103,105 @@ class TigerAgent:
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
-        if isinstance(jinja_env, Environment):
+        self.extra_context: dict[str, BaseModel] = {}
+
+        if jinja_env is not None and prompt_config is not None:
+            raise ValueError(
+                "jinja_env and prompt_config cannot both be given, choose one or the other"
+            )
+
+        if jinja_env is not None:
             if not jinja_env.is_async:
                 raise ValueError("jinja_env must have `enable_async=True`")
             self.jinja_env = jinja_env
         else:
+            # The purpose of this section is to provide a core/default prompt
+            # that can be overrided by the given prompt_config. A ChoiceLoader is
+            # used to control the order of precendence as it will find the first
+            # match in the loaders and return.
+            #
+            # Example: if there are three prompt loaders with system_prompt.md
+            # the ChoiceLoader will return the value from the first loader in the list
+            loaders = []
+
+            if prompt_config is not None:
+                for config in prompt_config:
+                    if isinstance(config, PromptPackage):
+                        loaders.append(PackageLoader(**config.model_dump()))
+                    elif isinstance(config, Path):
+                        loaders.append(FileSystemLoader(config))
+                    else:
+                        logfire.warning(
+                            "Received invalid prompt_config item", config=config
+                        )
+
+            # we load the default, core prompts at the end so that the provided
+            # prompts can override them
+            loaders.append(PackageLoader("tiger_agent", "prompts"))
+
             self.jinja_env = Environment(
-                enable_async=True, loader=FileSystemLoader(jinja_env)
+                enable_async=True, loader=ChoiceLoader(loaders)
             )
+
         self.mcp_loader = MCPLoader(mcp_config_path)
         self.max_attempts = max_attempts
         self.rate_limit_allowed_requests = rate_limit_allowed_requests
         self.rate_limit_interval = rate_limit_interval
 
+    async def render_prompts(
+        self,
+        regex: str,
+        ctx: AgentResponseContext,
+        extra_ctx: ExtraContextDict | None = None,
+    ) -> Sequence[str]:
+        """Render all Jinja2 templates matching a regex pattern.
+
+        Discovers all available templates in the Jinja2 environment, filters them
+        using the provided regex pattern, and renders each matching template with
+        the given context. This enables flexible prompt composition by allowing
+        multiple templates to be processed dynamically.
+
+        Args:
+            regex: Regular expression pattern to match template names
+            ctx: Template context containing event, user, bot info, and other data
+
+        Returns:
+            List of rendered template strings, one for each matching template
+        """
+        all_templates = self.jinja_env.list_templates()
+        prompt_templates_matching_regex = [
+            tmpl_name for tmpl_name in all_templates if re.match(regex, tmpl_name)
+        ]
+
+        # Sort: shortest name first, then alphabetically by name without .md extension
+        prompt_templates_matching_regex.sort(
+            key=lambda tmpl: (len(tmpl), tmpl.rsplit(".md", 1)[0].lower())
+        )
+
+        extra_context: dict[str, Any] = (
+            {k: v.model_dump() for k, v in extra_ctx.items()}
+            if self.extra_context is not None and isinstance(self.extra_context, dict)
+            else {}
+        )
+
+        rendered_prompts = await asyncio.gather(
+            *[
+                self.jinja_env.get_template(tmpl_name).render_async(
+                    **extra_context, **ctx.model_dump()
+                )
+                for tmpl_name in prompt_templates_matching_regex
+            ]
+        )
+
+        return rendered_prompts
+
     @logfire.instrument("make_system_prompt", extract_args=False)
     async def make_system_prompt(
-        self, ctx: AgentResponseContext
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict | None = None
     ) -> str | Sequence[str]:
-        """Generate system prompt from Jinja2 template.
+        """Generate system prompt from Jinja2 templates matching *system_prompt.md.
 
-        Renders the 'system_prompt.md' template with the provided context,
+        Renders template with the provided context,
         creating a dynamic system prompt that can include event details,
         user information, bot capabilities, and other contextual data.
 
@@ -118,18 +209,22 @@ class TigerAgent:
             ctx: Template context containing event, user, bot info, etc.
 
         Returns:
-            Rendered system prompt string
+            Rendered system prompt strings
         """
-        tmpl = self.jinja_env.get_template("system_prompt.md")
-        return await tmpl.render_async(**ctx.model_dump())
+
+        rendered_system_prompts = await self.render_prompts(
+            SYSTEM_PROMPT_REGEX, ctx, extra_ctx
+        )
+
+        return rendered_system_prompts
 
     @logfire.instrument("make_user_prompt", extract_args=False)
     async def make_user_prompt(
-        self, ctx: AgentResponseContext
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict | None = None
     ) -> str | Sequence[UserContent]:
-        """Generate user prompt from Jinja2 template.
+        """Generate system prompt from Jinja2 templates matching *user_prompt.md
 
-        Renders the 'user_prompt.md' template with the provided context,
+        Renders the user prompt templates with the provided context,
         creating a dynamic user prompt that typically contains the actual
         Slack message content and relevant contextual information.
 
@@ -144,11 +239,12 @@ class TigerAgent:
             Rendered user prompt string if no files are attached, or a sequence
             of UserContent objects (text prompt + file contents) if files are present
         """
-        tmpl = self.jinja_env.get_template("user_prompt.md")
-        text_prompt = await tmpl.render_async(**ctx.model_dump())
+        rendered_user_prompts = await self.render_prompts(
+            USER_PROMPT_REGEX, ctx, extra_ctx
+        )
 
         if ctx.mention.files is None or not len(ctx.mention.files):
-            return text_prompt
+            return rendered_user_prompts
 
         user_contents: list[UserContent] = [
             await download_private_file(
@@ -158,9 +254,7 @@ class TigerAgent:
             for file in ctx.mention.files
             if file_type_supported(file.mimetype)
         ]
-        user_contents.insert(0, text_prompt)
-
-        return user_contents
+        return [*user_contents, *rendered_user_prompts]
 
     def augment_mcp_servers(self, mcp_servers: MCPDict):
         """Hook to augment loaded MCP servers before use.
@@ -171,6 +265,20 @@ class TigerAgent:
 
         Args:
             mcp_servers: Dictionary of loaded MCP servers
+        """
+
+    async def augment_context(
+        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
+    ) -> None:
+        """Hook to augment context with additional BaseModel objects.
+
+        This method can be overridden in subclasses to modify or add to the
+        extra context dictionary in-place. This can be useful for adding
+        custom BaseModel instances that will be available in Jinja2 templates.
+
+        Args:
+            ctx: Agent response context containing event data, user info, and bot info
+            extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
 
     @logfire.instrument("generate_response", extract_args=False)
@@ -237,8 +345,11 @@ class TigerAgent:
             slack_bot_token=hctx.slack_bot_token,
         )
 
-        system_prompt = await self.make_system_prompt(ctx)
-        user_prompt = await self.make_user_prompt(ctx)
+        extra_ctx = {}
+        await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
+
+        system_prompt = await self.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
+        user_prompt = await self.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
 
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 

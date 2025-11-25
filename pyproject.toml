@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "click>=8.3.0",
-    "jinja2>=3.1.6",
     "logfire[httpx,psycopg,system-metrics]>=4.10.0",
     "psycopg[binary,pool]>=3.2.10",
     "pydantic-ai>=1.16.0",
@@ -25,13 +24,14 @@ tiger-agent = "tiger_agent.main:main"
 
 [tool.setuptools.packages.find]
 include = ["tiger_agent*"]
-exclude = ["prompts*", "examples*", "docs*"]
+exclude = ["examples*", "docs*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "tiger_agent.__version__"}
 
 [tool.setuptools.package-data]
 "tiger_agent.migrations" = ["**/*.sql"]
+"tiger_agent.prompts" = ["*.md"]
 
 [dependency-groups]
 dev = [

@@ -9,6 +9,11 @@ from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from slack_bolt.app.async_app import AsyncApp
 
 
+class PromptPackage(BaseModel):
+    package_name: str
+    package_path: str = "templates"
+
+
 @dataclass
 class McpConfigExtraFields:
     """
@@ -36,6 +41,8 @@ class McpConfig:
 
 
 type MCPDict = dict[str, McpConfig]
+
+type ExtraContextDict = dict[str, BaseModel]
 
 
 class BotInfo(BaseModel):
