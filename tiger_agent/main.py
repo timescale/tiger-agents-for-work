@@ -84,6 +84,17 @@ def cli():
     default=1,
     help="The rate limit interval in minutes, used to determine if a user has exceeded the rate limit. Only used if --rate-limit-count is set",
 )
+@click.option(
+    "--proactive-prompt-channels",
+    type=str,
+    default="",
+    help="Comma-delimited list of channel IDs where the agent should send proactive prompts even without mentions",
+    callback=lambda ctx, param, value: [
+        ch.strip() for ch in value.split(",") if ch.strip()
+    ]
+    if value
+    else [],
+)
 def run(
     model: str,
     prompts: Path | None,
@@ -98,6 +109,7 @@ def run(
     num_workers: int = 5,
     rate_limit_allowed_requests: int | None = None,
     rate_limit_interval: int = 1,
+    proactive_prompt_channels: list[str] = None,
 ):
     """Run the Tiger Agent bot"""
 
@@ -123,6 +135,7 @@ def run(
         max_age_minutes=max_age_minutes,
         invisibility_minutes=invisibility_minutes,
         num_workers=num_workers,
+        proactive_prompt_channels=proactive_prompt_channels,
     )
 
     # run the harness

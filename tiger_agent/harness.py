@@ -138,6 +138,7 @@ class EventHarness:
         num_workers: int = 5,
         slack_bot_token: str | None = None,
         slack_app_token: str | None = None,
+        proactive_prompt_channels: Sequence[str] | None = None,
     ):
         self._task_group: TaskGroup | None = None
         self._pool = (
@@ -158,6 +159,7 @@ class EventHarness:
         assert self._slack_bot_token is not None, "no SLACK_BOT_TOKEN found"
         self._slack_app_token = slack_app_token or os.getenv("SLACK_APP_TOKEN")
         assert self._slack_app_token is not None, "no SLACK_APP_TOKEN found"
+        self._proactive_prompt_channels = set(proactive_prompt_channels or [])
         assert worker_sleep_seconds > 0
         assert worker_sleep_seconds - worker_min_jitter_seconds > 0
         assert worker_max_jitter_seconds > worker_min_jitter_seconds
@@ -570,23 +572,25 @@ class EventHarness:
                 await self._process_event(event_hist)
 
             async def on_message(ack: AsyncAck, event: dict[str, Any]):
+                await ack()
+
+                # agent should ignore its own messages
                 if event["user"] == bot_info.user_id:
-                    await ack()
                     return
+
                 event["subtype"] = event["channel_type"]
-                # We don't also handle message.mpim events here, since we only
-                # respond there if the bot is explicitly mentioned, which will
-                # trigger the app_mention handler above.
-                if event["subtype"] in ("im"):
-                    await ack()
+                channel = event.get("channel")
 
-                    channel = event.get("channel")
+                # if the message was in an im to the agent, respond (even though agent was not mentioned)
+                if event["subtype"] in ("in"):
+                    await self._on_event(ack, event)
+                # if the channel is one that the agent should proactively respond to (e.g. agent was not @mentioned)
+                elif channel in self._proactive_prompt_channels:
                     user = event.get("user")
-
                     thread_ts = event.get("thread_ts")
 
+                    # only offer proactive prompts on top level messages
                     if thread_ts is not None:
-                        # only offer proactive prompts on top level messages
                         return
 
                     event_hist_id = await self._insert_handled_event(event)
@@ -623,7 +627,6 @@ class EventHarness:
                         ],
                     )
                     return
-                # await self._on_event(ack, event)
 
             self._app.action(CONFIRM_PROACTIVE_PROMPT)(handle_proactive_prompt)
             self._app.action(REJECT_PROACTIVE_PROMPT)(handle_proactive_prompt)
