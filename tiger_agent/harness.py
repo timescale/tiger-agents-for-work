@@ -19,7 +19,7 @@ import os
 import random
 import re
 from asyncio import QueueShutDown, TaskGroup
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 import logfire
@@ -41,6 +41,9 @@ from tiger_agent.types import Event, HarnessContext, SlackCommand
 logger = logging.getLogger(__name__)
 
 pg_max_pool_size: int = int(os.getenv("PG_MAX_POOL_SIZE", "10"))
+
+CONFIRM_PROACTIVE_PROMPT = "confirm_proactive_prompt"
+REJECT_PROACTIVE_PROMPT = "reject_proactive_prompt"
 
 
 async def _configure_database_connection(con: AsyncConnection) -> None:
@@ -184,6 +187,28 @@ class EventHarness:
         ):
             await cur.execute("select agent.insert_event(%s)", (Jsonb(event),))
 
+    @logfire.instrument("insert_handled_event", extract_args=False)
+    async def _insert_handled_event(self, event: dict[str, Any]) -> int:
+        """Insert a Slack event directly into the event history table as processed.
+
+        Uses the agent.insert_event_hist() database function to store the event
+        directly in agent.event_hist, bypassing the work queue and marking it as processed.
+
+        Args:
+            event: Raw Slack event payload as dictionary
+
+        Returns:
+            The ID of the inserted event_hist record
+        """
+        async with (
+            self._pool.connection() as con,
+            con.transaction() as _,
+            con.cursor() as cur,
+        ):
+            await cur.execute("select agent.insert_event_hist(%s)", (Jsonb(event),))
+            result = await cur.fetchone()
+            return result[0] if result else None
+
     @logfire.instrument("on_event", extract_args=False)
     async def _on_event(self, ack: AsyncAck, event: dict[str, Any]):
         """Handle incoming Slack app_mention events with immediate worker notification.
@@ -262,6 +287,40 @@ class EventHarness:
             con.cursor() as cur,
         ):
             await cur.execute("select agent.delete_event(%s)", (event.id,))
+
+    @logfire.instrument("get_event_hist", extract_args=False)
+    async def get_event_hist(self, event_id: int) -> Event | None:
+        """Get an event from the event_hist table by ID.
+
+        Retrieves a historical event record and returns it as an Event object.
+        Returns None if no event with the given ID is found.
+
+        Args:
+            event_id: The ID of the historical event to retrieve
+
+        Returns:
+            Event object if found, None otherwise
+        """
+        async with (
+            self._pool.connection() as con,
+            con.transaction() as _,
+            con.cursor(row_factory=dict_row) as cur,
+        ):
+            await cur.execute(
+                "select * from agent.event_hist where id = %s", (event_id,)
+            )
+            row: dict[str, Any] | None = await cur.fetchone()
+            if not row:
+                return None
+            try:
+                return Event(**row)
+            except ValidationError as e:
+                logger.exception(
+                    "failed to parse historical event",
+                    exc_info=e,
+                    extra={"id": event_id},
+                )
+                return None
 
     @logfire.instrument("delete_expired_events", extract_args=False)
     async def _delete_expired_events(self) -> None:
@@ -452,6 +511,64 @@ class EventHarness:
             self._app.command(re.compile(r"\/.*"))(on_command)
             self._app.event("app_mention")(on_event)
 
+            async def handle_proactive_prompt(
+                ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
+            ):
+                await ack()
+
+                actions = body.get("actions")
+                if (
+                    actions is None
+                    or not isinstance(actions, Sequence)
+                    or len(actions) != 1
+                ):
+                    logfire.error(
+                        "Actions was not an expected payload",
+                        event=body,
+                    )
+                    return
+                action = actions[0]
+                relevant_event_hist = action.get("value")
+
+                action_id = action.get("action_id", REJECT_PROACTIVE_PROMPT)
+
+                if action_id == REJECT_PROACTIVE_PROMPT:
+                    await respond(
+                        response_type="ephemeral",
+                        text="",
+                        replace_original=True,
+                        delete_original=True,
+                    )
+                    return
+
+                if relevant_event_hist is None:
+                    logfire.error(
+                        "Could not find relevent event_hist for proactive agent response",
+                        event=body,
+                    )
+                    return
+
+                try:
+                    event_hist_id = int(relevant_event_hist)
+                except (ValueError, TypeError):
+                    logfire.error(
+                        "Invalid event_hist ID format",
+                        relevant_event_hist=relevant_event_hist,
+                        event=body,
+                    )
+                    return
+
+                event_hist = await self.get_event_hist(event_hist_id)
+
+                await respond(
+                    response_type="ephemeral",
+                    text=f"I will respond to your message now! For future reference, you can include <@{bot_info.user_id}> in a message and I will respond.",
+                    replace_original=True,
+                    delete_original=True,
+                )
+
+                await self._process_event(event_hist)
+
             async def on_message(ack: AsyncAck, event: dict[str, Any]):
                 if event["user"] == bot_info.user_id:
                     await ack()
@@ -460,12 +577,57 @@ class EventHarness:
                 # We don't also handle message.mpim events here, since we only
                 # respond there if the bot is explicitly mentioned, which will
                 # trigger the app_mention handler above.
-                if event["subtype"] not in ("im"):
+                if event["subtype"] in ("im"):
                     await ack()
-                    return
-                await self._on_event(ack, event)
 
-            self._app.event("message")(on_message)
+                    channel = event.get("channel")
+                    user = event.get("user")
+
+                    thread_ts = event.get("thread_ts")
+
+                    if thread_ts is not None:
+                        # only offer proactive prompts on top level messages
+                        return
+
+                    event_hist_id = await self._insert_handled_event(event)
+                    await self._app.client.chat_postEphemeral(
+                        channel=channel,
+                        user=user,
+                        text=f"Hey <@{user}>, would you like me to assist you?",
+                        blocks=[
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": f"Hey <@{user}>, would you like me to assist you?",
+                                },
+                            },
+                            {
+                                "type": "actions",
+                                "elements": [
+                                    {
+                                        "type": "button",
+                                        "action_id": CONFIRM_PROACTIVE_PROMPT,
+                                        "style": "primary",
+                                        "text": {"type": "plain_text", "text": "Yes"},
+                                        "value": f"{event_hist_id}",
+                                    },
+                                    {
+                                        "type": "button",
+                                        "action_id": REJECT_PROACTIVE_PROMPT,
+                                        "text": {"type": "plain_text", "text": "No"},
+                                        "value": f"{event_hist_id}",
+                                    },
+                                ],
+                            },
+                        ],
+                    )
+                    return
+                # await self._on_event(ack, event)
+
+            self._app.action(CONFIRM_PROACTIVE_PROMPT)(handle_proactive_prompt)
+            self._app.action(REJECT_PROACTIVE_PROMPT)(handle_proactive_prompt)
+            self._app.message("")(on_message)
 
             handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
