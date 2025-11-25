@@ -582,51 +582,56 @@ class EventHarness:
                 channel = event.get("channel")
 
                 # if the message was in an im to the agent, respond (even though agent was not mentioned)
-                if event["subtype"] in ("in"):
+                if event["subtype"] in ("im"):
                     await self._on_event(ack, event)
-                # if the channel is one that the agent should proactively respond to (e.g. agent was not @mentioned)
-                elif channel in self._proactive_prompt_channels:
-                    user = event.get("user")
-                    thread_ts = event.get("thread_ts")
-
-                    # only offer proactive prompts on top level messages
-                    if thread_ts is not None:
-                        return
-
-                    event_hist_id = await self._insert_handled_event(event)
-                    await self._app.client.chat_postEphemeral(
-                        channel=channel,
-                        user=user,
-                        text=f"Hey <@{user}>, would you like me to assist you?",
-                        blocks=[
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": f"Hey <@{user}>, would you like me to assist you?",
-                                },
-                            },
-                            {
-                                "type": "actions",
-                                "elements": [
-                                    {
-                                        "type": "button",
-                                        "action_id": CONFIRM_PROACTIVE_PROMPT,
-                                        "style": "primary",
-                                        "text": {"type": "plain_text", "text": "Yes"},
-                                        "value": f"{event_hist_id}",
-                                    },
-                                    {
-                                        "type": "button",
-                                        "action_id": REJECT_PROACTIVE_PROMPT,
-                                        "text": {"type": "plain_text", "text": "No"},
-                                        "value": f"{event_hist_id}",
-                                    },
-                                ],
-                            },
-                        ],
-                    )
                     return
+
+                elif channel not in self._proactive_prompt_channels or re.search(
+                    rf"<@{re.escape(bot_info.user_id)}>", event.get("text", "")
+                ):
+                    return
+
+                # if the channel is one that the agent should proactively respond to and the agent was not @mentioned
+                user = event.get("user")
+                thread_ts = event.get("thread_ts")
+
+                # only offer proactive prompts on top level messages
+                if thread_ts is not None:
+                    return
+
+                event_hist_id = await self._insert_handled_event(event)
+                await self._app.client.chat_postEphemeral(
+                    channel=channel,
+                    user=user,
+                    text=f"Hey <@{user}>, would you like me to assist you?",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"Hey <@{user}>, would you like me to assist you?",
+                            },
+                        },
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "type": "button",
+                                    "action_id": CONFIRM_PROACTIVE_PROMPT,
+                                    "style": "primary",
+                                    "text": {"type": "plain_text", "text": "Yes"},
+                                    "value": f"{event_hist_id}",
+                                },
+                                {
+                                    "type": "button",
+                                    "action_id": REJECT_PROACTIVE_PROMPT,
+                                    "text": {"type": "plain_text", "text": "No"},
+                                    "value": f"{event_hist_id}",
+                                },
+                            ],
+                        },
+                    ],
+                )
 
             self._app.action(CONFIRM_PROACTIVE_PROMPT)(handle_proactive_prompt)
             self._app.action(REJECT_PROACTIVE_PROMPT)(handle_proactive_prompt)
