@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Tiger Agent",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tiger_agent.main",
+            "args": [
+                "run",
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {},
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "justMyCode": false,
+            "stopOnEntry": false
+        }
+    ]
+}
