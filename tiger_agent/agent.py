@@ -307,6 +307,7 @@ class TigerAgent:
             Generated AI response text ready for posting to Slack
         """
         mention = event.event
+        client = hctx.app.client
 
         if await usage_limit_reached(
             pool=hctx.pool,
@@ -373,13 +374,35 @@ class TigerAgent:
                 slack_bot_token=hctx.slack_bot_token,
             )
 
-        async with agent as a:
-            response = await a.run(
-                user_prompt=user_prompt,
-                deps=ctx,
-                usage_limits=UsageLimits(output_tokens_limit=9_000),
-            )
-            return response.output
+        slack_stream = await client.chat_stream(
+            channel=mention.channel,
+            recipient_user_id=mention.user,
+            recipient_team_id=self.bot_info.team_id,
+            thread_ts=mention.thread_ts or mention.ts,
+        )
+
+        await client.assistant_threads_setStatus(
+            channel_id=mention.channel,
+            thread_ts=mention.thread_ts or mention.ts,
+            status="thinking..",
+            loading_messages=["loading"],
+        )
+        async with agent.run_stream(
+            user_prompt=user_prompt,
+            deps=ctx,
+            usage_limits=UsageLimits(output_tokens_limit=9_000),
+        ) as streaming_result:
+            async for delta in streaming_result.stream_text(delta=True):
+                await slack_stream.append(markdown_text=delta)
+
+        await slack_stream.stop()
+        # async with agent as a:
+        #     response = await a.run(
+        #         user_prompt=user_prompt,
+        #         deps=ctx,
+        #         usage_limits=UsageLimits(output_tokens_limit=9_000),
+        #     )
+        #     return response.output
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
@@ -417,13 +440,13 @@ class TigerAgent:
                 logfire.info("Ignore user", user_id=mention.user)
                 return
             await add_reaction(client, mention.channel, mention.ts, "spinthinking")
-            response = await self.generate_response(hctx, event)
-            await post_response(
-                client,
-                mention.channel,
-                mention.thread_ts if mention.thread_ts else mention.ts,
-                response,
-            )
+            await self.generate_response(hctx, event)
+            # await post_response(
+            #     client,
+            #     mention.channel,
+            #     mention.thread_ts if mention.thread_ts else mention.ts,
+            #     response,
+            # )
             await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
             await add_reaction(client, mention.channel, mention.ts, "white_check_mark")
         except Exception as e:
