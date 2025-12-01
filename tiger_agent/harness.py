@@ -571,15 +571,12 @@ class EventHarness:
 
                 await self._process_event(event_hist)
 
-            async def handle_message_events(body, logger):
-                # no-op, we are handling messages with client.message("")
-                pass
-
             async def on_message(ack: AsyncAck, event: dict[str, Any]):
                 await ack()
 
                 # agent should ignore its own messages
-                if event["user"] == bot_info.user_id:
+                user = event.get("user")
+                if user == bot_info.user_id or user is None:
                     return
 
                 event["subtype"] = event["channel_type"]
@@ -639,8 +636,7 @@ class EventHarness:
 
             self._app.action(CONFIRM_PROACTIVE_PROMPT)(handle_proactive_prompt)
             self._app.action(REJECT_PROACTIVE_PROMPT)(handle_proactive_prompt)
-            self._app.event("message")(handle_message_events)
-            self._app.message("")(on_message)
+            self._app.event("message")(on_message)
 
             handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
