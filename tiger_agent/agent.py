@@ -109,10 +109,12 @@ class TigerAgent:
         max_attempts: int = 3,
         rate_limit_allowed_requests: int | None = None,
         rate_limit_interval: timedelta = timedelta(minutes=1),
+        disable_streaming: bool = False,
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
         self.extra_context: dict[str, BaseModel] = {}
+        self.disable_streaming = disable_streaming
 
         if jinja_env is not None and prompt_config is not None:
             raise ValueError(
@@ -368,7 +370,6 @@ class TigerAgent:
             deps_type=dict[str, Any],
             system_prompt=system_prompt,
             toolsets=toolsets,
-            end_strategy="exhaustive",
         )
 
         @agent.tool_plain
@@ -399,14 +400,37 @@ class TigerAgent:
                 loading_messages=[message]
                 if message
                 else [
-                    "Fetching data...",
-                    "Thinking...",
-                    "Pondering...",
-                    "Working...",
+                    "Prowling for info...",
+                    "Hunting for the truth...",
+                    "Stalking data...",
+                    "Getting ready to pounce on the answer...",
+                    "Fishing up the right stream...",
+                    "Devouring data...",
+                    "Chuffling...",
+                    "Pacing...",
                 ],
             )
 
         await set_status()
+
+        if self.disable_streaming:
+            async with agent as a:
+                response = await a.run(
+                    user_prompt=user_prompt,
+                    deps=ctx,
+                    usage_limits=UsageLimits(output_tokens_limit=9_000),
+                )
+
+                await post_response(
+                    client=hctx.app.client,
+                    channel=mention.channel,
+                    thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
+                    text=response.output,
+                )
+
+                # clear the status widget
+                await set_status(is_busy=False)
+                return
 
         async for event in agent.run_stream_events(
             user_prompt=user_prompt,
