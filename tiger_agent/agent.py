@@ -95,6 +95,8 @@ class TigerAgent:
         max_attempts: Maximum retry attempts for failed events (defaults to 3)
         rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
         rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
+        disable_streaming: If True, disables PydanticAI and Slack streaming (defaults to False)
+        show_tool_call_arguments: If True, shows tool call arguments in Slack messages (defaults to False)
 
     Raises:
         ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
@@ -302,8 +304,14 @@ class TigerAgent:
         1. Builds context from event data, user info, and bot info
         2. Renders system and user prompts from Jinja2 templates
         3. Creates a Pydantic-AI agent with MCP server toolsets
-        4. Runs the AI model to generate a response
-        5. Returns the generated response text
+        4. Runs the AI model to generate a response with streaming support
+        5. Posts the response directly to Slack with real-time updates
+
+        The method supports two modes:
+        - **Streaming Mode (default)**: Uses Slack's chat_stream API for real-time updates,
+          shows tool calls in progress, and optionally displays tool arguments
+        - **Non-streaming Mode**: Traditional approach that generates complete response
+          before posting to Slack
 
         The context dictionary provides templates with access to:
         - event: The full Event object with processing metadata
@@ -317,7 +325,7 @@ class TigerAgent:
             event: The Slack event to process
 
         Returns:
-            Generated AI response text ready for posting to Slack
+            None - responses are posted directly to Slack during processing
         """
         mention = event.event
         client = hctx.app.client
@@ -494,13 +502,13 @@ class TigerAgent:
         EventHarness system. It provides rich Slack interaction patterns:
 
         Success Flow:
-        1. Add :spinthinking: reaction to show processing started
-        2. Generate AI response using MCP tools
-        3. Post response in thread (or as reply if not threaded)
-        4. Remove :spinthinking: and add :white_check_mark: for success
+        1. Generate AI response using MCP tools with real-time streaming
+        2. Show dynamic status messages during processing
+        3. Stream response updates directly to Slack thread
+        4. Add :white_check_mark: reaction for success
 
         Failure Flow:
-        1. Remove :spinthinking: reaction
+        1. Clear any active status messages
         2. Add :x: reaction to indicate failure
         3. Post user-friendly error message
         4. Re-raise exception for EventHarness retry logic
