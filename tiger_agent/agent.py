@@ -110,11 +110,13 @@ class TigerAgent:
         rate_limit_allowed_requests: int | None = None,
         rate_limit_interval: timedelta = timedelta(minutes=1),
         disable_streaming: bool = False,
+        show_tool_call_arguments: bool = False,
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
         self.extra_context: dict[str, BaseModel] = {}
         self.disable_streaming = disable_streaming
+        self.show_tool_call_arguments = show_tool_call_arguments
 
         if jinja_env is not None and prompt_config is not None:
             raise ValueError(
@@ -445,9 +447,10 @@ class TigerAgent:
 
                 # beginning of a tool call, append tool name to status and to the slack stream
                 if isinstance(event.part, BaseToolCallPart):
-                    tool_call_text = f"Tool call: {event.part.tool_name}"
-                    await set_status(tool_call_text)
-                    await slack_stream.append(markdown_text=f"\n**{tool_call_text}**\n")
+                    await set_status(f"Calling Tool: {event.part.tool_name}")
+                    await slack_stream.append(
+                        markdown_text=f"\nTool Call: `{event.part.tool_name}\n"
+                    )
 
             # when a part changes there can be more text to append
             elif isinstance(event, PartDeltaEvent):
@@ -459,7 +462,10 @@ class TigerAgent:
             elif isinstance(event, PartEndEvent):
                 if isinstance(event.part, TextPart):
                     await slack_stream.append(markdown_text="\n\n")
-                if isinstance(event.part, BaseToolCallPart):
+                if (
+                    isinstance(event.part, BaseToolCallPart)
+                    and self.show_tool_call_arguments
+                ):
                     # pretty print the args
                     args_json = json.dumps(event.part.args_as_dict(), indent=2)
 
