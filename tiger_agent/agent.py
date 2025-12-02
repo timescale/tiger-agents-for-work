@@ -434,6 +434,8 @@ class TigerAgent:
                 await set_status(is_busy=False)
                 return
 
+        # my first attempt was using `run_stream`, however, there is a known 'issue'
+        # that that will return before tool calls are made: https://github.com/pydantic/pydantic-ai/issues/3574
         async for event in agent.run_stream_events(
             user_prompt=user_prompt,
             deps=ctx,
