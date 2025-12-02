@@ -18,6 +18,7 @@ The TigerAgent processes Slack app_mention events by:
 """
 
 import asyncio
+import json
 import logging
 import re
 from collections.abc import Sequence
@@ -29,7 +30,15 @@ import logfire
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, UsageLimits, models
-from pydantic_ai.messages import UserContent
+from pydantic_ai.messages import (
+    BaseToolCallPart,
+    PartDeltaEvent,
+    PartEndEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+    UserContent,
+)
 
 from tiger_agent.slack import (
     BotInfo,
@@ -359,6 +368,7 @@ class TigerAgent:
             deps_type=dict[str, Any],
             system_prompt=system_prompt,
             toolsets=toolsets,
+            end_strategy="exhaustive",
         )
 
         @agent.tool_plain
@@ -381,28 +391,69 @@ class TigerAgent:
             thread_ts=mention.thread_ts or mention.ts,
         )
 
-        await client.assistant_threads_setStatus(
-            channel_id=mention.channel,
-            thread_ts=mention.thread_ts or mention.ts,
-            status="thinking..",
-            loading_messages=["loading"],
-        )
-        async with agent.run_stream(
+        def set_status(message: str | None = None, is_busy: bool = True):
+            return client.assistant_threads_setStatus(
+                channel_id=mention.channel,
+                thread_ts=mention.thread_ts or mention.ts,
+                status="is responding..." if is_busy else "",
+                loading_messages=[message]
+                if message
+                else [
+                    "Fetching data...",
+                    "Thinking...",
+                    "Pondering...",
+                    "Working...",
+                ],
+            )
+
+        await set_status()
+
+        async for event in agent.run_stream_events(
             user_prompt=user_prompt,
             deps=ctx,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
-        ) as streaming_result:
-            async for delta in streaming_result.stream_text(delta=True):
-                await slack_stream.append(markdown_text=delta)
+        ):
+            # the beginning of a 'part'
+            if isinstance(event, PartStartEvent):
+                # a text response start
+                if isinstance(event.part, TextPart) and event.part.content:
+                    await slack_stream.append(markdown_text=event.part.content)
+
+                # beginning of a tool call, append tool name to status and to the slack stream
+                if isinstance(event.part, BaseToolCallPart):
+                    tool_call_text = f"Tool call: {event.part.tool_name}"
+                    await set_status(tool_call_text)
+                    await slack_stream.append(markdown_text=f"\n**{tool_call_text}**\n")
+
+            # when a part changes there can be more text to append
+            elif isinstance(event, PartDeltaEvent):
+                if isinstance(event.delta, TextPartDelta) and event.delta.content_delta:
+                    await slack_stream.append(markdown_text=event.delta.content_delta)
+
+            # at the end of text part, add some new lines
+            # at the end of a tool call part, let's show the arguments in a codeblock
+            elif isinstance(event, PartEndEvent):
+                if isinstance(event.part, TextPart):
+                    await slack_stream.append(markdown_text="\n\n")
+                if isinstance(event.part, BaseToolCallPart):
+                    # pretty print the args
+                    args_json = json.dumps(event.part.args_as_dict(), indent=2)
+
+                    # Escape any existing triple backticks to prevent breaking codeblocks
+                    args_json = args_json.replace("```", "`\\``")
+                    await slack_stream.append(
+                        markdown_text=f"Arguments:\n```\n{args_json}\n```\n"
+                    )
+
+                    await set_status()
+
+                # let's flush the buffer at the end of a part so that conversation is a flowin'
+                await slack_stream._flush_buffer()
 
         await slack_stream.stop()
-        # async with agent as a:
-        #     response = await a.run(
-        #         user_prompt=user_prompt,
-        #         deps=ctx,
-        #         usage_limits=UsageLimits(output_tokens_limit=9_000),
-        #     )
-        #     return response.output
+
+        # clear the status widget
+        await set_status(is_busy=False)
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
@@ -439,15 +490,7 @@ class TigerAgent:
             if await user_ignored(pool=hctx.pool, user_id=mention.user):
                 logfire.info("Ignore user", user_id=mention.user)
                 return
-            await add_reaction(client, mention.channel, mention.ts, "spinthinking")
             await self.generate_response(hctx, event)
-            # await post_response(
-            #     client,
-            #     mention.channel,
-            #     mention.thread_ts if mention.thread_ts else mention.ts,
-            #     response,
-            # )
-            await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
             await add_reaction(client, mention.channel, mention.ts, "white_check_mark")
         except Exception as e:
             logger.exception("response failed", exc_info=e)
