@@ -376,17 +376,13 @@ class TigerAgent:
                 slack_bot_token=hctx.slack_bot_token,
             )
 
-        try:
-            async with agent as a:
-                response = await a.run(
-                    user_prompt=user_prompt,
-                    deps=ctx,
-                    usage_limits=UsageLimits(output_tokens_limit=9_000),
-                )
-                return response.output
-        except (Exception, ExceptionGroup):
-            logfire.exception("Agent initialization or run failed")
-            return "I experienced an error. Please try again later."
+        async with agent as a:
+            response = await a.run(
+                user_prompt=user_prompt,
+                deps=ctx,
+                usage_limits=UsageLimits(output_tokens_limit=9_000),
+            )
+            return response.output
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
