@@ -64,6 +64,7 @@ from tiger_agent.utils import (
     filter_mcp_servers,
     usage_limit_reached,
     user_ignored,
+    wrap_mcp_servers_with_exception_handling,
 )
 
 logger = logging.getLogger(__name__)
@@ -358,6 +359,8 @@ class TigerAgent:
             channel_id=mention.channel,
         )
 
+        wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
+
         ctx = AgentResponseContext(
             event=event,
             mention=mention,
@@ -380,6 +383,9 @@ class TigerAgent:
             deps_type=dict[str, Any],
             system_prompt=system_prompt,
             toolsets=toolsets,
+            model_settings={
+                "extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}
+            },
         )
 
         @agent.tool_plain
