@@ -55,6 +55,7 @@ from tiger_agent.utils import (
     filter_mcp_servers,
     usage_limit_reached,
     user_ignored,
+    wrap_mcp_servers_with_exception_handling,
 )
 
 logger = logging.getLogger(__name__)
@@ -335,6 +336,8 @@ class TigerAgent:
             client=hctx.app.client,
             channel_id=mention.channel,
         )
+
+        wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
 
         ctx = AgentResponseContext(
             event=event,
