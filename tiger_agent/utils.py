@@ -83,7 +83,6 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
             mcp_server = MCPServerStdio(**server_cfg)
         elif server_cfg.get("url"):
             mcp_server = MCPServerStreamableHTTP(**server_cfg)
-
         mcp_servers[name] = McpConfig(
             internal_only=internal_only, mcp_server=mcp_server
         )
