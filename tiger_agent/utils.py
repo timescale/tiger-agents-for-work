@@ -312,7 +312,7 @@ def create_wrapped_process_tool_call(
             logfire.exception(
                 "Exception occurred during tool call", name=name, tool_args=tool_args
             )
-            raise
+            return "Tool call failed, could not retrieve information."
 
     return process_tool_call
 
