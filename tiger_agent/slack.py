@@ -19,9 +19,9 @@ import logfire
 from pydantic import BaseModel
 from pydantic_ai.messages import BinaryContent
 from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncWebClient
+from slack_sdk.web.async_client import AsyncSlackResponse, AsyncWebClient
 
-from tiger_agent.types import BotInfo, SlackFile, UserInfo
+from tiger_agent.types import BotInfo, UserInfo
 
 
 @logfire.instrument("add_reaction", extract_args=["channel", "ts", "emoji"])
@@ -90,7 +90,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
 async def post_response(
     client: AsyncWebClient, channel: str, thread_ts: str, text: str
-) -> None:
+) -> AsyncSlackResponse:
     """Post a response message to Slack with rich formatting.
 
     Posts a message to a specific thread (or creates a new thread if thread_ts
@@ -106,7 +106,7 @@ async def post_response(
     Raises:
         SlackApiError: If message posting fails (not caught, allows caller to handle)
     """
-    await client.chat_postMessage(
+    return await client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
         text=text,

@@ -18,6 +18,7 @@ The TigerAgent processes Slack app_mention events by:
 """
 
 import asyncio
+import json
 import logging
 import re
 from collections.abc import Sequence
@@ -29,7 +30,15 @@ import logfire
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, UsageLimits, models
-from pydantic_ai.messages import UserContent
+from pydantic_ai.messages import (
+    BaseToolCallPart,
+    PartDeltaEvent,
+    PartEndEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+    UserContent,
+)
 
 from tiger_agent.slack import (
     BotInfo,
@@ -87,6 +96,8 @@ class TigerAgent:
         max_attempts: Maximum retry attempts for failed events (defaults to 3)
         rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
         rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
+        disable_streaming: If True, disables PydanticAI and Slack streaming (defaults to False)
+        show_tool_call_arguments: If True, shows tool call arguments in Slack messages (defaults to False)
 
     Raises:
         ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
@@ -101,10 +112,14 @@ class TigerAgent:
         max_attempts: int = 3,
         rate_limit_allowed_requests: int | None = None,
         rate_limit_interval: timedelta = timedelta(minutes=1),
+        disable_streaming: bool = False,
+        show_tool_call_arguments: bool = False,
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
         self.extra_context: dict[str, BaseModel] = {}
+        self.disable_streaming = disable_streaming
+        self.show_tool_call_arguments = show_tool_call_arguments
 
         if jinja_env is not None and prompt_config is not None:
             raise ValueError(
@@ -290,8 +305,14 @@ class TigerAgent:
         1. Builds context from event data, user info, and bot info
         2. Renders system and user prompts from Jinja2 templates
         3. Creates a Pydantic-AI agent with MCP server toolsets
-        4. Runs the AI model to generate a response
-        5. Returns the generated response text
+        4. Runs the AI model to generate a response with streaming support
+        5. Posts the response directly to Slack with real-time updates
+
+        The method supports two modes:
+        - **Streaming Mode (default)**: Uses Slack's chat_stream API for real-time updates,
+          shows tool calls in progress, and optionally displays tool arguments
+        - **Non-streaming Mode**: Traditional approach that generates complete response
+          before posting to Slack
 
         The context dictionary provides templates with access to:
         - event: The full Event object with processing metadata
@@ -305,9 +326,10 @@ class TigerAgent:
             event: The Slack event to process
 
         Returns:
-            Generated AI response text ready for posting to Slack
+            None - responses are posted directly to Slack during processing
         """
         mention = event.event
+        client = hctx.app.client
 
         if await usage_limit_reached(
             pool=hctx.pool,
@@ -379,13 +401,105 @@ class TigerAgent:
                 slack_bot_token=hctx.slack_bot_token,
             )
 
-        async with agent as a:
-            response = await a.run(
-                user_prompt=user_prompt,
-                deps=ctx,
-                usage_limits=UsageLimits(output_tokens_limit=9_000),
+        slack_stream = await client.chat_stream(
+            channel=mention.channel,
+            recipient_user_id=mention.user,
+            recipient_team_id=self.bot_info.team_id,
+            thread_ts=mention.thread_ts or mention.ts,
+        )
+
+        def set_status(message: str | None = None, is_busy: bool = True):
+            return client.assistant_threads_setStatus(
+                channel_id=mention.channel,
+                thread_ts=mention.thread_ts or mention.ts,
+                status="is responding..." if is_busy else "",
+                loading_messages=[message]
+                if message
+                else [
+                    "Prowling for info...",
+                    "Hunting for the truth...",
+                    "Stalking data...",
+                    "Getting ready to pounce on the answer...",
+                    "Fishing up the right stream...",
+                    "Devouring data...",
+                    "Chuffling...",
+                    "Pacing...",
+                ],
             )
-            return response.output
+
+        await set_status()
+
+        if self.disable_streaming:
+            async with agent as a:
+                response = await a.run(
+                    user_prompt=user_prompt,
+                    deps=ctx,
+                    usage_limits=UsageLimits(output_tokens_limit=9_000),
+                )
+
+                await post_response(
+                    client=hctx.app.client,
+                    channel=mention.channel,
+                    thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
+                    text=response.output,
+                )
+
+                # clear the status widget
+                await set_status(is_busy=False)
+                return
+
+        # my first attempt was using `run_stream`, however, there is a known 'issue'
+        # that that will return before tool calls are made: https://github.com/pydantic/pydantic-ai/issues/3574
+        async for event in agent.run_stream_events(
+            user_prompt=user_prompt,
+            deps=ctx,
+            usage_limits=UsageLimits(output_tokens_limit=9_000),
+        ):
+            # the beginning of a 'part'
+            if isinstance(event, PartStartEvent):
+                # a text response start
+                if isinstance(event.part, TextPart) and event.part.content:
+                    await slack_stream.append(markdown_text=event.part.content)
+
+                # beginning of a tool call, append tool name to status and to the slack stream
+                if isinstance(event.part, BaseToolCallPart):
+                    await set_status(f"Calling Tool: {event.part.tool_name}")
+                    await slack_stream.append(
+                        markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n\n"
+                    )
+
+            # when a part changes there can be more text to append
+            elif isinstance(event, PartDeltaEvent):
+                if isinstance(event.delta, TextPartDelta) and event.delta.content_delta:
+                    await slack_stream.append(markdown_text=event.delta.content_delta)
+
+            # at the end of text part, add some new lines
+            # at the end of a tool call part, let's show the arguments in a codeblock
+            elif isinstance(event, PartEndEvent):
+                if isinstance(event.part, TextPart):
+                    await slack_stream.append(markdown_text="\n\n")
+                if (
+                    isinstance(event.part, BaseToolCallPart)
+                    and self.show_tool_call_arguments
+                ):
+                    # pretty print the args
+                    args_json = json.dumps(event.part.args_as_dict(), indent=2)
+
+                    # Escape any existing triple backticks to prevent breaking codeblocks
+                    args_json = args_json.replace("```", "`\\``")
+                    await slack_stream.append(
+                        markdown_text=f"Arguments:\n```\n{args_json}\n```\n"
+                    )
+
+                    await set_status()
+
+                # let's flush the buffer at the end of a part so that conversation is a flowin'
+                await slack_stream._flush_buffer()
+
+        await slack_stream.stop()
+
+        # clear the status widget
+        await set_status(is_busy=False)
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
@@ -394,13 +508,13 @@ class TigerAgent:
         EventHarness system. It provides rich Slack interaction patterns:
 
         Success Flow:
-        1. Add :spinthinking: reaction to show processing started
-        2. Generate AI response using MCP tools
-        3. Post response in thread (or as reply if not threaded)
-        4. Remove :spinthinking: and add :white_check_mark: for success
+        1. Generate AI response using MCP tools with real-time streaming
+        2. Show dynamic status messages during processing
+        3. Stream response updates directly to Slack thread
+        4. Add :white_check_mark: reaction for success
 
         Failure Flow:
-        1. Remove :spinthinking: reaction
+        1. Clear any active status messages
         2. Add :x: reaction to indicate failure
         3. Post user-friendly error message
         4. Re-raise exception for EventHarness retry logic
@@ -422,15 +536,7 @@ class TigerAgent:
             if await user_ignored(pool=hctx.pool, user_id=mention.user):
                 logfire.info("Ignore user", user_id=mention.user)
                 return
-            await add_reaction(client, mention.channel, mention.ts, "spinthinking")
-            response = await self.generate_response(hctx, event)
-            await post_response(
-                client,
-                mention.channel,
-                mention.thread_ts if mention.thread_ts else mention.ts,
-                response,
-            )
-            await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
+            await self.generate_response(hctx, event)
             await add_reaction(client, mention.channel, mention.ts, "white_check_mark")
         except Exception as e:
             logger.exception("response failed", exc_info=e)
