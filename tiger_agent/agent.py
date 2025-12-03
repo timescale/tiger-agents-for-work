@@ -386,7 +386,7 @@ class TigerAgent:
                 return response.output
         except (Exception, ExceptionGroup):
             logfire.exception("Agent initialization or run failed")
-            return "I'm having trouble connecting to my AI services right now. Please try again later."
+            return "I experienced an error. Please try again later."
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
