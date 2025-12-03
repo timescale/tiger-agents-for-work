@@ -459,7 +459,7 @@ class TigerAgent:
                 if isinstance(event.part, BaseToolCallPart):
                     await set_status(f"Calling Tool: {event.part.tool_name}")
                     await slack_stream.append(
-                        markdown_text=f"\nTool Call: `{event.part.tool_name}\n"
+                        markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n"
                     )
 
             # when a part changes there can be more text to append
