@@ -409,12 +409,15 @@ class TigerAgent:
         )
 
         def set_status(message: str | None = None, is_busy: bool = True):
+            truncated_message = (
+                message[:47] + "..." if message and len(message) > 50 else message
+            )
             return client.assistant_threads_setStatus(
                 channel_id=mention.channel,
                 thread_ts=mention.thread_ts or mention.ts,
                 status="is responding..." if is_busy else "",
-                loading_messages=[message]
-                if message
+                loading_messages=[truncated_message]
+                if truncated_message
                 else [
                     "Prowling for info...",
                     "Hunting for the truth...",
