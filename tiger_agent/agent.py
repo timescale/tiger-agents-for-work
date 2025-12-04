@@ -409,23 +409,29 @@ class TigerAgent:
         )
 
         def set_status(message: str | None = None, is_busy: bool = True):
-            return client.assistant_threads_setStatus(
-                channel_id=mention.channel,
-                thread_ts=mention.thread_ts or mention.ts,
-                status="is responding..." if is_busy else "",
-                loading_messages=[message]
-                if message
-                else [
-                    "Prowling for info...",
-                    "Hunting for the truth...",
-                    "Stalking data...",
-                    "Getting ready to pounce on the answer...",
-                    "Fishing up the right stream...",
-                    "Devouring data...",
-                    "Chuffling...",
-                    "Pacing...",
-                ],
+            truncated_message = (
+                message[:47] + "..." if message and len(message) > 50 else message
             )
+            try:
+                return client.assistant_threads_setStatus(
+                    channel_id=mention.channel,
+                    thread_ts=mention.thread_ts or mention.ts,
+                    status="is responding..." if is_busy else "",
+                    loading_messages=[truncated_message]
+                    if truncated_message
+                    else [
+                        "Prowling for info...",
+                        "Hunting for the truth...",
+                        "Stalking data...",
+                        "Getting ready to pounce on the answer...",
+                        "Fishing up the right stream...",
+                        "Devouring data...",
+                        "Chuffling...",
+                        "Pacing...",
+                    ],
+                )
+            except Exception:
+                logfire.exception("Failed to set status of assistant", message=message)
 
         await set_status()
 
