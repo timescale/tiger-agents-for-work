@@ -406,11 +406,17 @@ class TigerAgent:
                 slack_bot_token=hctx.slack_bot_token,
             )
 
-        await set_status(
-            client=client,
-            channel_id=mention.channel,
-            thread_ts=mention.thread_ts or mention.ts,
-        )
+        # just a closure to minimize parameters needed in future calls
+        async def status(message: str | None = None, is_busy: bool = True):
+            await set_status(
+                client=client,
+                channel_id=mention.channel,
+                thread_ts=mention.thread_ts or mention.ts,
+                message=message,
+                is_busy=is_busy,
+            )
+
+        await status()
 
         if self.disable_streaming:
             async with agent as a:
@@ -438,6 +444,7 @@ class TigerAgent:
 
         slack_stream: AsyncChatStream | None = None
 
+        # just a closure to minimize parameters needed in future calls
         async def append(
             markdown_text: str, stream: AsyncChatStream | None
         ) -> AsyncChatStream:
@@ -466,14 +473,9 @@ class TigerAgent:
                         markdown_text=event.part.content, stream=slack_stream
                     )
 
-                    await slack_stream.stop()
-
                 # beginning of a tool call, append tool name to status and to the slack stream
                 if isinstance(event.part, BaseToolCallPart):
-                    await set_status(
-                        client=client,
-                        channel_id=mention.channel,
-                        thread_ts=mention.thread_ts or mention.ts,
+                    await status(
                         message=f"Calling Tool: {event.part.tool_name}",
                     )
                     slack_stream = await append(
@@ -497,25 +499,19 @@ class TigerAgent:
                         markdown_text="\n\n",
                         stream=slack_stream,
                     )
-                if (
-                    isinstance(event.part, BaseToolCallPart)
-                    and self.show_tool_call_arguments
-                ):
-                    # pretty print the args
-                    args_json = json.dumps(event.part.args_as_dict(), indent=2)
+                if isinstance(event.part, BaseToolCallPart):
+                    if self.show_tool_call_arguments:
+                        # pretty print the args
+                        args_json = json.dumps(event.part.args_as_dict(), indent=2)
 
-                    # Escape any existing triple backticks to prevent breaking codeblocks
-                    args_json = args_json.replace("```", "`\\``")
-                    slack_stream = await append(
-                        markdown_text=f"Arguments:\n```\n{args_json}\n```\n",
-                        stream=slack_stream,
-                    )
+                        # Escape any existing triple backticks to prevent breaking codeblocks
+                        args_json = args_json.replace("```", "`\\``")
+                        slack_stream = await append(
+                            markdown_text=f"Arguments:\n```\n{args_json}\n```\n",
+                            stream=slack_stream,
+                        )
 
-                    await set_status(
-                        client=client,
-                        channel_id=mention.channel,
-                        thread_ts=mention.thread_ts or mention.ts,
-                    )
+                    await status()
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
                 await slack_stream._flush_buffer()
@@ -523,12 +519,7 @@ class TigerAgent:
         await slack_stream.stop()
 
         # clear the status widget
-        await set_status(
-            client=client,
-            channel_id=mention.channel,
-            thread_ts=mention.thread_ts or mention.ts,
-            is_busy=False,
-        )
+        await status(is_busy=False)
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
