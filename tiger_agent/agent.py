@@ -39,6 +39,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
     UserContent,
 )
+from slack.errors import SlackApiError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
 )
@@ -446,7 +447,7 @@ class TigerAgent:
 
         # just a closure to minimize parameters needed in future calls
         async def append(
-            markdown_text: str, stream: AsyncChatStream | None
+            markdown_text: str, stream: AsyncChatStream | None = None
         ) -> AsyncChatStream:
             return await append_message_to_stream(
                 client=client,
@@ -482,6 +483,7 @@ class TigerAgent:
                         markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n\n",
                         stream=slack_stream,
                     )
+                    await slack_stream.stop()
 
             # when a part changes there can be more text to append
             elif isinstance(event, PartDeltaEvent):
@@ -514,7 +516,12 @@ class TigerAgent:
                     await status()
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
-                await slack_stream._flush_buffer()
+                try:
+                    await slack_stream._flush_buffer()
+                except SlackApiError as e:
+                    # Stream might already be stopped (e.g., from early stop() call), log but continue
+                    logfire.exception("Failed to flush stream buffer", error=str(e))
+                    await append(markdown_text=slack_stream._buffer)
 
         await slack_stream.stop()
 

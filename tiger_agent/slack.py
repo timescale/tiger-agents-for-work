@@ -18,7 +18,7 @@ import httpx
 import logfire
 from pydantic import BaseModel
 from pydantic_ai.messages import BinaryContent
-from slack_sdk.errors import SlackApiError
+from slack_sdk.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
     AsyncSlackResponse,
@@ -366,9 +366,9 @@ async def append_message_to_stream(
     try:
         await stream_to_use.append(markdown_text=markdown_text)
         return stream_to_use
-    except Exception as slack_error:
+    except (SlackRequestError, SlackApiError) as slack_error:
         logfire.exception(
-            "Exception occurred while calling append_message_to_stream",
+            "Slack Error occurred while calling append_message_to_stream",
             markdown_text=markdown_text,
         )
         if not should_retry:
@@ -386,3 +386,9 @@ async def append_message_to_stream(
             markdown_text=markdown_text,
             should_retry=False,
         )
+    except Exception as error:
+        logfire.exception(
+            "Unknown exception occurred while calling append_message_to_stream",
+            markdown_text=markdown_text,
+        )
+        raise error
