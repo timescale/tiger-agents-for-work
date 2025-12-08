@@ -280,6 +280,22 @@ async def set_status(
     message: str | None = None,
     is_busy: bool = True,
 ) -> AsyncSlackResponse:
+    """Set the status indicator for an assistant thread.
+
+    Args:
+        client: Slack web client for API calls
+        channel_id: ID of the Slack channel containing the thread
+        thread_ts: Timestamp of the thread to update status for
+        message: Custom status message to display (truncated to 47 chars if longer)
+        is_busy: Whether to show busy status with loading messages
+
+    Returns:
+        Response from Slack API
+
+    Note:
+        If message is None and is_busy=True, displays random loading messages.
+        Exceptions are logged but not re-raised.
+    """
     truncated_message = (
         message[:47] + "..." if message and len(message) > 50 else message
     )
@@ -315,6 +331,27 @@ async def append_message_to_stream(
     should_retry: bool = True,
     stream: AsyncChatStream | None = None,
 ) -> AsyncChatStream:
+    """Append markdown text to a Slack chat stream.
+
+    Args:
+        client: Slack web client for API calls
+        channel_id: ID of the Slack channel
+        recipient_user_id: User ID of the message recipient
+        recipient_team_id: Team ID of the recipient
+        thread_ts: Timestamp of the thread to append to
+        markdown_text: Markdown-formatted text to append
+        should_retry: Whether to retry once on failure
+        stream: Existing stream to use, or None to create new one
+
+    Returns:
+        The chat stream that was used/created
+
+    Raises:
+        Exception: If append fails and should_retry=False, or retry also fails
+
+    Note:
+        Automatically retries once on failure by creating a new stream.
+    """
     stream_to_use = (
         stream
         if stream
