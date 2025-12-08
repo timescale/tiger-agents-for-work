@@ -53,7 +53,9 @@ from tiger_agent.slack import (
     fetch_user_info,
     post_response,
     remove_reaction,
-    set_status,
+)
+from tiger_agent.slack import (
+    set_status as set_status_ext,
 )
 from tiger_agent.types import (
     AgentResponseContext,
@@ -408,8 +410,8 @@ class TigerAgent:
             )
 
         # just a closure to minimize parameters needed in future calls
-        async def status(message: str | None = None, is_busy: bool = True):
-            await set_status(
+        async def set_status(message: str | None = None, is_busy: bool = True):
+            await set_status_ext(
                 client=client,
                 channel_id=mention.channel,
                 thread_ts=mention.thread_ts or mention.ts,
@@ -417,7 +419,7 @@ class TigerAgent:
                 is_busy=is_busy,
             )
 
-        await status()
+        await set_status()
 
         if self.disable_streaming:
             async with agent as a:
@@ -476,7 +478,7 @@ class TigerAgent:
 
                 # beginning of a tool call, append tool name to status and to the slack stream
                 if isinstance(event.part, BaseToolCallPart):
-                    await status(
+                    await set_status(
                         message=f"Calling Tool: {event.part.tool_name}",
                     )
                     slack_stream = await append(
@@ -512,7 +514,7 @@ class TigerAgent:
                             stream=slack_stream,
                         )
 
-                    await status()
+                    await set_status()
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
                 try:
@@ -529,7 +531,7 @@ class TigerAgent:
         await slack_stream.stop()
 
         # clear the status widget
-        await status(is_busy=False)
+        await set_status(is_busy=False)
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.
