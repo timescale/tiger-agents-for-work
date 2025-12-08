@@ -39,7 +39,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
     UserContent,
 )
-from slack.errors import SlackApiError
+from slack.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
 )
@@ -517,7 +517,7 @@ class TigerAgent:
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
                 try:
                     await slack_stream._flush_buffer()
-                except SlackApiError as e:
+                except (SlackRequestError, SlackApiError) as e:
                     # Stream might already be stopped (e.g., from early stop() call), log but continue
                     logfire.exception("Failed to flush stream buffer", error=str(e))
 
