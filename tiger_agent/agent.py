@@ -520,7 +520,11 @@ class TigerAgent:
                 except SlackApiError as e:
                     # Stream might already be stopped (e.g., from early stop() call), log but continue
                     logfire.exception("Failed to flush stream buffer", error=str(e))
-                    await append(markdown_text=slack_stream._buffer)
+
+                    # if there is more in the buffer, let's create a new
+                    # stream and send what is in the buffer
+                    if slack_stream._buffer:
+                        await append(markdown_text=slack_stream._buffer)
 
         await slack_stream.stop()
 
