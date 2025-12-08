@@ -48,6 +48,7 @@ from tiger_agent.slack import (
     fetch_user_info,
     post_response,
     remove_reaction,
+    set_status,
 )
 from tiger_agent.types import (
     AgentResponseContext,
@@ -401,39 +402,11 @@ class TigerAgent:
                 slack_bot_token=hctx.slack_bot_token,
             )
 
-        slack_stream = await client.chat_stream(
-            channel=mention.channel,
-            recipient_user_id=mention.user,
-            recipient_team_id=self.bot_info.team_id,
+        await set_status(
+            client=client,
+            channel_id=mention.channel,
             thread_ts=mention.thread_ts or mention.ts,
         )
-
-        def set_status(message: str | None = None, is_busy: bool = True):
-            truncated_message = (
-                message[:47] + "..." if message and len(message) > 50 else message
-            )
-            try:
-                return client.assistant_threads_setStatus(
-                    channel_id=mention.channel,
-                    thread_ts=mention.thread_ts or mention.ts,
-                    status="is responding..." if is_busy else "",
-                    loading_messages=[truncated_message]
-                    if truncated_message
-                    else [
-                        "Prowling for info...",
-                        "Hunting for the truth...",
-                        "Stalking data...",
-                        "Getting ready to pounce on the answer...",
-                        "Fishing up the right stream...",
-                        "Devouring data...",
-                        "Chuffling...",
-                        "Pacing...",
-                    ],
-                )
-            except Exception:
-                logfire.exception("Failed to set status of assistant", message=message)
-
-        await set_status()
 
         if self.disable_streaming:
             async with agent as a:
@@ -451,8 +424,20 @@ class TigerAgent:
                 )
 
                 # clear the status widget
-                await set_status(is_busy=False)
+                await set_status(
+                    client=client,
+                    channel_id=mention.channel,
+                    thread_ts=mention.thread_ts or mention.ts,
+                    is_busy=False,
+                )
                 return
+
+        slack_stream = await client.chat_stream(
+            channel=mention.channel,
+            recipient_user_id=mention.user,
+            recipient_team_id=self.bot_info.team_id,
+            thread_ts=mention.thread_ts or mention.ts,
+        )
 
         # my first attempt was using `run_stream`, however, there is a known 'issue'
         # that that will return before tool calls are made: https://github.com/pydantic/pydantic-ai/issues/3574
@@ -469,7 +454,12 @@ class TigerAgent:
 
                 # beginning of a tool call, append tool name to status and to the slack stream
                 if isinstance(event.part, BaseToolCallPart):
-                    await set_status(f"Calling Tool: {event.part.tool_name}")
+                    await set_status(
+                        client=client,
+                        channel_id=mention.channel,
+                        thread_ts=mention.thread_ts or mention.ts,
+                        message=f"Calling Tool: {event.part.tool_name}",
+                    )
                     await slack_stream.append(
                         markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n\n"
                     )
@@ -497,7 +487,11 @@ class TigerAgent:
                         markdown_text=f"Arguments:\n```\n{args_json}\n```\n"
                     )
 
-                    await set_status()
+                    await set_status(
+                        client=client,
+                        channel_id=mention.channel,
+                        thread_ts=mention.thread_ts or mention.ts,
+                    )
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
                 await slack_stream._flush_buffer()
@@ -505,7 +499,12 @@ class TigerAgent:
         await slack_stream.stop()
 
         # clear the status widget
-        await set_status(is_busy=False)
+        await set_status(
+            client=client,
+            channel_id=mention.channel,
+            thread_ts=mention.thread_ts or mention.ts,
+            is_busy=False,
+        )
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.

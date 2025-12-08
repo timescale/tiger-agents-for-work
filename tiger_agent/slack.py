@@ -267,3 +267,35 @@ async def download_private_file(
             return BinaryContent(data=resp.content, media_type=media_type)
     except Exception as e:
         return f"Could not fetch file: {str(e)}"
+
+
+async def set_status(
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
+    message: str | None = None,
+    is_busy: bool = True,
+) -> AsyncSlackResponse:
+    truncated_message = (
+        message[:47] + "..." if message and len(message) > 50 else message
+    )
+    try:
+        return await client.assistant_threads_setStatus(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            status="is responding..." if is_busy else "",
+            loading_messages=[truncated_message]
+            if truncated_message
+            else [
+                "Prowling for info...",
+                "Hunting for the truth...",
+                "Stalking data...",
+                "Getting ready to pounce on the answer...",
+                "Fishing up the right stream...",
+                "Devouring data...",
+                "Chuffling...",
+                "Pacing...",
+            ],
+        )
+    except Exception:
+        logfire.exception("Failed to set status of assistant", message=message)
