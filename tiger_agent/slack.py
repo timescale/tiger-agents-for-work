@@ -19,7 +19,11 @@ import logfire
 from pydantic import BaseModel
 from pydantic_ai.messages import BinaryContent
 from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncSlackResponse, AsyncWebClient
+from slack_sdk.web.async_client import (
+    AsyncChatStream,
+    AsyncSlackResponse,
+    AsyncWebClient,
+)
 
 from tiger_agent.types import BotInfo, UserInfo
 
@@ -299,3 +303,49 @@ async def set_status(
         )
     except Exception:
         logfire.exception("Failed to set status of assistant", message=message)
+
+
+async def append_message_to_stream(
+    client: AsyncWebClient,
+    channel_id: str,
+    recipient_user_id: str,
+    recipient_team_id: str,
+    thread_ts: str,
+    markdown_text: str,
+    should_retry: bool = True,
+    stream: AsyncChatStream | None = None,
+) -> AsyncChatStream:
+    stream_to_use = (
+        stream
+        if stream
+        else await client.chat_stream(
+            channel=channel_id,
+            recipient_user_id=recipient_user_id,
+            recipient_team_id=recipient_team_id,
+            thread_ts=thread_ts,
+        )
+    )
+
+    try:
+        await stream_to_use.append(markdown_text=markdown_text)
+        return stream_to_use
+    except Exception as slack_error:
+        logfire.exception(
+            "Exception occurred while calling append_message_to_stream",
+            markdown_text=markdown_text,
+        )
+        if not should_retry:
+            raise slack_error
+
+        # if we get this error, let's retry one time
+        # retrying is going to create a new stream with the same
+        # params
+        return await append_message_to_stream(
+            channel_id=channel_id,
+            client=client,
+            recipient_user_id=recipient_user_id,
+            recipient_team_id=recipient_team_id,
+            thread_ts=thread_ts,
+            markdown_text=markdown_text,
+            should_retry=False,
+        )
