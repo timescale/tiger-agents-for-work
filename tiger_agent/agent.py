@@ -483,7 +483,6 @@ class TigerAgent:
                         markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n\n",
                         stream=slack_stream,
                     )
-                    await slack_stream.stop()
 
             # when a part changes there can be more text to append
             elif isinstance(event, PartDeltaEvent):
