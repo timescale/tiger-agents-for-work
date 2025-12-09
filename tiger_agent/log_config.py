@@ -60,7 +60,7 @@ def setup_logging(service_name: str = "tiger-agent") -> None:
         logfire.instrument_psycopg()  # Database query tracing
         logfire.instrument_pydantic_ai()  # AI model interaction tracing
         logfire.instrument_mcp()  # MCP server communication tracing
-        logfire.instrument_httpx()  # HTTP client request tracing
+        logfire.instrument_httpx(capture_headers=True)  # HTTP client request tracing
         logfire.instrument_system_metrics(
             {
                 "process.cpu.time": ["user", "system"],

@@ -39,6 +39,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
     UserContent,
 )
+from pydantic_ai.models.anthropic import AnthropicModel
 from slack.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
@@ -393,7 +394,10 @@ class TigerAgent:
             toolsets=toolsets,
             model_settings={
                 "extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}
-            },
+            }
+            if (isinstance(self.model, str) and self.model.startswith("anthropic:"))
+            or isinstance(self.model, AnthropicModel)
+            else None,
         )
 
         @agent.tool_plain
