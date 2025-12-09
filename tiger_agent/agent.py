@@ -393,7 +393,9 @@ class TigerAgent:
             toolsets=toolsets,
             model_settings={
                 "extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}
-            },
+            }
+            if isinstance(self.model, str) and self.model.startswith("anthropic:")
+            else None,
         )
 
         @agent.tool_plain
