@@ -18,8 +18,12 @@ import httpx
 import logfire
 from pydantic import BaseModel
 from pydantic_ai.messages import BinaryContent
-from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncSlackResponse, AsyncWebClient
+from slack_sdk.errors import SlackApiError, SlackRequestError
+from slack_sdk.web.async_client import (
+    AsyncChatStream,
+    AsyncSlackResponse,
+    AsyncWebClient,
+)
 
 from tiger_agent.types import BotInfo, UserInfo
 
@@ -267,3 +271,124 @@ async def download_private_file(
             return BinaryContent(data=resp.content, media_type=media_type)
     except Exception as e:
         return f"Could not fetch file: {str(e)}"
+
+
+async def set_status(
+    client: AsyncWebClient,
+    channel_id: str,
+    thread_ts: str,
+    message: str | None = None,
+    is_busy: bool = True,
+) -> AsyncSlackResponse:
+    """Set the status indicator for an assistant thread.
+
+    Args:
+        client: Slack web client for API calls
+        channel_id: ID of the Slack channel containing the thread
+        thread_ts: Timestamp of the thread to update status for
+        message: Custom status message to display (truncated to 47 chars if longer)
+        is_busy: Whether to show busy status with loading messages
+
+    Returns:
+        Response from Slack API
+
+    Note:
+        If message is None and is_busy=True, displays random loading messages.
+        Exceptions are logged but not re-raised.
+    """
+    truncated_message = (
+        message[:47] + "..." if message and len(message) > 50 else message
+    )
+    try:
+        return await client.assistant_threads_setStatus(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            status="is responding..." if is_busy else "",
+            loading_messages=[truncated_message]
+            if truncated_message
+            else [
+                "Prowling for info...",
+                "Hunting for the truth...",
+                "Stalking data...",
+                "Getting ready to pounce on the answer...",
+                "Fishing up the right stream...",
+                "Devouring data...",
+                "Chuffling...",
+                "Pacing...",
+            ],
+        )
+    except Exception:
+        logfire.exception("Failed to set status of assistant", message=message)
+
+
+async def append_message_to_stream(
+    client: AsyncWebClient,
+    channel_id: str,
+    recipient_user_id: str,
+    recipient_team_id: str,
+    thread_ts: str,
+    markdown_text: str,
+    should_retry: bool = True,
+    stream: AsyncChatStream | None = None,
+) -> AsyncChatStream:
+    """Append markdown text to a Slack chat stream.
+
+    Args:
+        client: Slack web client for API calls
+        channel_id: ID of the Slack channel
+        recipient_user_id: User ID of the message recipient
+        recipient_team_id: Team ID of the recipient
+        thread_ts: Timestamp of the thread to append to
+        markdown_text: Markdown-formatted text to append
+        should_retry: Whether to retry once on failure
+        stream: Existing stream to use, or None to create new one
+
+    Returns:
+        The chat stream that was used/created
+
+    Raises:
+        Exception: If append fails and should_retry=False, or retry also fails
+
+    Note:
+        Automatically retries once on failure by creating a new stream.
+    """
+    stream_to_use = (
+        stream
+        if stream
+        else await client.chat_stream(
+            channel=channel_id,
+            recipient_user_id=recipient_user_id,
+            recipient_team_id=recipient_team_id,
+            thread_ts=thread_ts,
+        )
+    )
+
+    try:
+        await stream_to_use.append(markdown_text=markdown_text)
+        return stream_to_use
+    except (SlackRequestError, SlackApiError) as slack_error:
+        logfire.exception(
+            "Slack Error occurred while calling append_message_to_stream",
+            markdown_text=markdown_text,
+        )
+        if not should_retry:
+            raise slack_error
+
+        # if we get this error, let's retry one time
+        # retrying is going to create a new stream with the same
+        # params
+        return await append_message_to_stream(
+            channel_id=channel_id,
+            client=client,
+            recipient_user_id=recipient_user_id,
+            recipient_team_id=recipient_team_id,
+            thread_ts=thread_ts,
+            markdown_text=markdown_text,
+            should_retry=False,
+        )
+    except Exception as error:
+        logfire.exception(
+            "Unknown exception occurred while calling append_message_to_stream",
+            markdown_text=markdown_text,
+        )
+        raise error

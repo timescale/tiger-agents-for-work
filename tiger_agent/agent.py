@@ -39,15 +39,23 @@ from pydantic_ai.messages import (
     TextPartDelta,
     UserContent,
 )
+from slack.errors import SlackApiError, SlackRequestError
+from slack_sdk.web.async_client import (
+    AsyncChatStream,
+)
 
 from tiger_agent.slack import (
     BotInfo,
     add_reaction,
+    append_message_to_stream,
     download_private_file,
     fetch_bot_info,
     fetch_user_info,
     post_response,
     remove_reaction,
+)
+from tiger_agent.slack import (
+    set_status as set_status_ext,
 )
 from tiger_agent.types import (
     AgentResponseContext,
@@ -401,37 +409,15 @@ class TigerAgent:
                 slack_bot_token=hctx.slack_bot_token,
             )
 
-        slack_stream = await client.chat_stream(
-            channel=mention.channel,
-            recipient_user_id=mention.user,
-            recipient_team_id=self.bot_info.team_id,
-            thread_ts=mention.thread_ts or mention.ts,
-        )
-
-        def set_status(message: str | None = None, is_busy: bool = True):
-            truncated_message = (
-                message[:47] + "..." if message and len(message) > 50 else message
+        # just a closure to minimize parameters needed in future calls
+        async def set_status(message: str | None = None, is_busy: bool = True):
+            await set_status_ext(
+                client=client,
+                channel_id=mention.channel,
+                thread_ts=mention.thread_ts or mention.ts,
+                message=message,
+                is_busy=is_busy,
             )
-            try:
-                return client.assistant_threads_setStatus(
-                    channel_id=mention.channel,
-                    thread_ts=mention.thread_ts or mention.ts,
-                    status="is responding..." if is_busy else "",
-                    loading_messages=[truncated_message]
-                    if truncated_message
-                    else [
-                        "Prowling for info...",
-                        "Hunting for the truth...",
-                        "Stalking data...",
-                        "Getting ready to pounce on the answer...",
-                        "Fishing up the right stream...",
-                        "Devouring data...",
-                        "Chuffling...",
-                        "Pacing...",
-                    ],
-                )
-            except Exception:
-                logfire.exception("Failed to set status of assistant", message=message)
 
         await set_status()
 
@@ -451,8 +437,29 @@ class TigerAgent:
                 )
 
                 # clear the status widget
-                await set_status(is_busy=False)
+                await set_status(
+                    client=client,
+                    channel_id=mention.channel,
+                    thread_ts=mention.thread_ts or mention.ts,
+                    is_busy=False,
+                )
                 return
+
+        slack_stream: AsyncChatStream | None = None
+
+        # just a closure to minimize parameters needed in future calls
+        async def append(
+            markdown_text: str, stream: AsyncChatStream | None = None
+        ) -> AsyncChatStream:
+            return await append_message_to_stream(
+                client=client,
+                channel_id=mention.channel,
+                recipient_user_id=mention.user,
+                recipient_team_id=self.bot_info.team_id,
+                thread_ts=mention.thread_ts or mention.ts,
+                markdown_text=markdown_text,
+                stream=stream,
+            )
 
         # my first attempt was using `run_stream`, however, there is a known 'issue'
         # that that will return before tool calls are made: https://github.com/pydantic/pydantic-ai/issues/3574
@@ -465,42 +472,61 @@ class TigerAgent:
             if isinstance(event, PartStartEvent):
                 # a text response start
                 if isinstance(event.part, TextPart) and event.part.content:
-                    await slack_stream.append(markdown_text=event.part.content)
+                    slack_stream = await append(
+                        markdown_text=event.part.content, stream=slack_stream
+                    )
 
                 # beginning of a tool call, append tool name to status and to the slack stream
                 if isinstance(event.part, BaseToolCallPart):
-                    await set_status(f"Calling Tool: {event.part.tool_name}")
-                    await slack_stream.append(
-                        markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n\n"
+                    await set_status(
+                        message=f"Calling Tool: {event.part.tool_name}",
+                    )
+                    slack_stream = await append(
+                        markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n\n",
+                        stream=slack_stream,
                     )
 
             # when a part changes there can be more text to append
             elif isinstance(event, PartDeltaEvent):
                 if isinstance(event.delta, TextPartDelta) and event.delta.content_delta:
-                    await slack_stream.append(markdown_text=event.delta.content_delta)
+                    slack_stream = await append(
+                        markdown_text=event.delta.content_delta,
+                        stream=slack_stream,
+                    )
 
             # at the end of text part, add some new lines
             # at the end of a tool call part, let's show the arguments in a codeblock
             elif isinstance(event, PartEndEvent):
                 if isinstance(event.part, TextPart):
-                    await slack_stream.append(markdown_text="\n\n")
-                if (
-                    isinstance(event.part, BaseToolCallPart)
-                    and self.show_tool_call_arguments
-                ):
-                    # pretty print the args
-                    args_json = json.dumps(event.part.args_as_dict(), indent=2)
-
-                    # Escape any existing triple backticks to prevent breaking codeblocks
-                    args_json = args_json.replace("```", "`\\``")
-                    await slack_stream.append(
-                        markdown_text=f"Arguments:\n```\n{args_json}\n```\n"
+                    slack_stream = await append(
+                        markdown_text="\n\n",
+                        stream=slack_stream,
                     )
+                if isinstance(event.part, BaseToolCallPart):
+                    if self.show_tool_call_arguments:
+                        # pretty print the args
+                        args_json = json.dumps(event.part.args_as_dict(), indent=2)
+
+                        # Escape any existing triple backticks to prevent breaking codeblocks
+                        args_json = args_json.replace("```", "`\\``")
+                        slack_stream = await append(
+                            markdown_text=f"Arguments:\n```\n{args_json}\n```\n",
+                            stream=slack_stream,
+                        )
 
                     await set_status()
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
-                await slack_stream._flush_buffer()
+                try:
+                    await slack_stream._flush_buffer()
+                except (SlackRequestError, SlackApiError) as e:
+                    # Stream might already be stopped (e.g., from early stop() call), log but continue
+                    logfire.exception("Failed to flush stream buffer", error=str(e))
+
+                    # if there is more in the buffer, let's create a new
+                    # stream and send what is in the buffer
+                    if slack_stream._buffer:
+                        await append(markdown_text=slack_stream._buffer)
 
         await slack_stream.stop()
 
