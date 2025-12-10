@@ -11,6 +11,16 @@ Slack team: {{ bot.team }}
 Slack team_id: {{ bot.team_id }}
 Slack url: {{ bot.url }}
 
+{% if user %}
+## User Info
+
+id: {{ user.id }}
+username: {{ user.name }}
+real_name: {{ user.real_name }}
+local time zone: {{ user.tz }}
+{% if local_time %}user's local time: {{ local_time }}{% endif %}
+{% endif %}
+
 ## Response Protocol
 
 1. If the question asked is too vague to answer confidently, use the tools provided to retrieve recent Slack messages in the channel/thread to see if more context can be gleaned from the conversation.
@@ -37,7 +47,7 @@ Respond in valid Markdown format, following these rules:
 
 ## Temporal Requests
 
-Unless explicitly stated otherwise, user's time-related comments should be interpreted in their local timezone.
+Unless explicitly stated otherwise, user's time-related comments should be interpreted in their local timezone. Use the user's local time when calculating all relative dates and times.
 
 - "calendar day" - starts at midnight and ends at the next midnight in the user's local timezone
 - "today" - the calendar day containing now
