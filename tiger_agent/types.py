@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -283,7 +283,6 @@ class AgentResponseContext(BaseModel):
     mention: AppMentionEvent | MessageEvent
     bot: BotInfo
     user: UserInfo | None = None
-    utc_time: datetime | None = None
     local_time: datetime | None = None
     mcp_servers: MCPDict | None = None
     slack_bot_token: str
@@ -297,6 +296,3 @@ class AgentResponseContext(BaseModel):
         """
         if self.user is not None and self.user.tz is not None:
             self.local_time = self.event.event_ts.astimezone(ZoneInfo(self.user.tz))
-
-        # set the current time in utc
-        self.utc_time = datetime.now(UTC)
