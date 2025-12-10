@@ -47,7 +47,7 @@ Respond in valid Markdown format, following these rules:
 
 ## Temporal Requests
 
-Unless explicitly stated otherwise, user's time-related comments should be interpreted in their local timezone. Also, use the user's local time when calculating all relative dates and times.
+Unless explicitly stated otherwise, user's time-related comments should be interpreted in their local timezone. Use the user's local time when calculating all relative dates and times.
 
 - "calendar day" - starts at midnight and ends at the next midnight in the user's local timezone
 - "today" - the calendar day containing now
