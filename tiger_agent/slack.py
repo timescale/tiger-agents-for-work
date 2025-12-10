@@ -25,7 +25,7 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
-from tiger_agent.types import BotInfo, UserInfo
+from tiger_agent.types import BotInfo, ThreadMessage, UserInfo
 
 
 @logfire.instrument("add_reaction", extract_args=["channel", "ts", "emoji"])
@@ -89,6 +89,86 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
     except Exception:
         logfire.exception("Failed to fetch user info", user_id=user_id)
         return None
+
+
+@logfire.instrument(
+    "fetch_thread_replies", extract_args=["channel", "thread_ts", "limit"]
+)
+async def fetch_thread_replies(
+    client: AsyncWebClient,
+    channel: str,
+    thread_ts: str,
+    bot_user_id: str,
+    current_message_ts: str,
+    limit: int = 10,
+) -> list[ThreadMessage]:
+    """Fetch recent messages from a Slack thread for conversation history.
+
+    Retrieves the most recent messages from a thread to provide context for
+    the AI agent. Messages are returned in chronological order (oldest first)
+    to preserve conversation flow.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel: Slack channel ID where the thread is located
+        thread_ts: Thread timestamp identifier (the parent message ts)
+        bot_user_id: The bot's user ID to identify bot messages
+        current_message_ts: The ts of the current message being processed (to exclude)
+        limit: Maximum number of messages to fetch (default 10)
+
+    Returns:
+        List of ThreadMessage objects in chronological order, excluding the
+        current message being processed. Returns empty list on failure.
+    """
+    try:
+        # Fetch thread replies - Slack returns messages oldest-first by default
+        # We request limit+1 because we'll exclude the current message
+        resp = await client.conversations_replies(
+            channel=channel,
+            ts=thread_ts,
+            limit=limit + 1,
+            inclusive=True,
+        )
+        assert isinstance(resp.data, dict)
+        assert resp.data["ok"]
+
+        messages = resp.data.get("messages", [])
+        thread_messages: list[ThreadMessage] = []
+
+        for msg in messages:
+            # Skip the current message being processed
+            if msg.get("ts") == current_message_ts:
+                continue
+
+            # Skip messages without text content
+            text = msg.get("text")
+            if not text:
+                continue
+
+            user = msg.get("user", "")
+            is_bot = user == bot_user_id or msg.get("bot_id") is not None
+
+            thread_messages.append(
+                ThreadMessage(
+                    user=user,
+                    text=text,
+                    ts=msg.get("ts", ""),
+                    is_bot=is_bot,
+                )
+            )
+
+        # Return only the last `limit` messages (excluding current), in chronological order
+        return (
+            thread_messages[-limit:]
+            if len(thread_messages) > limit
+            else thread_messages
+        )
+
+    except Exception:
+        logfire.exception(
+            "Failed to fetch thread replies", channel=channel, thread_ts=thread_ts
+        )
+        return []
 
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])

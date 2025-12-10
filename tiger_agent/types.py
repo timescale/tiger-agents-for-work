@@ -194,6 +194,24 @@ class SlackFile(BaseModel):
     size: int | None = None
 
 
+class ThreadMessage(BaseModel):
+    """Represents a message from a Slack thread for conversation history.
+
+    Used to build message history for the AI agent from prior thread messages.
+
+    Attributes:
+        user: User ID who sent the message
+        text: The text content of the message
+        ts: Message timestamp
+        is_bot: Whether this message was sent by the bot
+    """
+
+    user: str
+    text: str
+    ts: str
+    is_bot: bool = False
+
+
 class BaseEvent(BaseModel):
     """Base Pydantic model for Slack events.
 
