@@ -37,6 +37,8 @@ Respond in valid Markdown format, following these rules:
 
 ## Temporal Requests
 
+current utc time: {{ utc_time }}
+
 Unless explicitly stated otherwise, user's time-related comments should be interpreted in their local timezone.
 
 - "calendar day" - starts at midnight and ends at the next midnight in the user's local timezone
