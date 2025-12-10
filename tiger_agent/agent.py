@@ -40,7 +40,7 @@ from pydantic_ai.messages import (
     UserContent,
 )
 from pydantic_ai.models.anthropic import AnthropicModel
-from slack.errors import SlackApiError, SlackRequestError
+from slack_sdk.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
 )
