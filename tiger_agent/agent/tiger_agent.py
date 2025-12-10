@@ -30,7 +30,12 @@ from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, Tool, UsageLimits, models
 from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
     UserContent,
+    UserPromptPart,
 )
 from pydantic_ai.models.anthropic import AnthropicModel
 from slack_sdk.web.async_client import (
@@ -54,12 +59,13 @@ from tiger_agent.salesforce.constants import (
 )
 from tiger_agent.salesforce.types import SalesforceBaseEvent
 from tiger_agent.salesforce.utils import create_case_url
-from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage
+from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage, ThreadMessage
 from tiger_agent.slack.utils import (
     add_reaction,
     download_private_file,
     download_slack_hosted_file,
     fetch_bot_info,
+    fetch_thread_replies,
     fetch_user_info,
     post_response,
     set_status,
@@ -298,6 +304,37 @@ class TigerAgent:
             extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
 
+    def _build_message_history(
+        self, thread_messages: list[ThreadMessage]
+    ) -> list[ModelMessage]:
+        """Convert thread messages to Pydantic-AI message history format.
+
+        Transforms Slack thread messages into the ModelMessage format expected
+        by Pydantic-AI for conversation history. User messages become ModelRequest
+        with UserPromptPart, and bot messages become ModelResponse with TextPart.
+
+        Args:
+            thread_messages: List of ThreadMessage objects from Slack thread
+
+        Returns:
+            List of ModelMessage objects suitable for agent.run(message_history=...)
+        """
+        message_history: list[ModelMessage] = []
+
+        for msg in thread_messages:
+            if msg.is_bot:
+                # Bot messages become assistant responses
+                message_history.append(
+                    ModelResponse(parts=[TextPart(content=msg.text)])
+                )
+            else:
+                # User messages become user requests
+                message_history.append(
+                    ModelRequest(parts=[UserPromptPart(content=msg.text)])
+                )
+
+        return message_history
+
     @logfire.instrument("generate_response", extract_args=False)
     async def create_and_send_response(
         self, hctx: HarnessContext, stream_event: Event
@@ -337,6 +374,21 @@ class TigerAgent:
 
         extra_ctx = {}
         await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
+
+        message_history: list[ModelMessage] = []
+        if (
+            not isinstance(event, SalesforceBaseEvent)
+            and event.thread_ts
+            and self.bot_info
+        ):
+            thread_messages = await fetch_thread_replies(
+                client=hctx.app.client,
+                channel=event.channel,
+                thread_ts=event.thread_ts,
+                bot_user_id=self.bot_info.user_id,
+                current_message_ts=event.ts,
+            )
+            message_history = self._build_message_history(thread_messages)
 
         system_prompt = await self.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
         user_prompt = await self.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
@@ -456,6 +508,7 @@ class TigerAgent:
         async for stream_event in agent.run_stream_events(
             user_prompt=user_prompt,
             deps=ctx,
+            message_history=message_history if message_history else None,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
             slack_stream = await stream_response_to_mention(
