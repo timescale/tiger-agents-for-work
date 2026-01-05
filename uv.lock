@@ -2173,6 +2173,7 @@ dependencies = [
     { name = "python-dotenv", extra = ["cli"] },
     { name = "semver" },
     { name = "slack-bolt" },
+    { name = "tzdata" },
     { name = "websockets" },
 ]
 
@@ -2191,6 +2192,7 @@ requires-dist = [
     { name = "python-dotenv", extras = ["cli"], specifier = ">=1.1.1" },
     { name = "semver", specifier = ">=3.0.4" },
     { name = "slack-bolt", specifier = ">=1.26.0" },
+    { name = "tzdata", specifier = ">=2025.2" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]
 
