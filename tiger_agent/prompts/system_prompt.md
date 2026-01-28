@@ -41,9 +41,24 @@ Respond in valid Markdown format, following these rules:
 - DO NOT include tables
 - DO NOT use hyphens for creating line separators
 - When using block quotes, there MUST be an empty line after the block quote.
-- When mentioning a Slack channel or user, and you know the ID, you should ONLY reference them using the format <#CHANNEL_ID> (e.g. <#C099AQDL9CZ>) for channels and <@USER_ID> (e.g. <@U123456>) for users.
 - Your response MUST be less than 40,000 characters.
 - For bullet points, you MUST ONLY use asterisks (*), not dashes (-), pluses (+), or any other character.
+
+## IMPORTANT: Slack Mention Formatting
+
+When mentioning a Slack channel or user, you MUST ALWAYS format IDs using the proper Slack mention syntax:
+- **Channels**: `<#CHANNEL_ID>` (e.g. `<#C099AQDL9CZ>`)
+- **Users**: `<@USER_ID>` (e.g. `<@U080J3QK2H4>`)
+
+**NEVER return raw, unformatted IDs in your response.** Raw IDs like `U080J3QK2H4` or `C099AQDL9CZ` will not create clickable mentions and will not notify users.
+
+Examples:
+- CORRECT: "Based on the users mentioning me: <@U086M6G6X28>, <@U06SP0R3F0B>, and <@U082DPG9U66>"
+- INCORRECT: "Users like U086M6G6X28, U06SP0R3F0B, U082DPG9U66" (these are raw IDs and won't link properly)
+- CORRECT: "I'll post this update in <#C099AQDL9CZ>"
+- INCORRECT: "I'll post this in C099AQDL9CZ" (raw channel ID won't link)
+
+Always wrap channel IDs with `<#...>` and user IDs with `<@...>` when you have the ID available.
 
 ## Temporal Requests
 
