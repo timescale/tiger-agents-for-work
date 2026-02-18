@@ -18,7 +18,6 @@ The TigerAgent processes Slack app_mention events by:
 """
 
 import asyncio
-import json
 import logging
 import re
 from collections.abc import Sequence
@@ -106,7 +105,6 @@ class TigerAgent:
         rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
         rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
         disable_streaming: If True, disables PydanticAI and Slack streaming (defaults to False)
-        show_tool_call_arguments: If True, shows tool call arguments in Slack messages (defaults to False)
 
     Raises:
         ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
@@ -122,13 +120,11 @@ class TigerAgent:
         rate_limit_allowed_requests: int | None = None,
         rate_limit_interval: timedelta = timedelta(minutes=1),
         disable_streaming: bool = False,
-        show_tool_call_arguments: bool = False,
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
         self.extra_context: dict[str, BaseModel] = {}
         self.disable_streaming = disable_streaming
-        self.show_tool_call_arguments = show_tool_call_arguments
 
         if jinja_env is not None and prompt_config is not None:
             raise ValueError(
@@ -503,17 +499,6 @@ class TigerAgent:
                         stream=slack_stream,
                     )
                 if isinstance(event.part, BaseToolCallPart):
-                    if self.show_tool_call_arguments:
-                        # pretty print the args
-                        args_json = json.dumps(event.part.args_as_dict(), indent=2)
-
-                        # Escape any existing triple backticks to prevent breaking codeblocks
-                        args_json = args_json.replace("```", "`\\``")
-                        slack_stream = await append(
-                            markdown_text=f"Arguments:\n```\n{args_json}\n```\n",
-                            stream=slack_stream,
-                        )
-
                     await set_status()
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'

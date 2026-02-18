@@ -89,23 +89,15 @@ def cli():
     type=str,
     default="",
     help="Comma-delimited list of channel IDs where the agent should send proactive prompts even without mentions",
-    callback=lambda ctx, param, value: [
-        ch.strip() for ch in value.split(",") if ch.strip()
-    ]
-    if value
-    else [],
+    callback=lambda ctx, param, value: (
+        [ch.strip() for ch in value.split(",") if ch.strip()] if value else []
+    ),
 )
 @click.option(
     "--disable-streaming",
     is_flag=True,
     default=False,
     help="Disable PydanticAI and Slack streaming",
-)
-@click.option(
-    "--show-tool-call-arguments",
-    is_flag=True,
-    default=False,
-    help="Show tool call arguments in Slack messages",
 )
 def run(
     model: str,
@@ -123,7 +115,6 @@ def run(
     rate_limit_interval: int = 1,
     proactive_prompt_channels: list[str] = None,
     disable_streaming: bool = False,
-    show_tool_call_arguments: bool = False,
 ):
     """Run the Tiger Agent bot"""
 
@@ -138,7 +129,6 @@ def run(
         rate_limit_allowed_requests=rate_limit_allowed_requests,
         rate_limit_interval=timedelta(minutes=rate_limit_interval),
         disable_streaming=disable_streaming,
-        show_tool_call_arguments=show_tool_call_arguments,
     )
 
     # create a harness for the processor
