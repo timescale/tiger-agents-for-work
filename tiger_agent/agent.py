@@ -319,7 +319,7 @@ class TigerAgent:
 
         The method supports two modes:
         - **Streaming Mode (default)**: Uses Slack's chat_stream API for real-time updates,
-          shows tool calls in progress, and optionally displays tool arguments
+          shows tool calls in the status bar, and optionally displays tool arguments
         - **Non-streaming Mode**: Traditional approach that generates complete response
           before posting to Slack
 
@@ -480,14 +480,10 @@ class TigerAgent:
                         markdown_text=event.part.content, stream=slack_stream
                     )
 
-                # beginning of a tool call, append tool name to status and to the slack stream
+                # beginning of a tool call, update status only (no message noise)
                 if isinstance(event.part, BaseToolCallPart):
                     await set_status(
                         message=f"Calling Tool: {event.part.tool_name}",
-                    )
-                    slack_stream = await append(
-                        markdown_text=f"\n**Tool Call:** `{event.part.tool_name}`\n\n",
-                        stream=slack_stream,
                     )
 
             # when a part changes there can be more text to append
@@ -521,18 +517,20 @@ class TigerAgent:
                     await set_status()
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
-                try:
-                    await slack_stream._flush_buffer()
-                except (SlackRequestError, SlackApiError) as e:
-                    # Stream might already be stopped (e.g., from early stop() call), log but continue
-                    logfire.exception("Failed to flush stream buffer", error=str(e))
+                if slack_stream is not None:
+                    try:
+                        await slack_stream._flush_buffer()
+                    except (SlackRequestError, SlackApiError) as e:
+                        # Stream might already be stopped (e.g., from early stop() call), log but continue
+                        logfire.exception("Failed to flush stream buffer", error=str(e))
 
-                    # if there is more in the buffer, let's create a new
-                    # stream and send what is in the buffer
-                    if slack_stream._buffer:
-                        await append(markdown_text=slack_stream._buffer)
+                        # if there is more in the buffer, let's create a new
+                        # stream and send what is in the buffer
+                        if slack_stream._buffer:
+                            await append(markdown_text=slack_stream._buffer)
 
-        await slack_stream.stop()
+        if slack_stream is not None:
+            await slack_stream.stop()
 
         # clear the status widget
         await set_status(is_busy=False)
