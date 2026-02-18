@@ -480,7 +480,7 @@ class TigerAgent:
                         markdown_text=event.part.content, stream=slack_stream
                     )
 
-                # beginning of a tool call, update status only (no message noise)
+                # show tool call info in Slack Assistant status
                 if isinstance(event.part, BaseToolCallPart):
                     await set_status(
                         message=f"Calling Tool: {event.part.tool_name}",
