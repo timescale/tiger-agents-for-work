@@ -502,7 +502,7 @@ class TigerAgent:
                     await set_status()
 
                 # let's flush the buffer at the end of a part so that conversation is a flowin'
-                if slack_stream is not None:
+                if slack_stream is not None and slack_stream._buffer:
                     try:
                         await slack_stream._flush_buffer()
                     except (SlackRequestError, SlackApiError) as e:
@@ -512,6 +512,9 @@ class TigerAgent:
                         # if there is more in the buffer, let's create a new
                         # stream and send what is in the buffer
                         if slack_stream._buffer:
+                            logfire.info(
+                                "Could not flush buffer, appending to a new stream"
+                            )
                             await append(markdown_text=slack_stream._buffer)
 
         if slack_stream is not None:
