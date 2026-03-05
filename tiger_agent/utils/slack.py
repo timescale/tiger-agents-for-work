@@ -13,11 +13,20 @@ structured data models for Slack entities.
 """
 
 import os
+import re
 
 import httpx
 import logfire
-from pydantic import BaseModel
-from pydantic_ai.messages import BinaryContent
+from pydantic_ai.messages import (
+    AgentStreamEvent,
+    BaseToolCallPart,
+    BinaryContent,
+    PartDeltaEvent,
+    PartEndEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
 from slack_sdk.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
@@ -25,7 +34,30 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
-from tiger_agent.types import BotInfo, UserInfo
+from tiger_agent.types import BotInfo, ChannelInfo, SlackFile, UserInfo
+from tiger_agent.utils.type import file_type_supported
+
+
+def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
+    """Parse Slack user mention format <@USER_ID|username> and return (username, user_id).
+
+    Args:
+        mention_string: String in format '<@U06S8H0V94P|nathan>'
+
+    Returns:
+        Tuple of (username, user_id) or None if pattern doesn't match.
+
+    Example:
+        parse_slack_user_name('<@U06S8H0V94P|nathan>') -> ('nathan', 'U06S8H0V94P')
+    """
+    match = re.match(r"<@([A-Z0-9]+)\|([^>]+)>", mention_string)
+    if match:
+        user_id, username = match.groups()
+        return (username, user_id)
+    logfire.warning(
+        "Argument was not of expected format for a <@USER_ID|username> formatted Slack username + user id"
+    )
+    return (None, None)
 
 
 @logfire.instrument("add_reaction", extract_args=["channel", "ts", "emoji"])
@@ -120,41 +152,6 @@ async def post_response(
     )
 
 
-class ChannelInfo(BaseModel):
-    """Pydantic model for Slack channel information.
-
-    Represents channel metadata and properties within a Slack workspace.
-    Used for building context-aware responses based on channel type and settings.
-
-    Attributes:
-        id: Unique channel identifier
-        name: Channel name
-        is_channel: Whether this is a public channel
-        is_group: Whether this is a private group
-        is_im: Whether this is a direct message
-        is_mpim: Whether this is a multi-party direct message
-        is_private: Whether the channel is private
-        is_archived: Whether the channel is archived
-        is_shared: Whether the channel is shared with external orgs
-        is_ext_shared: Whether externally shared
-        is_member: Whether the bot is a member
-    """
-
-    model_config = {"extra": "allow"}
-
-    id: str
-    name: str | None = None
-    is_channel: bool | None = None
-    is_group: bool | None = None
-    is_im: bool | None = None
-    is_mpim: bool | None = None
-    is_private: bool | None = None
-    is_archived: bool | None = None
-    is_shared: bool | None = None
-    is_ext_shared: bool | None = None
-    is_member: bool | None = None
-
-
 @logfire.instrument("fetch_bot_info", extract_args=False)
 async def fetch_bot_info(client: AsyncWebClient) -> BotInfo:
     """Fetch bot information using authenticated client.
@@ -224,6 +221,20 @@ async def fetch_channel_info(
         return None
 
 
+async def download_slack_hosted_file(
+    file: SlackFile,
+    slack_bot_token: str,
+) -> BinaryContent | str | None:
+    """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
+    if not file_type_supported(file.mimetype):
+        return "File type not supported"
+
+    return await download_private_file(
+        url_private_download=file.url_private_download,
+        slack_bot_token=slack_bot_token,
+    )
+
+
 async def download_private_file(
     url_private_download: str, slack_bot_token: str = os.getenv("SLACK_BOT_TOKEN")
 ) -> BinaryContent | str | None:
@@ -277,8 +288,8 @@ async def set_status(
     client: AsyncWebClient,
     channel_id: str,
     thread_ts: str,
+    is_busy: bool,
     message: str | None = None,
-    is_busy: bool = True,
 ) -> AsyncSlackResponse:
     """Set the status indicator for an assistant thread.
 
@@ -392,3 +403,88 @@ async def append_message_to_stream(
             markdown_text=markdown_text,
         )
         raise error
+
+
+async def stream_response_to_mention(
+    client: AsyncWebClient,
+    slack_stream: AsyncChatStream | None,
+    stream_event: AgentStreamEvent,
+    channel_id: str,
+    recipient_user_id: str,
+    recipient_team_id: str,
+    ts: str,
+    thread_ts: str | None = None,
+) -> AsyncChatStream | None:
+    async def append(
+        markdown_text: str, stream: AsyncChatStream | None = None
+    ) -> AsyncChatStream:
+        return await append_message_to_stream(
+            client=client,
+            channel_id=channel_id,
+            recipient_user_id=recipient_user_id,
+            recipient_team_id=recipient_team_id,
+            thread_ts=thread_ts or ts,
+            markdown_text=markdown_text,
+            stream=stream,
+        )
+
+    # the beginning of a 'part'
+    if isinstance(stream_event, PartStartEvent):
+        # a text response start
+        if isinstance(stream_event.part, TextPart) and stream_event.part.content:
+            slack_stream = await append(
+                markdown_text=stream_event.part.content, stream=slack_stream
+            )
+
+        # show tool call info in Slack Assistant status
+        if isinstance(stream_event.part, BaseToolCallPart):
+            await set_status(
+                client=client,
+                channel_id=channel_id,
+                thread_ts=thread_ts or ts,
+                is_busy=True,
+                message=f"Calling Tool: {stream_event.part.tool_name}",
+            )
+
+    # when a part changes there can be more text to append
+    elif isinstance(stream_event, PartDeltaEvent):
+        if (
+            isinstance(stream_event.delta, TextPartDelta)
+            and stream_event.delta.content_delta
+        ):
+            slack_stream = await append(
+                markdown_text=stream_event.delta.content_delta,
+                stream=slack_stream,
+            )
+
+    # at the end of text part, add some new lines
+    # at the end of a tool call part, let's show the arguments in a codeblock
+    elif isinstance(stream_event, PartEndEvent):
+        if isinstance(stream_event.part, TextPart):
+            slack_stream = await append(
+                markdown_text="\n\n",
+                stream=slack_stream,
+            )
+        if isinstance(stream_event.part, BaseToolCallPart):
+            await set_status(
+                client=client,
+                channel_id=channel_id,
+                thread_ts=thread_ts or ts,
+                is_busy=True,
+            )
+
+        # let's flush the buffer at the end of a part so that conversation is a flowin'
+        if slack_stream is not None and slack_stream._buffer:
+            try:
+                await slack_stream._flush_buffer()
+            except (SlackRequestError, SlackApiError) as e:
+                # Stream might already be stopped (e.g., from early stop() call), log but continue
+                logfire.exception("Failed to flush stream buffer", error=str(e))
+
+                # if there is more in the buffer, let's create a new
+                # stream and send what is in the buffer
+                if slack_stream._buffer:
+                    logfire.info("Could not flush buffer, appending to a new stream")
+                    await append(markdown_text=slack_stream._buffer)
+
+    return slack_stream

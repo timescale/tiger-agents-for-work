@@ -4,11 +4,11 @@ from .agent import TigerAgent
 from .harness import EventHarness, EventProcessor
 from .types import (
     AgentResponseContext,
-    AppMentionEvent,
     Event,
     ExtraContextDict,
     HarnessContext,
     PromptPackage,
+    SlackAppMentionEvent,
 )
 
 __all__ = [
@@ -18,7 +18,7 @@ __all__ = [
     "TigerAgent",
     "HarnessContext",
     "Event",
-    "AppMentionEvent",
+    "SlackAppMentionEvent",
     "EventProcessor",
     "PromptPackage",
     "__version__",
