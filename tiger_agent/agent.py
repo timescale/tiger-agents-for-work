@@ -28,35 +28,15 @@ from typing import Any
 import logfire
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
-from pydantic_ai import Agent, BinaryContent, UsageLimits, models
+from pydantic_ai import Agent, BinaryContent, Tool, UsageLimits, models
 from pydantic_ai.messages import (
-    BaseToolCallPart,
-    PartDeltaEvent,
-    PartEndEvent,
-    PartStartEvent,
-    TextPart,
-    TextPartDelta,
     UserContent,
 )
 from pydantic_ai.models.anthropic import AnthropicModel
-from slack_sdk.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
 )
 
-from tiger_agent.slack import (
-    BotInfo,
-    add_reaction,
-    append_message_to_stream,
-    download_private_file,
-    fetch_bot_info,
-    fetch_user_info,
-    post_response,
-    remove_reaction,
-)
-from tiger_agent.slack import (
-    set_status as set_status_ext,
-)
 from tiger_agent.types import (
     AgentResponseContext,
     Event,
@@ -66,14 +46,24 @@ from tiger_agent.types import (
     PromptPackage,
     SlackFile,
 )
-from tiger_agent.utils import (
-    MCPLoader,
-    file_type_supported,
-    filter_mcp_servers,
-    usage_limit_reached,
-    user_ignored,
+from tiger_agent.utils.db import usage_limit_reached, user_ignored
+from tiger_agent.utils.exception_handling import (
     wrap_mcp_servers_with_exception_handling,
 )
+from tiger_agent.utils.mcp_servers import MCPLoader, filter_mcp_servers
+from tiger_agent.utils.slack import (
+    BotInfo,
+    add_reaction,
+    download_private_file,
+    download_slack_hosted_file,
+    fetch_bot_info,
+    fetch_user_info,
+    post_response,
+    remove_reaction,
+    set_status,
+    stream_response_to_mention,
+)
+from tiger_agent.utils.type import file_type_supported
 
 logger = logging.getLogger(__name__)
 
@@ -303,7 +293,7 @@ class TigerAgent:
         """
 
     @logfire.instrument("generate_response", extract_args=False)
-    async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
+    async def generate_response(self, hctx: HarnessContext, stream_event: Event) -> str:
         """Generate AI response to a Slack app_mention event.
 
         This is the core logic that:
@@ -333,7 +323,7 @@ class TigerAgent:
         Returns:
             None - responses are posted directly to Slack during processing
         """
-        mention = event.event
+        mention = stream_event.event
         client = hctx.app.client
 
         if await usage_limit_reached(
@@ -367,7 +357,7 @@ class TigerAgent:
         wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
 
         ctx = AgentResponseContext(
-            event=event,
+            event=stream_event,
             mention=mention,
             bot=self.bot_info,
             user=user_info,
@@ -383,10 +373,27 @@ class TigerAgent:
 
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 
+        slack_bot_token = hctx.slack_bot_token
+
+        async def _download_slack_hosted_file(
+            file: SlackFile,
+        ) -> BinaryContent | str | None:
+            return await download_slack_hosted_file(
+                file, slack_bot_token=slack_bot_token
+            )
+
         agent = Agent(
             model=self.model,
             deps_type=dict[str, Any],
             system_prompt=system_prompt,
+            tools=[
+                Tool(
+                    _download_slack_hosted_file,
+                    takes_ctx=False,
+                    name="download_slack_hosted_file",
+                    description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
+                )
+            ],
             toolsets=toolsets,
             model_settings={
                 "extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}
@@ -396,132 +403,65 @@ class TigerAgent:
             else None,
         )
 
-        @agent.tool_plain
-        async def download_slack_hosted_file(
-            file: SlackFile,
-        ) -> BinaryContent | str | None:
-            """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
-            if not file_type_supported(file.mimetype):
-                return "File type not supported"
+        await set_status(
+            client=client,
+            channel_id=mention.channel,
+            thread_ts=mention.thread_ts or mention.ts,
+            is_busy=True,
+        )
 
-            return await download_private_file(
-                url_private_download=file.url_private_download,
-                slack_bot_token=hctx.slack_bot_token,
+        if self.disable_streaming:
+            response = await agent.run(
+                user_prompt=user_prompt,
+                deps=ctx,
+                usage_limits=UsageLimits(output_tokens_limit=9_000),
             )
 
-        # just a closure to minimize parameters needed in future calls
-        async def set_status(message: str | None = None, is_busy: bool = True):
-            await set_status_ext(
+            await post_response(
+                client=hctx.app.client,
+                channel=mention.channel,
+                thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
+                text=response.output,
+            )
+
+            await set_status(
                 client=client,
                 channel_id=mention.channel,
                 thread_ts=mention.thread_ts or mention.ts,
-                message=message,
-                is_busy=is_busy,
+                is_busy=False,
             )
-
-        await set_status()
-
-        if self.disable_streaming:
-            async with agent as a:
-                response = await a.run(
-                    user_prompt=user_prompt,
-                    deps=ctx,
-                    usage_limits=UsageLimits(output_tokens_limit=9_000),
-                )
-
-                await post_response(
-                    client=hctx.app.client,
-                    channel=mention.channel,
-                    thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
-                    text=response.output,
-                )
-
-                # clear the status widget
-                await set_status(
-                    client=client,
-                    channel_id=mention.channel,
-                    thread_ts=mention.thread_ts or mention.ts,
-                    is_busy=False,
-                )
-                return
+            return
 
         slack_stream: AsyncChatStream | None = None
 
-        # just a closure to minimize parameters needed in future calls
-        async def append(
-            markdown_text: str, stream: AsyncChatStream | None = None
-        ) -> AsyncChatStream:
-            return await append_message_to_stream(
-                client=client,
-                channel_id=mention.channel,
-                recipient_user_id=mention.user,
-                recipient_team_id=self.bot_info.team_id,
-                thread_ts=mention.thread_ts or mention.ts,
-                markdown_text=markdown_text,
-                stream=stream,
-            )
-
         # my first attempt was using `run_stream`, however, there is a known 'issue'
         # that that will return before tool calls are made: https://github.com/pydantic/pydantic-ai/issues/3574
-        async for event in agent.run_stream_events(
+        async for stream_event in agent.run_stream_events(
             user_prompt=user_prompt,
             deps=ctx,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
-            # the beginning of a 'part'
-            if isinstance(event, PartStartEvent):
-                # a text response start
-                if isinstance(event.part, TextPart) and event.part.content:
-                    slack_stream = await append(
-                        markdown_text=event.part.content, stream=slack_stream
-                    )
+            slack_stream = await stream_response_to_mention(
+                client,
+                slack_stream=slack_stream,
+                stream_event=stream_event,
+                channel_id=mention.channel,
+                recipient_user_id=mention.user,
+                recipient_team_id=self.bot_info.team_id,
+                ts=mention.ts,
+                thread_ts=mention.thread_ts,
+            )
 
-                # show tool call info in Slack Assistant status
-                if isinstance(event.part, BaseToolCallPart):
-                    await set_status(
-                        message=f"Calling Tool: {event.part.tool_name}",
-                    )
-
-            # when a part changes there can be more text to append
-            elif isinstance(event, PartDeltaEvent):
-                if isinstance(event.delta, TextPartDelta) and event.delta.content_delta:
-                    slack_stream = await append(
-                        markdown_text=event.delta.content_delta,
-                        stream=slack_stream,
-                    )
-
-            # at the end of text part, add some new lines
-            # at the end of a tool call part, let's show the arguments in a codeblock
-            elif isinstance(event, PartEndEvent):
-                if isinstance(event.part, TextPart):
-                    slack_stream = await append(
-                        markdown_text="\n\n",
-                        stream=slack_stream,
-                    )
-                if isinstance(event.part, BaseToolCallPart):
-                    await set_status()
-
-                # let's flush the buffer at the end of a part so that conversation is a flowin'
-                if slack_stream is not None and slack_stream._buffer:
-                    try:
-                        await slack_stream._flush_buffer()
-                    except (SlackRequestError, SlackApiError) as e:
-                        # Stream might already be stopped (e.g., from early stop() call), log but continue
-                        logfire.exception("Failed to flush stream buffer", error=str(e))
-
-                        # if there is more in the buffer, let's create a new
-                        # stream and send what is in the buffer
-                        if slack_stream._buffer:
-                            logfire.info(
-                                "Could not flush buffer, appending to a new stream"
-                            )
-                            await append(markdown_text=slack_stream._buffer)
-
-        if slack_stream is not None:
+        if slack_stream is not None and slack_stream._state != "completed":
             await slack_stream.stop()
 
         # clear the status widget
-        await set_status(is_busy=False)
+        await set_status(
+            client=client,
+            channel_id=mention.channel,
+            thread_ts=mention.thread_ts or mention.ts,
+            is_busy=False,
+        )
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Process a Slack app_mention event with full interaction flow.

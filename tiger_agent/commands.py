@@ -5,7 +5,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
-from tiger_agent.utils import parse_slack_user_name, serialize_to_jsonb, user_is_admin
+from tiger_agent.utils.db import user_is_admin
+from tiger_agent.utils.slack import parse_slack_user_name
+from tiger_agent.utils.type import serialize_to_jsonb
 
 """
 Command System for Tiger Agent Slack Bot
@@ -79,8 +81,8 @@ class CommandBase(ABC):
 @dataclass
 class Command(CommandBase):
     expected_parameters: int = 0
-    func: Callable[[CommandContext, str | list[str]], Awaitable[str]] = (
-        lambda _: asyncio.sleep(0)
+    func: Callable[[CommandContext, str | list[str]], Awaitable[str]] = lambda _: (
+        asyncio.sleep(0)
     )
 
     async def __call__(self, command_text: str | list[str], ctx: CommandContext) -> str:

@@ -9,6 +9,7 @@ from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from slack_bolt.app.async_app import AsyncApp
 
 
+
 class PromptPackage(BaseModel):
     package_name: str
     package_path: str = "templates"
@@ -43,6 +44,41 @@ class McpConfig:
 type MCPDict = dict[str, McpConfig]
 
 type ExtraContextDict = dict[str, BaseModel]
+
+
+class ChannelInfo(BaseModel):
+    """Pydantic model for Slack channel information.
+
+    Represents channel metadata and properties within a Slack workspace.
+    Used for building context-aware responses based on channel type and settings.
+
+    Attributes:
+        id: Unique channel identifier
+        name: Channel name
+        is_channel: Whether this is a public channel
+        is_group: Whether this is a private group
+        is_im: Whether this is a direct message
+        is_mpim: Whether this is a multi-party direct message
+        is_private: Whether the channel is private
+        is_archived: Whether the channel is archived
+        is_shared: Whether the channel is shared with external orgs
+        is_ext_shared: Whether externally shared
+        is_member: Whether the bot is a member
+    """
+
+    model_config = {"extra": "allow"}
+
+    id: str
+    name: str | None = None
+    is_channel: bool | None = None
+    is_group: bool | None = None
+    is_im: bool | None = None
+    is_mpim: bool | None = None
+    is_private: bool | None = None
+    is_archived: bool | None = None
+    is_shared: bool | None = None
+    is_ext_shared: bool | None = None
+    is_member: bool | None = None
 
 
 class BotInfo(BaseModel):
@@ -194,7 +230,7 @@ class SlackFile(BaseModel):
     size: int | None = None
 
 
-class BaseEvent(BaseModel):
+class SlackBaseEvent(BaseModel):
     """Base Pydantic model for Slack events.
 
     Represents the structure of a Slack app mention event as received from
@@ -227,13 +263,13 @@ class BaseEvent(BaseModel):
     files: list[SlackFile] | None = None
 
 
-class AppMentionEvent(BaseEvent):
+class SlackAppMentionEvent(SlackBaseEvent):
     """Pydantic model for Slack app_mention events."""
 
     type: str = "app_mention"
 
 
-class MessageEvent(BaseEvent):
+class SlackMessageEvent(SlackBaseEvent):
     """Pydantic model for Slack message events."""
 
     type: str = "message"
@@ -260,7 +296,7 @@ class Event(BaseModel):
     attempts: int
     vt: datetime
     claimed: list[datetime]
-    event: AppMentionEvent | MessageEvent
+    event: SlackAppMentionEvent | SlackMessageEvent
 
 
 class AgentResponseContext(BaseModel):
@@ -280,7 +316,7 @@ class AgentResponseContext(BaseModel):
     """
 
     event: Event
-    mention: AppMentionEvent | MessageEvent
+    mention: SlackAppMentionEvent | SlackMessageEvent
     bot: BotInfo
     user: UserInfo | None = None
     local_time: datetime | None = None
