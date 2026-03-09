@@ -32,22 +32,28 @@ from slack_bolt.context.respond.async_respond import AsyncRespond
 from tiger_agent.commands import handle_command
 from tiger_agent.constants import CONFIRM_PROACTIVE_PROMPT, REJECT_PROACTIVE_PROMPT
 from tiger_agent.migrations import runner
-from tiger_agent.types import Event, HarnessContext, SlackCommand
+from tiger_agent.salesforce.clients import get_salesforce_api_client
+from tiger_agent.salesforce.topics import (
+    subscribe_to_case_assignee_changed,
+    subscribe_to_new_cases,
+)
+from tiger_agent.types import (
+    EventProcessor,
+    HarnessContext,
+    SalesforceConfig,
+    SlackCommand,
+)
 from tiger_agent.utils.db import (
-    claim_event,
     create_default_pool,
-    delete_event,
     delete_expired_events,
+    get_event_hist,
     insert_event,
     insert_handled_event,
 )
-from tiger_agent.utils.slack import fetch_bot_info
+from tiger_agent.utils.events import process_event, process_events
+from tiger_agent.utils.slack import SlackUtils
 
 logger = logging.getLogger(__name__)
-
-
-# Type alias for event processing callback
-EventProcessor = Callable[[HarnessContext, Event], Awaitable[None]]
 
 
 class EventHarness:
@@ -96,6 +102,7 @@ class EventHarness:
         num_workers: Number of concurrent worker tasks (bounded concurrency)
         slack_bot_token: Slack bot token (uses SLACK_BOT_TOKEN env if None)
         slack_app_token: Slack app token (uses SLACK_APP_TOKEN env if None)
+        salesforce_config: Optional Salesforce config
     """
 
     def __init__(
@@ -112,6 +119,7 @@ class EventHarness:
         num_workers: int = 5,
         slack_bot_token: str | None = None,
         slack_app_token: str | None = None,
+        salesforce_config: SalesforceConfig | None = None,
         proactive_prompt_channels: Sequence[str] | None = None,
     ):
         self._task_group: TaskGroup | None = None
@@ -141,6 +149,8 @@ class EventHarness:
                 ignoring_self_events_enabled=False,
             )
         )
+
+        self._salesforce_config = salesforce_config
 
     @logfire.instrument("on_event", extract_args=False)
     async def _on_event(
@@ -175,53 +185,6 @@ class EventHarness:
         """
         return HarnessContext(self._app, self._pool, self._slack_bot_token)
 
-    async def _process_event(self, event: Event) -> bool:
-        """Process a single claimed event.
-
-        Calls the registered event processor with the event and harness context.
-        On success, marks the event as completed. On failure, leaves the event
-        in the queue for retry by other workers.
-
-        Args:
-            event: The claimed event to process
-
-        Returns:
-            bool: True if processing succeeded, False if it failed
-        """
-        with logfire.span("process_event", event=event) as _:
-            try:
-                await self._event_processor(self._make_harness_context(), event)
-                await delete_event(pool=self._pool, event=event)
-                return True
-            except Exception as e:
-                logger.exception(
-                    "event processing failed", extra={"event_id": event.id}, exc_info=e
-                )
-                # Event remains in database for retry
-            return False
-
-    @logfire.instrument("process_events", extract_args=False)
-    async def _process_events(self):
-        """Process available events in a batch.
-
-        Attempts to claim and process up to 20 events in sequence.
-        Stops early if no events are available or if processing fails,
-        allowing the worker to sleep and try again later.
-        """
-        # while we are finding events to claim, keep working for a bit but not forever
-        for _ in range(20):
-            event = await claim_event(
-                pool=self._pool,
-                max_attempts=self._max_attempts,
-                invisibility_minutes=self._invisibility_minutes,
-            )
-            if not event:
-                logger.info("no event found")
-                return
-            if not await self._process_event(event):
-                # if we failed to process the event, stop working for now
-                return
-
     def _calc_worker_sleep(self) -> int:
         """Calculate sleep duration for worker with random jitter.
 
@@ -250,7 +213,12 @@ class EventHarness:
 
         async def worker_run(reason: str):
             with logfire.span("worker_run", worker_id=worker_id, reason=reason) as _:
-                await self._process_events()
+                await process_events(
+                    self._event_processor,
+                    self._make_harness_context(),
+                    self._max_attempts,
+                    self._invisibility_minutes,
+                )
                 await delete_expired_events(
                     pool=self._pool,
                     max_attempts=self._max_attempts,
@@ -317,7 +285,8 @@ class EventHarness:
         """
         await self._pool.open(wait=True)
 
-        bot_info = await fetch_bot_info(self._app.client)
+        slack_utils = SlackUtils(self._make_harness_context())
+        bot_info = await slack_utils.fetch_bot_info()
 
         async with asyncio.TaskGroup() as tasks:
             async with self._pool.connection() as con:
@@ -345,64 +314,6 @@ class EventHarness:
 
             self._app.command(re.compile(r"\/.*"))(on_slack_command)
             self._app.event("app_mention")(on_slack_event)
-
-            async def handle_proactive_prompt(
-                ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
-            ):
-                await ack()
-
-                actions = body.get("actions")
-                if (
-                    actions is None
-                    or not isinstance(actions, Sequence)
-                    or len(actions) != 1
-                ):
-                    logfire.error(
-                        "Actions was not an expected payload",
-                        event=body,
-                    )
-                    return
-                action = actions[0]
-                relevant_event_hist = action.get("value")
-
-                action_id = action.get("action_id", REJECT_PROACTIVE_PROMPT)
-
-                if action_id == REJECT_PROACTIVE_PROMPT:
-                    await respond(
-                        response_type="ephemeral",
-                        text="",
-                        replace_original=True,
-                        delete_original=True,
-                    )
-                    return
-
-                if relevant_event_hist is None:
-                    logfire.error(
-                        "Could not find relevent event_hist for proactive agent response",
-                        event=body,
-                    )
-                    return
-
-                try:
-                    event_hist_id = int(relevant_event_hist)
-                except (ValueError, TypeError):
-                    logfire.error(
-                        "Invalid event_hist ID format",
-                        relevant_event_hist=relevant_event_hist,
-                        event=body,
-                    )
-                    return
-
-                event_hist = await self.get_event_hist(event_hist_id)
-
-                await respond(
-                    response_type="ephemeral",
-                    text=f"I will respond to your message now! For future reference, you can include <@{bot_info.user_id}> in a message and I will respond.",
-                    replace_original=True,
-                    delete_original=True,
-                )
-
-                await self._process_event(event_hist)
 
             async def on_message(ack: AsyncAck, event: dict[str, Any]):
                 await ack()
@@ -434,42 +345,54 @@ class EventHarness:
                     return
 
                 event_hist_id = await insert_handled_event(pool=self._pool, event=event)
-                await self._app.client.chat_postEphemeral(
+                await slack_utils.send_proactive_prompt(
                     channel=channel,
                     user=user,
-                    text=f"Hey <@{user}>, would you like me to assist you?",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"Hey <@{user}>, would you like me to assist you?",
-                            },
-                        },
-                        {
-                            "type": "actions",
-                            "elements": [
-                                {
-                                    "type": "button",
-                                    "action_id": CONFIRM_PROACTIVE_PROMPT,
-                                    "style": "primary",
-                                    "text": {"type": "plain_text", "text": "Yes"},
-                                    "value": f"{event_hist_id}",
-                                },
-                                {
-                                    "type": "button",
-                                    "action_id": REJECT_PROACTIVE_PROMPT,
-                                    "text": {"type": "plain_text", "text": "No"},
-                                    "value": f"{event_hist_id}",
-                                },
-                            ],
-                        },
-                    ],
+                    event_hist_id=event_hist_id,
                 )
 
-            self._app.action(CONFIRM_PROACTIVE_PROMPT)(handle_proactive_prompt)
-            self._app.action(REJECT_PROACTIVE_PROMPT)(handle_proactive_prompt)
+            async def _handle_proactive_prompt(
+                ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
+            ):
+                # todo: would be nice to not have this wrapper closure, but limiting refactor effort for now
+                event_hist_id = await slack_utils.handle_proactive_prompt(
+                    ack=ack, body=body, respond=respond
+                )
+
+                if not event_hist_id:
+                    return
+
+                event = await get_event_hist(self._pool, event_hist_id)
+
+                if event is None:
+                    logfire.error(
+                        "Could not find event_hist record", event_hist_id=event_hist_id
+                    )
+                    return
+
+                await process_event(
+                    self._event_processor, self._make_harness_context(), event
+                )
+
+            self._app.action(CONFIRM_PROACTIVE_PROMPT)(_handle_proactive_prompt)
+            self._app.action(REJECT_PROACTIVE_PROMPT)(_handle_proactive_prompt)
             self._app.event("message")(on_message)
 
             handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
             tasks.create_task(handler.start_async())
+
+            if self._salesforce_config:
+                if not self._salesforce_config.is_valid():
+                    logfire.info("Invalid Salesforce config provided")
+                else:
+                    logfire.info("Salesforce config provided, initiating handlers")
+
+                    salesforce_client = get_salesforce_api_client()
+                    tasks.create_task(
+                        subscribe_to_new_cases(salesforce_client=salesforce_client)
+                    )
+                    tasks.create_task(
+                        subscribe_to_case_assignee_changed(
+                            salesforce_client=salesforce_client
+                        )
+                    )

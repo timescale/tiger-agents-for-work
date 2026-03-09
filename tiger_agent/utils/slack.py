@@ -14,6 +14,8 @@ structured data models for Slack entities.
 
 import os
 import re
+from collections.abc import Sequence
+from typing import Any
 
 import httpx
 import logfire
@@ -27,6 +29,8 @@ from pydantic_ai.messages import (
     TextPart,
     TextPartDelta,
 )
+from slack_bolt.context.ack.async_ack import AsyncAck
+from slack_bolt.context.respond.async_respond import AsyncRespond
 from slack_sdk.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import (
     AsyncChatStream,
@@ -34,7 +38,14 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
-from tiger_agent.types import BotInfo, ChannelInfo, SlackFile, UserInfo
+from tiger_agent.constants import CONFIRM_PROACTIVE_PROMPT, REJECT_PROACTIVE_PROMPT
+from tiger_agent.types import (
+    BotInfo,
+    ChannelInfo,
+    HarnessContext,
+    SlackFile,
+    UserInfo,
+)
 from tiger_agent.utils.type import file_type_supported
 
 
@@ -488,3 +499,228 @@ async def stream_response_to_mention(
                     await append(markdown_text=slack_stream._buffer)
 
     return slack_stream
+
+
+async def send_proactive_prompt(
+    client: AsyncWebClient, channel: str, user: str, event_hist_id: int
+):
+    await client.chat_postEphemeral(
+        channel=channel,
+        user=user,
+        text=f"Hey <@{user}>, would you like me to assist you?",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Hey <@{user}>, would you like me to assist you?",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": CONFIRM_PROACTIVE_PROMPT,
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Yes"},
+                        "value": f"{event_hist_id}",
+                    },
+                    {
+                        "type": "button",
+                        "action_id": REJECT_PROACTIVE_PROMPT,
+                        "text": {"type": "plain_text", "text": "No"},
+                        "value": f"{event_hist_id}",
+                    },
+                ],
+            },
+        ],
+    )
+
+
+async def handle_proactive_prompt(
+    ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond, bot_info: BotInfo
+) -> int | None:
+    await ack()
+
+    actions = body.get("actions")
+    if actions is None or not isinstance(actions, Sequence) or len(actions) != 1:
+        logfire.error(
+            "Actions was not an expected payload",
+            event=body,
+        )
+        return
+    action = actions[0]
+    relevant_event_hist = action.get("value")
+
+    action_id = action.get("action_id", REJECT_PROACTIVE_PROMPT)
+
+    if action_id == REJECT_PROACTIVE_PROMPT:
+        await respond(
+            response_type="ephemeral",
+            text="",
+            replace_original=True,
+            delete_original=True,
+        )
+        return
+
+    if relevant_event_hist is None:
+        logfire.error(
+            "Could not find relevent event_hist for proactive agent response",
+            event=body,
+        )
+        return
+
+    await respond(
+        response_type="ephemeral",
+        text=f"I will respond to your message now! For future reference, you can include <@{bot_info.user_id}> in a message and I will respond.",
+        replace_original=True,
+        delete_original=True,
+    )
+
+    try:
+        event_hist_id = int(relevant_event_hist)
+        return event_hist_id
+    except (ValueError, TypeError):
+        logfire.error(
+            "Invalid event_hist ID format",
+            relevant_event_hist=relevant_event_hist,
+            event=body,
+        )
+        return
+
+
+class SlackUtils:
+    """Wrapper around Slack utility functions scoped to a HarnessContext.
+
+    Provides convenience methods that delegate to the module-level functions,
+    automatically sourcing client, slack_bot_token, and bot_info from the
+    provided HarnessContext so callers don't need to pass them explicitly.
+    Bot info is fetched lazily and cached after the first call.
+
+    Args:
+        hctx: HarnessContext providing the Slack app, token, and database pool
+    """
+
+    def __init__(self, hctx: HarnessContext):
+        self._hctx = hctx
+        self._bot_info: BotInfo | None = None
+
+    @property
+    def client(self) -> AsyncWebClient:
+        return self._hctx.app.client
+
+    async def fetch_bot_info(self) -> BotInfo:
+        """Fetch and cache bot information. Returns the cached value on subsequent calls."""
+        if self._bot_info is None:
+            self._bot_info = await fetch_bot_info(self.client)
+        return self._bot_info
+
+    async def add_reaction(self, channel: str, ts: str, emoji: str) -> None:
+        await add_reaction(client=self.client, channel=channel, ts=ts, emoji=emoji)
+
+    async def remove_reaction(self, channel: str, ts: str, emoji: str) -> None:
+        await remove_reaction(client=self.client, channel=channel, ts=ts, emoji=emoji)
+
+    async def fetch_user_info(self, user_id: str) -> UserInfo | None:
+        return await fetch_user_info(client=self.client, user_id=user_id)
+
+    async def post_response(
+        self, channel: str, thread_ts: str, text: str
+    ) -> AsyncSlackResponse:
+        return await post_response(
+            client=self.client, channel=channel, thread_ts=thread_ts, text=text
+        )
+
+    async def fetch_channel_info(self, channel_id: str) -> ChannelInfo | None:
+        return await fetch_channel_info(client=self.client, channel_id=channel_id)
+
+    async def download_slack_hosted_file(
+        self, file: SlackFile
+    ) -> BinaryContent | str | None:
+        return await download_slack_hosted_file(
+            file=file, slack_bot_token=self._hctx.slack_bot_token
+        )
+
+    async def set_status(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        is_busy: bool,
+        message: str | None = None,
+    ) -> AsyncSlackResponse:
+        return await set_status(
+            client=self.client,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            is_busy=is_busy,
+            message=message,
+        )
+
+    async def append_message_to_stream(
+        self,
+        channel_id: str,
+        recipient_user_id: str,
+        recipient_team_id: str,
+        thread_ts: str,
+        markdown_text: str,
+        should_retry: bool = True,
+        stream: AsyncChatStream | None = None,
+    ) -> AsyncChatStream:
+        return await append_message_to_stream(
+            client=self.client,
+            channel_id=channel_id,
+            recipient_user_id=recipient_user_id,
+            recipient_team_id=recipient_team_id,
+            thread_ts=thread_ts,
+            markdown_text=markdown_text,
+            should_retry=should_retry,
+            stream=stream,
+        )
+
+    async def stream_response_to_mention(
+        self,
+        slack_stream: AsyncChatStream | None,
+        stream_event: AgentStreamEvent,
+        channel_id: str,
+        recipient_user_id: str,
+        recipient_team_id: str,
+        ts: str,
+        thread_ts: str | None = None,
+    ) -> AsyncChatStream | None:
+        return await stream_response_to_mention(
+            client=self.client,
+            slack_stream=slack_stream,
+            stream_event=stream_event,
+            channel_id=channel_id,
+            recipient_user_id=recipient_user_id,
+            recipient_team_id=recipient_team_id,
+            ts=ts,
+            thread_ts=thread_ts,
+        )
+
+    async def send_proactive_prompt(
+        self, channel: str, user: str, event_hist_id: int
+    ) -> None:
+        await send_proactive_prompt(
+            client=self.client,
+            channel=channel,
+            user=user,
+            event_hist_id=event_hist_id,
+        )
+
+    async def handle_proactive_prompt(
+        self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
+    ) -> int | None:
+        bot_info = await self.fetch_bot_info()
+        return await handle_proactive_prompt(
+            ack=ack, body=body, respond=respond, bot_info=bot_info
+        )
+
+    async def download_private_file(
+        self, url_private_download: str
+    ) -> BinaryContent | str | None:
+        return await download_private_file(
+            url_private_download=url_private_download,
+            slack_bot_token=self._hctx.slack_bot_token,
+        )
