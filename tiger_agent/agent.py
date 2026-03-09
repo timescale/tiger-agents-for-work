@@ -332,7 +332,7 @@ class TigerAgent:
             return "I cannot process your request at this time due to usage limits. Please ask me again later."
 
         if not self.bot_info:
-            self.bot_info = await fetch_bot_info(self.client)
+            self.bot_info = await fetch_bot_info(hctx.app.client)
 
         user_info = await self.slack_utils.fetch_user_info(mention.user)
 
