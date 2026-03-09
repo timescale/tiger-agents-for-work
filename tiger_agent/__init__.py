@@ -1,10 +1,11 @@
 __version__ = "0.0.7"
 
 from .agent import TigerAgent
-from .harness import EventHarness, EventProcessor
+from .harness import EventHarness
 from .types import (
     AgentResponseContext,
     Event,
+    EventProcessor,
     ExtraContextDict,
     HarnessContext,
     PromptPackage,

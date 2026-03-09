@@ -7,6 +7,7 @@ from dotenv import find_dotenv, load_dotenv
 
 from tiger_agent import EventHarness, TigerAgent
 from tiger_agent.log_config import setup_logging
+from tiger_agent.types import SalesforceConfig
 
 
 @click.group()
@@ -141,6 +142,7 @@ def run(
         max_age_minutes=max_age_minutes,
         invisibility_minutes=invisibility_minutes,
         num_workers=num_workers,
+        salesforce_config=SalesforceConfig(),
         proactive_prompt_channels=proactive_prompt_channels,
     )
 

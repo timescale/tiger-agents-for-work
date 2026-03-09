@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -8,6 +9,11 @@ from pydantic import BaseModel
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 from slack_bolt.app.async_app import AsyncApp
 
+from tiger_agent.salesforce.constants import (
+    SALESFORCE_CLIENT_ID,
+    SALESFORCE_CLIENT_SECRET,
+    SALESFORCE_DOMAIN,
+)
 
 
 class PromptPackage(BaseModel):
@@ -210,6 +216,10 @@ class CommandContext:
     command: SlackCommand
 
 
+class SalesforceBaseEvent(BaseModel):
+    """Base Pydantic model for events from Salesforce"""
+
+
 class SlackFile(BaseModel):
     """Pydantic model for Slack file objects.
 
@@ -276,6 +286,12 @@ class SlackMessageEvent(SlackBaseEvent):
     subtype: str | None = None
 
 
+class SalesforceNewCaseCreated(SlackBaseEvent):
+    """Pydantic model for Salesforce new case event."""
+
+    type: str = ""
+
+
 class Event(BaseModel):
     """Database representation of an event from the agent.event table.
 
@@ -332,3 +348,20 @@ class AgentResponseContext(BaseModel):
         """
         if self.user is not None and self.user.tz is not None:
             self.local_time = self.event.event_ts.astimezone(ZoneInfo(self.user.tz))
+
+
+class SalesforceConfig(BaseModel):
+    client_id: str | None = SALESFORCE_CLIENT_ID
+    client_secret: str | None = SALESFORCE_CLIENT_SECRET
+    domain: str | None = SALESFORCE_DOMAIN
+
+    def is_valid(self) -> bool:
+        return (
+            self.client_id is not None
+            and self.client_secret is not None
+            and self.domain is not None
+        )
+
+
+# Type alias for event processing callback
+EventProcessor = Callable[[HarnessContext, Event], Awaitable[None]]

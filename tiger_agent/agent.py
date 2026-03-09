@@ -51,18 +51,7 @@ from tiger_agent.utils.exception_handling import (
     wrap_mcp_servers_with_exception_handling,
 )
 from tiger_agent.utils.mcp_servers import MCPLoader, filter_mcp_servers
-from tiger_agent.utils.slack import (
-    BotInfo,
-    add_reaction,
-    download_private_file,
-    download_slack_hosted_file,
-    fetch_bot_info,
-    fetch_user_info,
-    post_response,
-    remove_reaction,
-    set_status,
-    stream_response_to_mention,
-)
+from tiger_agent.utils.slack import BotInfo, SlackUtils, fetch_bot_info
 from tiger_agent.utils.type import file_type_supported
 
 logger = logging.getLogger(__name__)
@@ -112,6 +101,7 @@ class TigerAgent:
         disable_streaming: bool = False,
     ):
         self.bot_info: BotInfo | None = None
+        self.slack_utils: SlackUtils | None = None
         self.model = model
         self.extra_context: dict[str, BaseModel] = {}
         self.disable_streaming = disable_streaming
@@ -258,9 +248,8 @@ class TigerAgent:
             return rendered_user_prompts
 
         user_contents: list[UserContent] = [
-            await download_private_file(
+            await self.slack_utils.download_private_file(
                 url_private_download=file.url_private_download,
-                slack_bot_token=ctx.slack_bot_token,
             )
             for file in ctx.mention.files
             if file_type_supported(file.mimetype)
@@ -324,7 +313,9 @@ class TigerAgent:
             None - responses are posted directly to Slack during processing
         """
         mention = stream_event.event
-        client = hctx.app.client
+
+        if self.slack_utils is None:
+            self.slack_utils = SlackUtils(hctx)
 
         if await usage_limit_reached(
             pool=hctx.pool,
@@ -341,9 +332,9 @@ class TigerAgent:
             return "I cannot process your request at this time due to usage limits. Please ask me again later."
 
         if not self.bot_info:
-            self.bot_info = await fetch_bot_info(hctx.app.client)
+            self.bot_info = await fetch_bot_info(self.client)
 
-        user_info = await fetch_user_info(hctx.app.client, mention.user)
+        user_info = await self.slack_utils.fetch_user_info(mention.user)
 
         all_mcp_servers = self.mcp_loader()
         self.augment_mcp_servers(all_mcp_servers)
@@ -373,14 +364,10 @@ class TigerAgent:
 
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 
-        slack_bot_token = hctx.slack_bot_token
-
         async def _download_slack_hosted_file(
             file: SlackFile,
         ) -> BinaryContent | str | None:
-            return await download_slack_hosted_file(
-                file, slack_bot_token=slack_bot_token
-            )
+            return await self.slack_utils.download_slack_hosted_file(file)
 
         agent = Agent(
             model=self.model,
@@ -403,8 +390,7 @@ class TigerAgent:
             else None,
         )
 
-        await set_status(
-            client=client,
+        await self.slack_utils.set_status(
             channel_id=mention.channel,
             thread_ts=mention.thread_ts or mention.ts,
             is_busy=True,
@@ -417,15 +403,13 @@ class TigerAgent:
                 usage_limits=UsageLimits(output_tokens_limit=9_000),
             )
 
-            await post_response(
-                client=hctx.app.client,
+            await self.slack_utils.post_response(
                 channel=mention.channel,
                 thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
                 text=response.output,
             )
 
-            await set_status(
-                client=client,
+            await self.slack_utils.set_status(
                 channel_id=mention.channel,
                 thread_ts=mention.thread_ts or mention.ts,
                 is_busy=False,
@@ -441,8 +425,7 @@ class TigerAgent:
             deps=ctx,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
-            slack_stream = await stream_response_to_mention(
-                client,
+            slack_stream = await self.slack_utils.stream_response_to_mention(
                 slack_stream=slack_stream,
                 stream_event=stream_event,
                 channel_id=mention.channel,
@@ -456,8 +439,7 @@ class TigerAgent:
             await slack_stream.stop()
 
         # clear the status widget
-        await set_status(
-            client=client,
+        await self.slack_utils.set_status(
             channel_id=mention.channel,
             thread_ts=mention.thread_ts or mention.ts,
             is_busy=False,
@@ -492,20 +474,24 @@ class TigerAgent:
         Raises:
             Exception: Re-raises any processing exceptions for EventHarness retry handling
         """
-        client = hctx.app.client
+        if self.slack_utils is None:
+            self.slack_utils = SlackUtils(hctx)
         mention = event.event
         try:
             if await user_ignored(pool=hctx.pool, user_id=mention.user):
                 logfire.info("Ignore user", user_id=mention.user)
                 return
             await self.generate_response(hctx, event)
-            await add_reaction(client, mention.channel, mention.ts, "white_check_mark")
+            await self.slack_utils.add_reaction(
+                mention.channel, mention.ts, "white_check_mark"
+            )
         except Exception as e:
             logger.exception("response failed", exc_info=e)
-            await remove_reaction(client, mention.channel, mention.ts, "spinthinking")
-            await add_reaction(client, mention.channel, mention.ts, "x")
-            await post_response(
-                client,
+            await self.slack_utils.remove_reaction(
+                mention.channel, mention.ts, "spinthinking"
+            )
+            await self.slack_utils.add_reaction(mention.channel, mention.ts, "x")
+            await self.slack_utils.post_response(
                 mention.channel,
                 mention.thread_ts if mention.thread_ts else mention.ts,
                 "I experienced an issue trying to respond. I will try again."
