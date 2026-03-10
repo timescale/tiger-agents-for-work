@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import logfire
 
 from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
+from tiger_agent.utils.db import user_is_admin
 from tiger_agent.utils.slack import parse_slack_url, parse_slack_user_name
 from tiger_agent.utils.type import serialize_to_jsonb
 
@@ -308,8 +309,8 @@ def _build_command_handlers() -> CommandGroup:
 
 
 async def handle_command(command: SlackCommand, hctx: HarnessContext) -> str:
-    # if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
-    #     return "Slash commands can only be used by admins."
+    if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
+        return "Slash commands can only be used by admins."
     ctx = CommandContext(hctx=hctx, command=command)
     handlers = _build_command_handlers()
     return await handlers(command.text, ctx)
