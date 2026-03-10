@@ -74,25 +74,7 @@ def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
 
 
 def parse_slack_url(url: str) -> SlackUrlParts:
-    """Parse a Slack message URL into its component parts.
-
-    Handles URLs like:
-        https://workspace.slack.com/archives/C12345/p1773168340948949
-        https://workspace.slack.com/archives/C12345/p1773168340948949?thread_ts=1773168326.112309&cid=C12345
-
-    The p-prefixed ts has no decimal; one is inserted before the last 6 digits to produce
-    the seconds.microseconds format used by Slack APIs. thread_ts from the query param is
-    already in that format.
-
-    Args:
-        url: Full Slack message URL
-
-    Returns:
-        SlackUrlParts with channel_id, ts, and thread_ts (None if not a threaded message)
-
-    Raises:
-        ValueError: If the URL does not match the expected Slack archive URL format
-    """
+    """Parse a Slack message URL into its component parts."""
 
     parsed = urlparse(url)
     path_match = re.search(r"/archives/([^/]+)/p(\d+)", parsed.path)
