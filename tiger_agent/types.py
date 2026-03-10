@@ -179,6 +179,13 @@ class UserInfo(BaseModel):
     profile: UserProfile
 
 
+@dataclass
+class SlackUrlParts:
+    channel_id: str
+    ts: str
+    thread_ts: str | None
+
+
 class SlackCommand(BaseModel):
     """This represents a partial definition of the command object emitted to a handler for a slash command."""
 
