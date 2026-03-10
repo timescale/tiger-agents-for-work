@@ -244,7 +244,7 @@ async def handle_delete_agent_message_command(
     except Exception:
         logfire.exception("Could not delete message", extra={"message_url": args[0]})
         return f"Failed to delete message: {args[0]}"
-
+    logfire.info("Deleted agent message", extra={"message": url_parts})
     return f"Deleted message: {args[0]}"
 
 
