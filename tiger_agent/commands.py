@@ -4,9 +4,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+import logfire
+
 from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
 from tiger_agent.utils.db import user_is_admin
-from tiger_agent.utils.slack import parse_slack_user_name
+from tiger_agent.utils.slack import parse_slack_url, parse_slack_user_name
 from tiger_agent.utils.type import serialize_to_jsonb
 
 """
@@ -227,6 +229,25 @@ async def handle_admins_list_command(ctx: CommandContext, _: list[str]) -> str:
         return f"Current admin users ({len(user_list)}):\n" + "\n".join(user_list)
 
 
+async def handle_delete_agent_message_command(
+    ctx: CommandContext, args: list[str]
+) -> str:
+    url_parts = parse_slack_url(args[0])
+
+    if (not url_parts.channel_id) or (not url_parts.ts):
+        raise Exception("Not a valid Slack url")
+
+    try:
+        await ctx.hctx.app.client.chat_delete(
+            channel=url_parts.channel_id, ts=url_parts.ts, as_user=True
+        )
+    except Exception:
+        logfire.exception("Could not delete message", extra={"message_url": args[0]})
+        return f"Failed to delete message: {args[0]}"
+    logfire.info("Deleted agent message", extra={"message": url_parts})
+    return f"Deleted message: {args[0]}"
+
+
 _slash_commands: CommandGroup | None = None
 
 
@@ -235,6 +256,16 @@ def _build_command_handlers() -> CommandGroup:
     if _slash_commands is None:
         _slash_commands = CommandGroup(
             commands=[
+                CommandGroup(
+                    key="messages",
+                    commands=[
+                        Command(
+                            key="delete",
+                            expected_parameters=1,
+                            func=handle_delete_agent_message_command,
+                        ),
+                    ],
+                ),
                 CommandGroup(
                     key="users",
                     commands=[
@@ -271,7 +302,7 @@ def _build_command_handlers() -> CommandGroup:
                             ],
                         ),
                     ],
-                )
+                ),
             ]
         )
     return _slash_commands

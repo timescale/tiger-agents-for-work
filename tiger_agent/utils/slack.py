@@ -16,6 +16,7 @@ import os
 import re
 from collections.abc import Sequence
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import logfire
@@ -44,6 +45,7 @@ from tiger_agent.types import (
     ChannelInfo,
     HarnessContext,
     SlackFile,
+    SlackUrlParts,
     UserInfo,
 )
 from tiger_agent.utils.type import file_type_supported
@@ -69,6 +71,35 @@ def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
         "Argument was not of expected format for a <@USER_ID|username> formatted Slack username + user id"
     )
     return (None, None)
+
+
+def parse_slack_url(url: str) -> SlackUrlParts:
+    """Parse a Slack message URL into its component parts."""
+
+    parsed = urlparse(url)
+    path_match = re.search(r"/archives/([^/]+)/p(\d+)", parsed.path)
+    if not path_match:
+        raise ValueError(f"Could not parse Slack URL path: {url}")
+
+    channel_id = path_match.group(1)
+    raw_ts = path_match.group(2)
+
+    # p-prefix ts has no decimal — insert before last 6 digits
+    # Handles both with and without fractional seconds (though Slack always uses 6 digits)
+    ts = f"{raw_ts[:-6]}.{raw_ts[-6:]}" if len(raw_ts) > 6 else f"0.{raw_ts.zfill(6)}"
+
+    # thread_ts from query param may or may not have a decimal
+    raw_thread_ts = parse_qs(parsed.query).get("thread_ts", [None])[0]
+    if raw_thread_ts is not None and "." not in raw_thread_ts:
+        # No decimal — insert before last 6 digits
+        if len(raw_thread_ts) > 6:
+            thread_ts = f"{raw_thread_ts[:-6]}.{raw_thread_ts[-6:]}"
+        else:
+            thread_ts = f"0.{raw_thread_ts.zfill(6)}"
+    else:
+        thread_ts = raw_thread_ts
+
+    return SlackUrlParts(channel_id=channel_id, ts=ts, thread_ts=thread_ts)
 
 
 @logfire.instrument("add_reaction", extract_args=["channel", "ts", "emoji"])
