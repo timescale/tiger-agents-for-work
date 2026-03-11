@@ -7,9 +7,9 @@ from dotenv import find_dotenv, load_dotenv
 from psycopg import AsyncConnection
 
 from tiger_agent import EventHarness, TigerAgent
-from tiger_agent.log_config import setup_logging
 from tiger_agent.migrations import runner
 from tiger_agent.salesforce.types import SalesforceConfig
+from tiger_agent.utils import setup_logging
 
 
 @click.group()

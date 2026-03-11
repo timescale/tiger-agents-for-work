@@ -51,7 +51,7 @@ from tiger_agent.slack.types import (
     SlackUrlParts,
     UserInfo,
 )
-from tiger_agent.utils.type import file_type_supported
+from tiger_agent.utils import file_type_supported
 
 
 def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:

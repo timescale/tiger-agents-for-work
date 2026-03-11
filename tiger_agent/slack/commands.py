@@ -9,7 +9,7 @@ import logfire
 from tiger_agent.events.types import HarnessContext
 from tiger_agent.slack.types import SlackCommand
 from tiger_agent.slack.utils import parse_slack_url, parse_slack_user_name
-from tiger_agent.utils.type import serialize_to_jsonb
+from tiger_agent.utils import serialize_to_jsonb
 
 """
 Command System for Tiger Agent Slack Bot
