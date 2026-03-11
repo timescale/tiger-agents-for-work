@@ -7,7 +7,8 @@ from pydantic_ai.mcp import (
     ProcessToolCallback,
 )
 
-from tiger_agent.types import AgentResponseContext, MCPDict
+from tiger_agent.agent.types import AgentResponseContext
+from tiger_agent.mcp.types import MCPDict
 
 
 def create_wrapped_process_tool_call(

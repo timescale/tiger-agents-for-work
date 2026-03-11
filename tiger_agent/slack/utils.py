@@ -39,11 +39,14 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
-from tiger_agent.constants import CONFIRM_PROACTIVE_PROMPT, REJECT_PROACTIVE_PROMPT
-from tiger_agent.types import (
+from tiger_agent.events.types import HarnessContext
+from tiger_agent.slack.constants import (
+    CONFIRM_PROACTIVE_PROMPT,
+    REJECT_PROACTIVE_PROMPT,
+)
+from tiger_agent.slack.types import (
     BotInfo,
     ChannelInfo,
-    HarnessContext,
     SlackFile,
     SlackUrlParts,
     UserInfo,

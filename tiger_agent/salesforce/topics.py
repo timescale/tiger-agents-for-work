@@ -10,6 +10,7 @@ from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
     CASE_ID_FIELD,
     CASE_OWNER_ID_FIELD,
+    SALESFORCE_CASE_CHANNEL,
 )
 from tiger_agent.salesforce.types import CaseData
 
@@ -80,6 +81,11 @@ async def subscribe_to_topic(
 
 
 async def handle_new_case(case: CaseData):
+    if not SALESFORCE_CASE_CHANNEL:
+        logfire.warn(
+            "A new case was created, but no Slack channel configured",
+            extra={"case": case.model_dump_json()},
+        )
     logfire.info("New case", extra={"case": case.model_dump_json()})
 
 

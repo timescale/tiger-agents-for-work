@@ -29,29 +29,29 @@ from slack_bolt.app.async_app import AsyncApp
 from slack_bolt.context.ack.async_ack import AsyncAck
 from slack_bolt.context.respond.async_respond import AsyncRespond
 
-from tiger_agent.commands import handle_command
-from tiger_agent.constants import CONFIRM_PROACTIVE_PROMPT, REJECT_PROACTIVE_PROMPT
-from tiger_agent.migrations import runner
-from tiger_agent.salesforce.clients import get_salesforce_api_client
-from tiger_agent.salesforce.topics import (
-    subscribe_to_case_assignee_changed,
-    subscribe_to_new_cases,
-)
-from tiger_agent.types import (
-    EventProcessor,
-    HarnessContext,
-    SalesforceConfig,
-    SlackCommand,
-)
-from tiger_agent.utils.db import (
+from tiger_agent.db.utils import (
     create_default_pool,
     delete_expired_events,
     get_event_hist,
     insert_event,
     insert_handled_event,
 )
-from tiger_agent.utils.events import process_event, process_events
-from tiger_agent.utils.slack import SlackUtils
+from tiger_agent.events.types import EventProcessor, HarnessContext
+from tiger_agent.events.utils import process_event, process_events
+from tiger_agent.migrations import runner
+from tiger_agent.salesforce.clients import get_salesforce_api_client
+from tiger_agent.salesforce.topics import (
+    subscribe_to_case_assignee_changed,
+    subscribe_to_new_cases,
+)
+from tiger_agent.salesforce.types import SalesforceConfig
+from tiger_agent.slack.commands import handle_command
+from tiger_agent.slack.constants import (
+    CONFIRM_PROACTIVE_PROMPT,
+    REJECT_PROACTIVE_PROMPT,
+)
+from tiger_agent.slack.types import SlackCommand
+from tiger_agent.slack.utils import SlackUtils
 
 logger = logging.getLogger(__name__)
 

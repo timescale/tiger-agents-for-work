@@ -1,16 +1,10 @@
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
-from .agent import TigerAgent
-from .harness import EventHarness
-from .types import (
-    AgentResponseContext,
-    Event,
-    EventProcessor,
-    ExtraContextDict,
-    HarnessContext,
-    PromptPackage,
-    SlackAppMentionEvent,
-)
+from tiger_agent.agent import AgentResponseContext, ExtraContextDict, TigerAgent
+from tiger_agent.events.harness import EventHarness
+from tiger_agent.events.types import Event, EventProcessor, HarnessContext
+from tiger_agent.prompts.types import PromptPackage
+from tiger_agent.slack.types import SlackAppMentionEvent
 
 __all__ = [
     "AgentResponseContext",

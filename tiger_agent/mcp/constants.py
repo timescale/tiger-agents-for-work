@@ -1,6 +1,6 @@
-from tiger_agent.types import McpConfigExtraFields
-
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
+
+from tiger_agent.mcp.types import McpConfigExtraFields
 
 
 def get_all_fields(cls) -> set:
