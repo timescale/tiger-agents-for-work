@@ -2,11 +2,8 @@ import logging
 
 import logfire
 
-from tiger_agent.types import Event, EventProcessor, HarnessContext
-from tiger_agent.utils.db import (
-    claim_event,
-    delete_event,
-)
+from tiger_agent.db.utils import claim_event, delete_event
+from tiger_agent.events.types import Event, EventProcessor, HarnessContext
 
 logger = logging.getLogger(__name__)
 

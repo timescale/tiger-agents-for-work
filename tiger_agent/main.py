@@ -4,10 +4,12 @@ from pathlib import Path
 
 import click
 from dotenv import find_dotenv, load_dotenv
+from psycopg import AsyncConnection
 
 from tiger_agent import EventHarness, TigerAgent
-from tiger_agent.log_config import setup_logging
-from tiger_agent.types import SalesforceConfig
+from tiger_agent.migrations import runner
+from tiger_agent.salesforce.types import SalesforceConfig
+from tiger_agent.utils import setup_logging
 
 
 @click.group()
@@ -163,10 +165,6 @@ def migrate(
     """Run database migrations"""
     load_dotenv(dotenv_path=env if env else find_dotenv(usecwd=True))
     setup_logging()
-
-    from psycopg import AsyncConnection
-
-    from tiger_agent.migrations import runner
 
     async def do():
         async with await AsyncConnection.connect() as con:

@@ -1,55 +1,7 @@
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
-from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
-from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
-from slack_bolt.app.async_app import AsyncApp
-
-from tiger_agent.salesforce.constants import (
-    SALESFORCE_CLIENT_ID,
-    SALESFORCE_CLIENT_SECRET,
-    SALESFORCE_DOMAIN,
-)
-
-
-class PromptPackage(BaseModel):
-    package_name: str
-    package_path: str = "templates"
-
-
-@dataclass
-class McpConfigExtraFields:
-    """
-    This represents the custom-properties on the config items in the mcp_config.json file.
-    Each item can use properties from MCPServerStreamableHTTP or MCPServerStdio, plus these fields
-    Attributes:
-        internal_only: Specifies if this can be used in externally shared channels
-
-    """
-
-    internal_only: bool
-    disabled: bool
-
-
-@dataclass
-class McpConfig:
-    """
-    Attributes:
-        internal_only: Specifies if this can be used in externally shared channels
-        mcp_server: The MCP server instance
-    """
-
-    internal_only: bool
-    mcp_server: MCPServerStreamableHTTP | MCPServerStdio
-
-
-type MCPDict = dict[str, McpConfig]
-
-type ExtraContextDict = dict[str, BaseModel]
 
 
 class ChannelInfo(BaseModel):
@@ -197,36 +149,6 @@ class SlackCommand(BaseModel):
     text: str | None = None
 
 
-@dataclass
-class HarnessContext:
-    """Shared context provided to event processors.
-
-    This context gives event processors access to the Slack app for API calls,
-    the database connection pool for data operations, and the task group for
-    spawning concurrent tasks.
-
-    Attributes:
-        app: Slack Bolt AsyncApp for making Slack API calls
-        pool: Database connection pool for PostgreSQL operations
-    """
-
-    app: AsyncApp
-    pool: AsyncConnectionPool
-    slack_bot_token: str
-
-
-@dataclass
-class CommandContext:
-    """Shared context provided to the command handlers."""
-
-    hctx: HarnessContext
-    command: SlackCommand
-
-
-class SalesforceBaseEvent(BaseModel):
-    """Base Pydantic model for events from Salesforce"""
-
-
 class SlackFile(BaseModel):
     """Pydantic model for Slack file objects.
 
@@ -291,84 +213,3 @@ class SlackMessageEvent(SlackBaseEvent):
 
     type: str = "message"
     subtype: str | None = None
-
-
-class SalesforceNewCaseCreated(SlackBaseEvent):
-    """Pydantic model for Salesforce new case event."""
-
-    type: str = ""
-
-
-class Event(BaseModel):
-    """Database representation of an event from the agent.event table.
-
-    This model represents events stored in the PostgreSQL work queue table,
-    including metadata for retry logic and worker coordination.
-
-    Attributes:
-        id: Primary key from agent.event table
-        event_ts: Timestamp when the event occurred
-        attempts: Number of processing attempts made
-        vt: Visibility threshold - when event becomes available for processing
-        claimed: Array of timestamps when event was claimed by workers
-        event: The original Slack app mention event data
-    """
-
-    id: int
-    event_ts: datetime
-    attempts: int
-    vt: datetime
-    claimed: list[datetime]
-    event: SlackAppMentionEvent | SlackMessageEvent
-
-
-class AgentResponseContext(BaseModel):
-    """Context object for AI agent responses containing event data and user information.
-
-    This model serves as the context passed to Jinja2 templates for generating
-    system and user prompts. It contains all necessary information about the
-    Slack event, user details, and computed values like localized timestamps.
-
-    Attributes:
-        event: The database event record containing metadata and Slack event data
-        mention: The specific app mention or message event that triggered processing
-        bot: Information about the bot user (display name, user ID, etc.)
-        user: Slack user information including timezone, or None if unavailable
-        local_time: Event timestamp converted to user's local timezone, set automatically
-        mcp_servers: Dictionary of mcp servers that the Agent has as its disposal
-    """
-
-    event: Event
-    mention: SlackAppMentionEvent | SlackMessageEvent
-    bot: BotInfo
-    user: UserInfo | None = None
-    local_time: datetime | None = None
-    mcp_servers: MCPDict | None = None
-    slack_bot_token: str
-
-    def model_post_init(self, __context):
-        """Automatically compute derived fields after model initialization.
-
-        Sets the local_time field by converting the event timestamp to the
-        user's timezone if user information is available. This ensures templates
-        always have access to properly localized time information.
-        """
-        if self.user is not None and self.user.tz is not None:
-            self.local_time = self.event.event_ts.astimezone(ZoneInfo(self.user.tz))
-
-
-class SalesforceConfig(BaseModel):
-    client_id: str | None = SALESFORCE_CLIENT_ID
-    client_secret: str | None = SALESFORCE_CLIENT_SECRET
-    domain: str | None = SALESFORCE_DOMAIN
-
-    def is_valid(self) -> bool:
-        return (
-            self.client_id is not None
-            and self.client_secret is not None
-            and self.domain is not None
-        )
-
-
-# Type alias for event processing callback
-EventProcessor = Callable[[HarnessContext, Event], Awaitable[None]]

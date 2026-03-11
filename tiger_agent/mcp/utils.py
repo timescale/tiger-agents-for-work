@@ -9,9 +9,9 @@ from pydantic_ai.mcp import (
 )
 from slack_bolt.app.async_app import AsyncApp
 
-from tiger_agent.fields import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
-from tiger_agent.types import McpConfig, MCPDict
-from tiger_agent.utils.slack import fetch_channel_info
+from tiger_agent.mcp.constants import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
+from tiger_agent.mcp.types import McpConfig, MCPDict
+from tiger_agent.slack.utils import fetch_channel_info
 
 
 async def filter_unresponsive_mcp_servers(mcp_servers: MCPDict) -> MCPDict:

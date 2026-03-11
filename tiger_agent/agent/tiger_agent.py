@@ -37,22 +37,18 @@ from slack_sdk.web.async_client import (
     AsyncChatStream,
 )
 
-from tiger_agent.types import (
-    AgentResponseContext,
-    Event,
-    ExtraContextDict,
-    HarnessContext,
-    MCPDict,
-    PromptPackage,
-    SlackFile,
-)
-from tiger_agent.utils.db import usage_limit_reached, user_ignored
-from tiger_agent.utils.exception_handling import (
+from tiger_agent.agent.types import AgentResponseContext, ExtraContextDict
+from tiger_agent.db.utils import usage_limit_reached, user_ignored
+from tiger_agent.events.types import Event, HarnessContext
+from tiger_agent.mcp.types import MCPDict
+from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
+from tiger_agent.prompts.types import PromptPackage
+from tiger_agent.slack.types import BotInfo, SlackFile
+from tiger_agent.slack.utils import SlackUtils, fetch_bot_info
+from tiger_agent.utils import (
+    file_type_supported,
     wrap_mcp_servers_with_exception_handling,
 )
-from tiger_agent.utils.mcp_servers import MCPLoader, filter_mcp_servers
-from tiger_agent.utils.slack import BotInfo, SlackUtils, fetch_bot_info
-from tiger_agent.utils.type import file_type_supported
 
 logger = logging.getLogger(__name__)
 

@@ -9,8 +9,8 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 from pydantic import ValidationError
 
-from tiger_agent.constants import PG_MAX_POOL_SIZE
-from tiger_agent.types import Event
+from tiger_agent.db.constants import PG_MAX_POOL_SIZE
+from tiger_agent.events.types import Event
 
 logger = logging.getLogger(__name__)
 

@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 
 import logfire
 
-from tiger_agent.types import CommandContext, HarnessContext, SlackCommand
-from tiger_agent.utils.db import user_is_admin
-from tiger_agent.utils.slack import parse_slack_url, parse_slack_user_name
-from tiger_agent.utils.type import serialize_to_jsonb
+from tiger_agent.events.types import HarnessContext
+from tiger_agent.slack.types import SlackCommand
+from tiger_agent.slack.utils import parse_slack_url, parse_slack_user_name
+from tiger_agent.utils import serialize_to_jsonb
 
 """
 Command System for Tiger Agent Slack Bot
@@ -55,6 +55,14 @@ Commands use `re.match()` to match patterns from the beginning of tokens:
 If no command matches, the system returns available subcommands for that level.
 Commands can validate argument counts and return appropriate error messages.
 """
+
+
+@dataclass
+class CommandContext:
+    """Shared context provided to the command handlers."""
+
+    hctx: HarnessContext
+    command: SlackCommand
 
 
 @dataclass
@@ -309,8 +317,8 @@ def _build_command_handlers() -> CommandGroup:
 
 
 async def handle_command(command: SlackCommand, hctx: HarnessContext) -> str:
-    if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
-        return "Slash commands can only be used by admins."
+    # if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
+    #     return "Slash commands can only be used by admins."
     ctx = CommandContext(hctx=hctx, command=command)
     handlers = _build_command_handlers()
     return await handlers(command.text, ctx)

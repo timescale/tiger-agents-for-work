@@ -5,8 +5,8 @@ import logfire
 from dotenv import find_dotenv, load_dotenv
 
 from tiger_agent import EventHarness
-from tiger_agent.log_config import setup_logging
-from tiger_agent.types import Event, HarnessContext
+from tiger_agent.events.types import Event, HarnessContext
+from tiger_agent.utils import setup_logging
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
 NAME = Path(__file__).with_suffix("").name

@@ -39,16 +39,19 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
-from tiger_agent.constants import CONFIRM_PROACTIVE_PROMPT, REJECT_PROACTIVE_PROMPT
-from tiger_agent.types import (
+from tiger_agent.events.types import HarnessContext
+from tiger_agent.slack.constants import (
+    CONFIRM_PROACTIVE_PROMPT,
+    REJECT_PROACTIVE_PROMPT,
+)
+from tiger_agent.slack.types import (
     BotInfo,
     ChannelInfo,
-    HarnessContext,
     SlackFile,
     SlackUrlParts,
     UserInfo,
 )
-from tiger_agent.utils.type import file_type_supported
+from tiger_agent.utils import file_type_supported
 
 
 def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
