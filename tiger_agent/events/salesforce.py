@@ -27,10 +27,7 @@ class SalesforceEventHandler:
     async def start(self, tasks: TaskGroup):
         self._salesforce_client = get_salesforce_api_client()
         tasks.create_task(self.subscribe_to_new_cases())
-        tasks.create_task(
-            self.subscribe_to_case_assignee_changed()
-        )
-
+        tasks.create_task(self.subscribe_to_case_assignee_changed())
 
     def upsert_case_push_topic_definition(
         self,
@@ -62,7 +59,6 @@ class SalesforceEventHandler:
         else:
             result = self._salesforce_client.PushTopic.create(topic_config)
             logfire.info("PushTopic created", extra={"id": result["id"]})
-
 
     async def subscribe_to_topic(
         self,
@@ -96,7 +92,6 @@ class SalesforceEventHandler:
                 except Exception:
                     logfire.exception("Error handling new case", case_id=case_id)
 
-
     async def handle_new_case(self, case: CaseData):
         if not SALESFORCE_CASE_CHANNEL:
             logfire.warn(
@@ -105,10 +100,8 @@ class SalesforceEventHandler:
             )
         logfire.info("New case", extra={"case": case.model_dump_json()})
 
-
     async def handle_updated_case_assignee(case: CaseData):
         logfire.info("Case assignee changed", extra={"case": case.model_dump_json()})
-
 
     async def subscribe_to_new_cases(self):
         try:
@@ -125,7 +118,6 @@ class SalesforceEventHandler:
         except Exception:
             logfire.exception("Error in subscribe_to_new_cases")
 
-
     async def subscribe_to_case_assignee_changed(self):
         try:
             topic_name = "CaseOwnerChangedTopic"
@@ -141,5 +133,3 @@ class SalesforceEventHandler:
             )
         except Exception:
             logfire.exception("Error in subscribe_to_case_assignee_changed")
-
-                logfire.exception("Error in subscribe_to_case_assignee_changed")
