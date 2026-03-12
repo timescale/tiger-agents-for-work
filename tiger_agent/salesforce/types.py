@@ -1,3 +1,4 @@
+import logfire
 from pydantic import BaseModel
 
 from tiger_agent.salesforce.constants import (
@@ -29,11 +30,14 @@ class SalesforceConfig(BaseModel):
     domain: str | None = SALESFORCE_DOMAIN
 
     def is_valid(self) -> bool:
-        return (
+        valid = (
             self.client_id is not None
             and self.client_secret is not None
             and self.domain is not None
         )
+        if not valid:
+            logfire.info("Invalid Salesforce config provided")
+        return valid
 
 
 class SalesforceBaseEvent(BaseModel):
