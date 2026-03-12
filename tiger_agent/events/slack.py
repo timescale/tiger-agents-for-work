@@ -20,6 +20,7 @@ from tiger_agent.slack.utils import (
     fetch_bot_info,
     handle_proactive_prompt,
     send_proactive_prompt,
+    set_status,
 )
 
 
@@ -64,6 +65,12 @@ class SlackEventHandler:
         tasks.create_task(handler.start_async())
 
     async def _on_slack_event(self, ack: AsyncAck, event: dict[str, Any]):
+        await set_status(
+            self._app.client,
+            channel_id=event.get("channel"),
+            thread_ts=event.get("thread_ts") or event.get("ts"),
+            is_busy=True,
+        )
         await insert_event(self._pool, event)
         await ack()
         await self._trigger.put(True)
