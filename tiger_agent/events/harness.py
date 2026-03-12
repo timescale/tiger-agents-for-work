@@ -268,4 +268,4 @@ class EventHarness:
             await slack_event_handler.start(tasks=tasks)
 
             if self._salesforce_config and self._salesforce_config.is_valid():
-                await salesforce_event_handler.start()
+                await salesforce_event_handler.start(tasks=tasks)
