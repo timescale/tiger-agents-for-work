@@ -17,27 +17,20 @@ import asyncio
 import logging
 import os
 import random
-import re
 from asyncio import QueueShutDown, TaskGroup
-from collections.abc import Awaitable, Callable, Sequence
-from typing import Any
+from collections.abc import Sequence
 
 import logfire
 from psycopg_pool import AsyncConnectionPool
-from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.app.async_app import AsyncApp
-from slack_bolt.context.ack.async_ack import AsyncAck
-from slack_bolt.context.respond.async_respond import AsyncRespond
 
 from tiger_agent.db.utils import (
     create_default_pool,
     delete_expired_events,
-    get_event_hist,
-    insert_event,
-    insert_handled_event,
 )
+from tiger_agent.events.slack import SlackEventHandler
 from tiger_agent.events.types import EventProcessor, HarnessContext
-from tiger_agent.events.utils import process_event, process_events
+from tiger_agent.events.utils import process_events
 from tiger_agent.migrations import runner
 from tiger_agent.salesforce.clients import get_salesforce_api_client
 from tiger_agent.salesforce.topics import (
@@ -45,13 +38,6 @@ from tiger_agent.salesforce.topics import (
     subscribe_to_new_cases,
 )
 from tiger_agent.salesforce.types import SalesforceConfig
-from tiger_agent.slack.commands import handle_command
-from tiger_agent.slack.constants import (
-    CONFIRM_PROACTIVE_PROMPT,
-    REJECT_PROACTIVE_PROMPT,
-)
-from tiger_agent.slack.types import SlackCommand
-from tiger_agent.slack.utils import SlackUtils
 
 logger = logging.getLogger(__name__)
 
@@ -152,38 +138,19 @@ class EventHarness:
 
         self._salesforce_config = salesforce_config
 
-    @logfire.instrument("on_event", extract_args=False)
-    async def _on_event(
-        self, ack: Callable[[], Awaitable[None]] | None, event: dict[str, Any]
-    ):
-        """Handle incoming Slack app_mention events with immediate worker notification.
-
-        This method implements the "poke" mechanism for immediate event processing:
-        1. Stores the event durably in the database
-        2. Acknowledges to Slack to prevent retries
-        3. "Pokes" exactly one worker via asyncio.Queue trigger for immediate processing
-
-        The trigger ensures that one worker wakes up immediately to process available events
-        rather than waiting for the next polling cycle. This provides excellent responsiveness
-        while maintaining the resilience of periodic polling for retries and avoiding
-        thundering herd effects.
-
-        Args:
-            ack: Slack acknowledgment callback
-            event: Raw Slack event payload
-        """
-        await insert_event(self._pool, event)
-        if ack:
-            await ack()
-        await self._trigger.put(True)
-
     def _make_harness_context(self) -> HarnessContext:
         """Create a context object for event processors.
 
         Returns:
             HarnessContext: Context containing Slack app, database pool, and task group
         """
-        return HarnessContext(self._app, self._pool, self._slack_bot_token)
+        return HarnessContext(
+            self._app,
+            self._pool,
+            self._slack_bot_token,
+            self._slack_app_token,
+            self._trigger,
+        )
 
     def _calc_worker_sleep(self) -> int:
         """Calculate sleep duration for worker with random jitter.
@@ -285,8 +252,11 @@ class EventHarness:
         """
         await self._pool.open(wait=True)
 
-        slack_utils = SlackUtils(self._make_harness_context())
-        bot_info = await slack_utils.fetch_bot_info()
+        slack_event_handler = SlackEventHandler(
+            hctx=self._make_harness_context(),
+            event_processor=self._event_processor,
+            proactive_prompt_channels=self._proactive_prompt_channels,
+        )
 
         async with asyncio.TaskGroup() as tasks:
             async with self._pool.connection() as con:
@@ -297,89 +267,7 @@ class EventHarness:
                 logger.info("creating worker", extra={"worker_id": worker_id})
                 tasks.create_task(self._worker(worker_id, initial_sleep))
 
-            async def on_slack_event(ack: AsyncAck, event: dict[str, Any]):
-                await self._on_event(ack=ack, event=event)
-
-            async def on_slack_command(
-                ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]
-            ):
-                slack_command = SlackCommand(**command)
-                await ack()
-                response = await handle_command(
-                    command=slack_command, hctx=self._make_harness_context()
-                )
-                await respond(
-                    text=response, response_type="ephemeral", delete_original=True
-                )
-
-            self._app.command(re.compile(r"\/.*"))(on_slack_command)
-            self._app.event("app_mention")(on_slack_event)
-
-            async def on_message(ack: AsyncAck, event: dict[str, Any]):
-                await ack()
-
-                # agent should ignore its own messages
-                user = event.get("user")
-                if user == bot_info.user_id or user is None:
-                    return
-
-                event["subtype"] = event["channel_type"]
-                channel = event.get("channel")
-
-                # if the message was in an im to the agent, respond (even though agent was not mentioned)
-                if event["subtype"] in ("im"):
-                    await self._on_event(ack, event)
-                    return
-
-                elif channel not in self._proactive_prompt_channels or re.search(
-                    rf"<@{re.escape(bot_info.user_id)}>", event.get("text", "")
-                ):
-                    return
-
-                # if the channel is one that the agent should proactively respond to and the agent was not @mentioned
-                user = event.get("user")
-                thread_ts = event.get("thread_ts")
-
-                # only offer proactive prompts on top level messages
-                if thread_ts is not None:
-                    return
-
-                event_hist_id = await insert_handled_event(pool=self._pool, event=event)
-                await slack_utils.send_proactive_prompt(
-                    channel=channel,
-                    user=user,
-                    event_hist_id=event_hist_id,
-                )
-
-            async def _handle_proactive_prompt(
-                ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
-            ):
-                # todo: would be nice to not have this wrapper closure, but limiting refactor effort for now
-                event_hist_id = await slack_utils.handle_proactive_prompt(
-                    ack=ack, body=body, respond=respond
-                )
-
-                if not event_hist_id:
-                    return
-
-                event = await get_event_hist(self._pool, event_hist_id)
-
-                if event is None:
-                    logfire.error(
-                        "Could not find event_hist record", event_hist_id=event_hist_id
-                    )
-                    return
-
-                await process_event(
-                    self._event_processor, self._make_harness_context(), event
-                )
-
-            self._app.action(CONFIRM_PROACTIVE_PROMPT)(_handle_proactive_prompt)
-            self._app.action(REJECT_PROACTIVE_PROMPT)(_handle_proactive_prompt)
-            self._app.event("message")(on_message)
-
-            handler = AsyncSocketModeHandler(self._app, app_token=self._slack_app_token)
-            tasks.create_task(handler.start_async())
+            await slack_event_handler.start(tasks=tasks)
 
             if self._salesforce_config:
                 if not self._salesforce_config.is_valid():
