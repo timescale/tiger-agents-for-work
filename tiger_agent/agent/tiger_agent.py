@@ -44,7 +44,17 @@ from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
 from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.slack.types import BotInfo, SlackFile
-from tiger_agent.slack.utils import SlackUtils, fetch_bot_info
+from tiger_agent.slack.utils import (
+    add_reaction,
+    download_private_file,
+    download_slack_hosted_file,
+    fetch_bot_info,
+    fetch_user_info,
+    post_response,
+    remove_reaction,
+    set_status,
+    stream_response_to_mention,
+)
 from tiger_agent.utils import (
     file_type_supported,
     wrap_mcp_servers_with_exception_handling,
@@ -97,7 +107,6 @@ class TigerAgent:
         disable_streaming: bool = False,
     ):
         self.bot_info: BotInfo | None = None
-        self.slack_utils: SlackUtils | None = None
         self.model = model
         self.extra_context: dict[str, BaseModel] = {}
         self.disable_streaming = disable_streaming
@@ -244,8 +253,9 @@ class TigerAgent:
             return rendered_user_prompts
 
         user_contents: list[UserContent] = [
-            await self.slack_utils.download_private_file(
+            await download_private_file(
                 url_private_download=file.url_private_download,
+                slack_bot_token=ctx.slack_bot_token,
             )
             for file in ctx.mention.files
             if file_type_supported(file.mimetype)
@@ -310,9 +320,6 @@ class TigerAgent:
         """
         mention = stream_event.event
 
-        if self.slack_utils is None:
-            self.slack_utils = SlackUtils(hctx)
-
         if await usage_limit_reached(
             pool=hctx.pool,
             user_id=mention.user,
@@ -330,7 +337,7 @@ class TigerAgent:
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
 
-        user_info = await self.slack_utils.fetch_user_info(mention.user)
+        user_info = await fetch_user_info(client=hctx.app.client, user_id=mention.user)
 
         all_mcp_servers = self.mcp_loader()
         self.augment_mcp_servers(all_mcp_servers)
@@ -363,7 +370,9 @@ class TigerAgent:
         async def _download_slack_hosted_file(
             file: SlackFile,
         ) -> BinaryContent | str | None:
-            return await self.slack_utils.download_slack_hosted_file(file)
+            return await download_slack_hosted_file(
+                file=file, slack_bot_token=hctx.slack_bot_token
+            )
 
         agent = Agent(
             model=self.model,
@@ -386,7 +395,8 @@ class TigerAgent:
             else None,
         )
 
-        await self.slack_utils.set_status(
+        await set_status(
+            client=hctx.app.client,
             channel_id=mention.channel,
             thread_ts=mention.thread_ts or mention.ts,
             is_busy=True,
@@ -399,13 +409,15 @@ class TigerAgent:
                 usage_limits=UsageLimits(output_tokens_limit=9_000),
             )
 
-            await self.slack_utils.post_response(
+            await post_response(
+                client=hctx.app.client,
                 channel=mention.channel,
                 thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
                 text=response.output,
             )
 
-            await self.slack_utils.set_status(
+            await set_status(
+                client=hctx.app.client,
                 channel_id=mention.channel,
                 thread_ts=mention.thread_ts or mention.ts,
                 is_busy=False,
@@ -421,7 +433,8 @@ class TigerAgent:
             deps=ctx,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
-            slack_stream = await self.slack_utils.stream_response_to_mention(
+            slack_stream = await stream_response_to_mention(
+                client=hctx.app.client,
                 slack_stream=slack_stream,
                 stream_event=stream_event,
                 channel_id=mention.channel,
@@ -435,7 +448,8 @@ class TigerAgent:
             await slack_stream.stop()
 
         # clear the status widget
-        await self.slack_utils.set_status(
+        await set_status(
+            client=hctx.app.client,
             channel_id=mention.channel,
             thread_ts=mention.thread_ts or mention.ts,
             is_busy=False,
@@ -470,27 +484,26 @@ class TigerAgent:
         Raises:
             Exception: Re-raises any processing exceptions for EventHarness retry handling
         """
-        if self.slack_utils is None:
-            self.slack_utils = SlackUtils(hctx)
         mention = event.event
         try:
             if await user_ignored(pool=hctx.pool, user_id=mention.user):
                 logfire.info("Ignore user", user_id=mention.user)
                 return
             await self.generate_response(hctx, event)
-            await self.slack_utils.add_reaction(
-                mention.channel, mention.ts, "white_check_mark"
+            await add_reaction(
+                hctx.app.client, mention.channel, mention.ts, "white_check_mark"
             )
         except Exception as e:
             logger.exception("response failed", exc_info=e)
-            await self.slack_utils.remove_reaction(
-                mention.channel, mention.ts, "spinthinking"
+            await remove_reaction(
+                hctx.app.client, mention.channel, mention.ts, "spinthinking"
             )
-            await self.slack_utils.add_reaction(mention.channel, mention.ts, "x")
-            await self.slack_utils.post_response(
-                mention.channel,
-                mention.thread_ts if mention.thread_ts else mention.ts,
-                "I experienced an issue trying to respond. I will try again."
+            await add_reaction(hctx.app.client, mention.channel, mention.ts, "x")
+            await post_response(
+                client=hctx.app.client,
+                channel=mention.channel,
+                thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
+                text="I experienced an issue trying to respond. I will try again."
                 if event.attempts < self.max_attempts
                 else " I give up. Sorry.",
             )

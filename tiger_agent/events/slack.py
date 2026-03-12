@@ -17,7 +17,7 @@ from tiger_agent.slack.constants import (
 )
 from tiger_agent.slack.types import BotInfo, SlackCommand
 from tiger_agent.slack.utils import (
-    SlackUtils,
+    fetch_bot_info,
     handle_proactive_prompt,
     send_proactive_prompt,
 )
@@ -48,10 +48,9 @@ class SlackEventHandler:
         self._event_processor = event_processor
         self._proactive_prompt_channels = proactive_prompt_channels
         self._bot_info: BotInfo | None = None
-        self._slack_utils: SlackUtils = SlackUtils(hctx)
 
     async def start(self, tasks: TaskGroup):
-        self._bot_info = await self._slack_utils.fetch_bot_info()
+        self._bot_info = await fetch_bot_info(self._app.client)
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.event("message")(self._on_message)
