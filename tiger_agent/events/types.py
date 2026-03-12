@@ -1,3 +1,4 @@
+from asyncio import Queue
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,6 +26,8 @@ class HarnessContext:
     app: AsyncApp
     pool: AsyncConnectionPool
     slack_bot_token: str
+    slack_app_token: str
+    trigger: Queue
 
 
 class Event(BaseModel):
