@@ -9,7 +9,7 @@ as $func$
     , event
     )
     select
-      agent.to_timestamptz((_event->>'event_ts')::numeric)
+      coalesce(agent.to_timestamptz((_event->>'event_ts')::numeric), now())
     , _event
     ;
 $func$ language sql volatile security invoker

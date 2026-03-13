@@ -15,7 +15,7 @@ as $func$
     )
     values
     ( nextval('agent.event_id_seq')
-    , agent.to_timestamptz((_event->>'event_ts')::numeric)
+    , coalesce(agent.to_timestamptz((_event->>'event_ts')::numeric), now())
     , 0
     , now()
     , array[]::timestamptz[]

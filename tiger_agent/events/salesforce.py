@@ -3,6 +3,8 @@ from asyncio import TaskGroup
 import logfire
 from simple_salesforce.api import Salesforce
 
+from tiger_agent.db.utils import insert_event
+from tiger_agent.events.types import HarnessContext
 from tiger_agent.salesforce.clients import (
     get_salesforce_api_client,
 )
@@ -12,13 +14,15 @@ from tiger_agent.salesforce.constants import (
     CASE_OWNER_ID_FIELD,
     SALESFORCE_CASE_CHANNEL,
 )
-from tiger_agent.salesforce.types import CaseData
+from tiger_agent.salesforce.types import CaseData, SalesforceNewCaseEvent
 from tiger_agent.salesforce.utils import subscribe_to_topic
 
 
 class SalesforceEventHandler:
-    def __init__(self):
+    def __init__(self, hctx: HarnessContext):
         self._salesforce_client: Salesforce | None
+        self._pool = hctx.pool
+        self._trigger = hctx.trigger
 
     @logfire.instrument("SalesforceEventHandler start")
     async def start(self, tasks: TaskGroup):
@@ -63,10 +67,43 @@ class SalesforceEventHandler:
                 "A new case was created, but no Slack channel configured",
                 extra={"case": case.model_dump_json()},
             )
+            return
+
+        full_case_data = self._salesforce_client.Case.get(case.Id)
+        case = case.model_copy(
+            update={"Description": full_case_data.get("Description")}
+        )
         logfire.info("New case", extra={"case": case.model_dump_json()})
 
+        case = CaseData(
+            Description="""We get this error when trying to query data that has been transitioned into S3
+original: error: access id or access key is missing
+at Parser.parseErrorMessage (/var/task/node_modules/pg-protocol/src/parser.ts:369:69)
+at Parser.handlePacket (/var/task/node_modules/pg-protocol/src/parser.ts:187:21)
+at Parser.parse (/var/task/node_modules/pg-protocol/src/parser.ts:102:30)
+at Socket.<anonymous> (/var/task/node_modules/pg-protocol/src/index.ts:7:48)
+at Socket.emit (node:events:524:28)
+at Socket.runInContextCb (/opt/nodejs/node_modules/newrelic/lib/shim/shim.js:1251:20)
+at AsyncLocalStorage.run (node:async_hooks:346:14)
+at AsyncLocalContextManager.runInContext (/opt/nodejs/node_modules/newrelic/lib/context-manager/async-local-context-manager.js:60:38)
+at Socket.wrapped (/opt/nodejs/node_modules/newrelic/lib/transaction/tracer/index.js:273:37)
+at Shim.applyContext (/opt/nodejs/node_modules/newrelic/lib/shim/shim.js:1254:66) {
+
+Another line in the error log suggests its something to do with s3 configuration:
+routine: 'timescaledb_osm::storage::s3_fetcher::S3Client::setup_s3_client::{{closure}}',""",
+            Subject="Unable to query data from tiered storage",
+            Id="500Nv00000aG5v7IAC",
+            CaseNumber="00037039",
+        )
+
+        await insert_event(
+            pool=self._pool, event=SalesforceNewCaseEvent(case=case).model_dump()
+        )
+
+        await self._trigger.put(True)
+
     async def handle_updated_case_assignee(self, case: CaseData):
-        logfire.info("Case assignee changed", extra={"case": case.model_dump_json()})
+        logfire.info("Case assignee changed", extra={"case": case.model_dump()})
 
     async def _subscribe_to_new_cases(self):
         try:

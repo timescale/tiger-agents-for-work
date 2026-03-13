@@ -43,7 +43,9 @@ from tiger_agent.events.types import Event, HarnessContext
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
 from tiger_agent.prompts.types import PromptPackage
-from tiger_agent.slack.types import BotInfo, SlackFile
+from tiger_agent.salesforce.constants import SALESFORCE_CASE_CHANNEL
+from tiger_agent.salesforce.types import SalesforceBaseEvent
+from tiger_agent.slack.types import BotInfo, SlackFile, UserInfo
 from tiger_agent.slack.utils import (
     add_reaction,
     download_private_file,
@@ -249,7 +251,11 @@ class TigerAgent:
             USER_PROMPT_REGEX, ctx, extra_ctx
         )
 
-        if ctx.mention.files is None or not len(ctx.mention.files):
+        if (
+            isinstance(ctx.mention, SalesforceBaseEvent)
+            or ctx.mention.files is None
+            or not len(ctx.mention.files)
+        ):
             return rendered_user_prompts
 
         user_contents: list[UserContent] = [
@@ -289,7 +295,7 @@ class TigerAgent:
 
     @logfire.instrument("generate_response", extract_args=False)
     async def generate_response(self, hctx: HarnessContext, stream_event: Event) -> str:
-        """Generate AI response to a Slack app_mention event.
+        """Generate AI response to an event.
 
         This is the core logic that:
         1. Builds context from event data, user info, and bot info
@@ -318,41 +324,49 @@ class TigerAgent:
         Returns:
             None - responses are posted directly to Slack during processing
         """
-        mention = stream_event.event
-
-        if await usage_limit_reached(
-            pool=hctx.pool,
-            user_id=mention.user,
-            interval=self.rate_limit_interval,
-            allowed_requests=self.rate_limit_allowed_requests,
-        ):
-            logfire.info(
-                "User interaction limited due to usage",
-                allowed_requests=self.rate_limit_allowed_requests,
+        event = stream_event.event
+        user_info: UserInfo | None = None
+        if not isinstance(event, SalesforceBaseEvent):
+            if await usage_limit_reached(
+                pool=hctx.pool,
+                user_id=event.user,
                 interval=self.rate_limit_interval,
-                user_id=mention.user,
+                allowed_requests=self.rate_limit_allowed_requests,
+            ):
+                logfire.info(
+                    "User interaction limited due to usage",
+                    allowed_requests=self.rate_limit_allowed_requests,
+                    interval=self.rate_limit_interval,
+                    user_id=event.user,
+                )
+                return "I cannot process your request at this time due to usage limits. Please ask me again later."
+            user_info = await fetch_user_info(
+                client=hctx.app.client, user_id=event.user
             )
-            return "I cannot process your request at this time due to usage limits. Please ask me again later."
 
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
 
-        user_info = await fetch_user_info(client=hctx.app.client, user_id=mention.user)
-
         all_mcp_servers = self.mcp_loader()
         self.augment_mcp_servers(all_mcp_servers)
+
+        channel_to_respond = (
+            event.channel
+            if not isinstance(event, SalesforceBaseEvent)
+            else SALESFORCE_CASE_CHANNEL
+        )
 
         mcp_servers = await filter_mcp_servers(
             mcp_servers=all_mcp_servers,
             client=hctx.app.client,
-            channel_id=mention.channel,
+            channel_id=channel_to_respond,
         )
 
         wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
 
         ctx = AgentResponseContext(
             event=stream_event,
-            mention=mention,
+            mention=event,
             bot=self.bot_info,
             user=user_info,
             mcp_servers=mcp_servers,
@@ -394,34 +408,41 @@ class TigerAgent:
             or isinstance(self.model, AnthropicModel)
             else None,
         )
+        if not isinstance(event, SalesforceBaseEvent):
+            await set_status(
+                client=hctx.app.client,
+                channel_id=event.channel,
+                thread_ts=event.thread_ts or event.ts,
+                is_busy=True,
+            )
 
-        await set_status(
-            client=hctx.app.client,
-            channel_id=mention.channel,
-            thread_ts=mention.thread_ts or mention.ts,
-            is_busy=True,
-        )
-
-        if self.disable_streaming:
+        if isinstance(event, SalesforceBaseEvent) or self.disable_streaming:
             response = await agent.run(
                 user_prompt=user_prompt,
                 deps=ctx,
                 usage_limits=UsageLimits(output_tokens_limit=9_000),
             )
 
+            thread = (
+                None
+                if isinstance(event, SalesforceBaseEvent)
+                else (event.thread_ts if event.thread_ts else event.ts)
+            )
+
             await post_response(
                 client=hctx.app.client,
-                channel=mention.channel,
-                thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
+                channel=channel_to_respond,
+                thread_ts=thread,
                 text=response.output,
             )
 
-            await set_status(
-                client=hctx.app.client,
-                channel_id=mention.channel,
-                thread_ts=mention.thread_ts or mention.ts,
-                is_busy=False,
-            )
+            if not isinstance(event, SalesforceBaseEvent):
+                await set_status(
+                    client=hctx.app.client,
+                    channel_id=event.channel,
+                    thread_ts=event.thread_ts or event.ts,
+                    is_busy=False,
+                )
             return
 
         slack_stream: AsyncChatStream | None = None
@@ -437,11 +458,11 @@ class TigerAgent:
                 client=hctx.app.client,
                 slack_stream=slack_stream,
                 stream_event=stream_event,
-                channel_id=mention.channel,
-                recipient_user_id=mention.user,
+                channel_id=event.channel,
+                recipient_user_id=event.user,
                 recipient_team_id=self.bot_info.team_id,
-                ts=mention.ts,
-                thread_ts=mention.thread_ts,
+                ts=event.ts,
+                thread_ts=event.thread_ts,
             )
 
         if slack_stream is not None and slack_stream._state != "completed":
@@ -450,13 +471,13 @@ class TigerAgent:
         # clear the status widget
         await set_status(
             client=hctx.app.client,
-            channel_id=mention.channel,
-            thread_ts=mention.thread_ts or mention.ts,
+            channel_id=event.channel,
+            thread_ts=event.thread_ts or event.ts,
             is_busy=False,
         )
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
-        """Process a Slack app_mention event with full interaction flow.
+        """Processes various events.
 
         This method implements the complete EventProcessor interface for the
         EventHarness system. It provides rich Slack interaction patterns:
@@ -486,15 +507,21 @@ class TigerAgent:
         """
         mention = event.event
         try:
-            if await user_ignored(pool=hctx.pool, user_id=mention.user):
+            if not isinstance(mention, SalesforceBaseEvent) and await user_ignored(
+                pool=hctx.pool, user_id=mention.user
+            ):
                 logfire.info("Ignore user", user_id=mention.user)
                 return
             await self.generate_response(hctx, event)
-            await add_reaction(
-                hctx.app.client, mention.channel, mention.ts, "white_check_mark"
-            )
+            if not isinstance(mention, SalesforceBaseEvent):
+                await add_reaction(
+                    hctx.app.client, mention.channel, mention.ts, "white_check_mark"
+                )
         except Exception as e:
             logger.exception("response failed", exc_info=e)
+            if isinstance(mention, SalesforceBaseEvent):
+                return
+
             await remove_reaction(
                 hctx.app.client, mention.channel, mention.ts, "spinthinking"
             )

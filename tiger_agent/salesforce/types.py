@@ -1,3 +1,5 @@
+from datetime import date
+
 import logfire
 from pydantic import BaseModel
 
@@ -41,10 +43,17 @@ class SalesforceConfig(BaseModel):
 
 
 class SalesforceBaseEvent(BaseModel):
-    """Base Pydantic model for events from Salesforce"""
+    """Base class for events from Salesforce"""
+
+    type: str = "salesforce_event"
+    case: CaseData
+    subtype: str
+    event_ts: date | None = None
 
 
-class SalesforceNewCaseCreated(SalesforceBaseEvent):
+class SalesforceNewCaseEvent(SalesforceBaseEvent):
     """Pydantic model for Salesforce new case event."""
 
-    type: str = ""
+    type: str = "salesforce_event"
+    subtype: str = "new_case"
+    case: CaseData

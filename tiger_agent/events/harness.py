@@ -247,14 +247,14 @@ class EventHarness:
         until interrupted or an unhandled exception occurs.
         """
         await self._pool.open(wait=True)
-
+        hctx = self._make_harness_context()
         slack_event_handler = SlackEventHandler(
-            hctx=self._make_harness_context(),
+            hctx=hctx,
             event_processor=self._event_processor,
             proactive_prompt_channels=self._proactive_prompt_channels,
         )
 
-        salesforce_event_handler = SalesforceEventHandler()
+        salesforce_event_handler = SalesforceEventHandler(hctx=hctx)
 
         async with asyncio.TaskGroup() as tasks:
             async with self._pool.connection() as con:
