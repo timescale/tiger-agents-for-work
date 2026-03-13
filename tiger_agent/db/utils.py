@@ -89,13 +89,13 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
 
 @logfire.instrument("insert_event", extract_args=False)
 async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
-    """Insert a Slack event into the database work queue.
+    """Insert a Slack/Salesforce event into the database work queue.
 
     Uses the agent.insert_event() database function to store the event
     with proper timestamp conversion and initial queue state.
 
     Args:
-        event: Raw Slack event payload as dictionary
+        event: Raw Slack/Salesforce event payload as dictionary
     """
     async with (
         pool.connection() as con,

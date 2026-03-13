@@ -28,15 +28,11 @@ from tiger_agent.db.utils import (
     create_default_pool,
     delete_expired_events,
 )
+from tiger_agent.events.salesforce import SalesforceEventHandler
 from tiger_agent.events.slack import SlackEventHandler
 from tiger_agent.events.types import EventProcessor, HarnessContext
 from tiger_agent.events.utils import process_events
 from tiger_agent.migrations import runner
-from tiger_agent.salesforce.clients import get_salesforce_api_client
-from tiger_agent.salesforce.topics import (
-    subscribe_to_case_assignee_changed,
-    subscribe_to_new_cases,
-)
 from tiger_agent.salesforce.types import SalesforceConfig
 
 logger = logging.getLogger(__name__)
@@ -251,12 +247,14 @@ class EventHarness:
         until interrupted or an unhandled exception occurs.
         """
         await self._pool.open(wait=True)
-
+        hctx = self._make_harness_context()
         slack_event_handler = SlackEventHandler(
-            hctx=self._make_harness_context(),
+            hctx=hctx,
             event_processor=self._event_processor,
             proactive_prompt_channels=self._proactive_prompt_channels,
         )
+
+        salesforce_event_handler = SalesforceEventHandler(hctx=hctx)
 
         async with asyncio.TaskGroup() as tasks:
             async with self._pool.connection() as con:
@@ -269,18 +267,5 @@ class EventHarness:
 
             await slack_event_handler.start(tasks=tasks)
 
-            if self._salesforce_config:
-                if not self._salesforce_config.is_valid():
-                    logfire.info("Invalid Salesforce config provided")
-                else:
-                    logfire.info("Salesforce config provided, initiating handlers")
-
-                    salesforce_client = get_salesforce_api_client()
-                    tasks.create_task(
-                        subscribe_to_new_cases(salesforce_client=salesforce_client)
-                    )
-                    tasks.create_task(
-                        subscribe_to_case_assignee_changed(
-                            salesforce_client=salesforce_client
-                        )
-                    )
+            if self._salesforce_config and self._salesforce_config.is_valid():
+                await salesforce_event_handler.start(tasks=tasks)
