@@ -61,6 +61,7 @@ class SalesforceEventHandler:
             result = self._salesforce_client.PushTopic.create(topic_config)
             logfire.info("PushTopic created", extra={"id": result["id"]})
 
+    @logfire.instrument("handle_new_case", extract_args=["case"])
     async def handle_new_case(self, case: CaseData):
         if not SALESFORCE_CASE_CHANNEL:
             logfire.warn(
@@ -72,28 +73,6 @@ class SalesforceEventHandler:
         full_case_data = self._salesforce_client.Case.get(case.Id)
         case = case.model_copy(
             update={"Description": full_case_data.get("Description")}
-        )
-        logfire.info("New case", extra={"case": case.model_dump_json()})
-
-        case = CaseData(
-            Description="""We get this error when trying to query data that has been transitioned into S3
-original: error: access id or access key is missing
-at Parser.parseErrorMessage (/var/task/node_modules/pg-protocol/src/parser.ts:369:69)
-at Parser.handlePacket (/var/task/node_modules/pg-protocol/src/parser.ts:187:21)
-at Parser.parse (/var/task/node_modules/pg-protocol/src/parser.ts:102:30)
-at Socket.<anonymous> (/var/task/node_modules/pg-protocol/src/index.ts:7:48)
-at Socket.emit (node:events:524:28)
-at Socket.runInContextCb (/opt/nodejs/node_modules/newrelic/lib/shim/shim.js:1251:20)
-at AsyncLocalStorage.run (node:async_hooks:346:14)
-at AsyncLocalContextManager.runInContext (/opt/nodejs/node_modules/newrelic/lib/context-manager/async-local-context-manager.js:60:38)
-at Socket.wrapped (/opt/nodejs/node_modules/newrelic/lib/transaction/tracer/index.js:273:37)
-at Shim.applyContext (/opt/nodejs/node_modules/newrelic/lib/shim/shim.js:1254:66) {
-
-Another line in the error log suggests its something to do with s3 configuration:
-routine: 'timescaledb_osm::storage::s3_fetcher::S3Client::setup_s3_client::{{closure}}',""",
-            Subject="Unable to query data from tiered storage",
-            Id="500Nv00000aG5v7IAC",
-            CaseNumber="00037039",
         )
 
         await insert_event(
