@@ -49,4 +49,11 @@ class AgentResponseContext(BaseModel):
             self.local_time = self.event.event_ts.astimezone(ZoneInfo(self.user.tz))
 
 
+class AgentSalesforceResponse(BaseModel):
+    """Structured response for Salesforce case events."""
+
+    is_spam: bool
+    message: str
+
+
 type ExtraContextDict = dict[str, BaseModel]

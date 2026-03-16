@@ -37,7 +37,11 @@ from slack_sdk.web.async_client import (
     AsyncChatStream,
 )
 
-from tiger_agent.agent.types import AgentResponseContext, ExtraContextDict
+from tiger_agent.agent.types import (
+    AgentResponseContext,
+    AgentSalesforceResponse,
+    ExtraContextDict,
+)
 from tiger_agent.db.utils import usage_limit_reached, user_ignored
 from tiger_agent.events.types import Event, HarnessContext
 from tiger_agent.mcp.types import MCPDict
@@ -45,7 +49,7 @@ from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
 from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.salesforce.constants import SALESFORCE_CASE_CHANNEL
 from tiger_agent.salesforce.types import SalesforceBaseEvent
-from tiger_agent.slack.types import BotInfo, SlackFile, UserInfo
+from tiger_agent.slack.types import BotInfo, SlackFile
 from tiger_agent.slack.utils import (
     add_reaction,
     download_private_file,
@@ -91,7 +95,6 @@ class TigerAgent:
         max_attempts: Maximum retry attempts for failed events (defaults to 3)
         rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
         rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
-        disable_streaming: If True, disables PydanticAI and Slack streaming (defaults to False)
 
     Raises:
         ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
@@ -106,12 +109,10 @@ class TigerAgent:
         max_attempts: int = 3,
         rate_limit_allowed_requests: int | None = None,
         rate_limit_interval: timedelta = timedelta(minutes=1),
-        disable_streaming: bool = False,
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
         self.extra_context: dict[str, BaseModel] = {}
-        self.disable_streaming = disable_streaming
 
         if jinja_env is not None and prompt_config is not None:
             raise ValueError(
@@ -325,24 +326,6 @@ class TigerAgent:
             None - responses are posted directly to Slack during processing
         """
         event = stream_event.event
-        user_info: UserInfo | None = None
-        if not isinstance(event, SalesforceBaseEvent):
-            if await usage_limit_reached(
-                pool=hctx.pool,
-                user_id=event.user,
-                interval=self.rate_limit_interval,
-                allowed_requests=self.rate_limit_allowed_requests,
-            ):
-                logfire.info(
-                    "User interaction limited due to usage",
-                    allowed_requests=self.rate_limit_allowed_requests,
-                    interval=self.rate_limit_interval,
-                    user_id=event.user,
-                )
-                return "I cannot process your request at this time due to usage limits. Please ask me again later."
-            user_info = await fetch_user_info(
-                client=hctx.app.client, user_id=event.user
-            )
 
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(hctx.app.client)
@@ -368,7 +351,9 @@ class TigerAgent:
             event=stream_event,
             mention=event,
             bot=self.bot_info,
-            user=user_info,
+            user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
+            if not isinstance(event, SalesforceBaseEvent)
+            else None,
             mcp_servers=mcp_servers,
             slack_bot_token=hctx.slack_bot_token,
         )
@@ -392,6 +377,9 @@ class TigerAgent:
             model=self.model,
             deps_type=dict[str, Any],
             system_prompt=system_prompt,
+            output_type=AgentSalesforceResponse
+            if isinstance(event, SalesforceBaseEvent)
+            else str,
             tools=[
                 Tool(
                     _download_slack_hosted_file,
@@ -408,43 +396,52 @@ class TigerAgent:
             or isinstance(self.model, AnthropicModel)
             else None,
         )
-        if not isinstance(event, SalesforceBaseEvent):
-            await set_status(
-                client=hctx.app.client,
-                channel_id=event.channel,
-                thread_ts=event.thread_ts or event.ts,
-                is_busy=True,
-            )
 
-        if isinstance(event, SalesforceBaseEvent) or self.disable_streaming:
+        if isinstance(event, SalesforceBaseEvent):
             response = await agent.run(
                 user_prompt=user_prompt,
                 deps=ctx,
                 usage_limits=UsageLimits(output_tokens_limit=9_000),
             )
+            if response.output.is_spam:
+                logfire.info("Ignoring Salesforce case identified as spam")
+                return
 
-            thread = (
-                None
-                if isinstance(event, SalesforceBaseEvent)
-                else (event.thread_ts if event.thread_ts else event.ts)
+            await post_response(
+                client=hctx.app.client,
+                channel=channel_to_respond,
+                text=response.output.message,
+            )
+            return
+
+        if await usage_limit_reached(
+            pool=hctx.pool,
+            user_id=event.user,
+            interval=self.rate_limit_interval,
+            allowed_requests=self.rate_limit_allowed_requests,
+        ):
+            logfire.info(
+                "User interaction limited due to usage",
+                allowed_requests=self.rate_limit_allowed_requests,
+                interval=self.rate_limit_interval,
+                user_id=event.user,
             )
 
             await post_response(
                 client=hctx.app.client,
                 channel=channel_to_respond,
-                thread_ts=thread,
-                text=response.output,
+                thread_ts=event.thread_ts or event.ts,
+                text="I cannot process your request at this time due to usage limits. Please ask me again later.",
             )
 
-            if not isinstance(event, SalesforceBaseEvent):
-                await set_status(
-                    client=hctx.app.client,
-                    channel_id=event.channel,
-                    thread_ts=event.thread_ts or event.ts,
-                    is_busy=False,
-                )
             return
 
+        await set_status(
+            client=hctx.app.client,
+            channel_id=event.channel,
+            thread_ts=event.thread_ts or event.ts,
+            is_busy=True,
+        )
         slack_stream: AsyncChatStream | None = None
 
         # my first attempt was using `run_stream`, however, there is a known 'issue'
@@ -507,11 +504,11 @@ class TigerAgent:
         """
         mention = event.event
         try:
-            if not isinstance(mention, SalesforceBaseEvent) and await user_ignored(
-                pool=hctx.pool, user_id=mention.user
-            ):
-                logfire.info("Ignore user", user_id=mention.user)
-                return
+            if not isinstance(mention, SalesforceBaseEvent):
+                if await user_ignored(pool=hctx.pool, user_id=mention.user):
+                    logfire.info("Ignore user", user_id=mention.user)
+                    return
+
             await self.generate_response(hctx, event)
             if not isinstance(mention, SalesforceBaseEvent):
                 await add_reaction(
