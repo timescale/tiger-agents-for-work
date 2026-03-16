@@ -169,7 +169,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
 async def post_response(
-    client: AsyncWebClient, channel: str, thread_ts: str, text: str
+    client: AsyncWebClient, channel: str, thread_ts: str | None, text: str
 ) -> AsyncSlackResponse:
     """Post a response message to Slack with rich formatting.
 

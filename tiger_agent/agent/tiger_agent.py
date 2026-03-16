@@ -410,6 +410,7 @@ class TigerAgent:
             await post_response(
                 client=hctx.app.client,
                 channel=channel_to_respond,
+                thread_ts=None,
                 text=response.output.message,
             )
             return
