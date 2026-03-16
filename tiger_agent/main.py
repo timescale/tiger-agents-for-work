@@ -96,12 +96,6 @@ def cli():
         [ch.strip() for ch in value.split(",") if ch.strip()] if value else []
     ),
 )
-@click.option(
-    "--disable-streaming",
-    is_flag=True,
-    default=False,
-    help="Disable PydanticAI and Slack streaming",
-)
 def run(
     model: str,
     prompts: Path | None,
