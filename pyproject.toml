@@ -17,6 +17,7 @@ dependencies = [
     "python-dotenv[cli]>=1.1.1",
     "aiosfstream-ng>=0.5.1",
     "semver>=3.0.4",
+    "schedule>=1.2.2",
     "simple-salesforce>=1.12.9",
     "slack-bolt>=1.26.0",
     "tzdata>=2025.2",

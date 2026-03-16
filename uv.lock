@@ -2179,6 +2179,15 @@ wheels = [
 ]
 
 [[package]]
+name = "schedule"
+version = "1.2.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0c/91/b525790063015759f34447d4cf9d2ccb52cdee0f1dd6ff8764e863bcb74c/schedule-1.2.2.tar.gz", hash = "sha256:15fe9c75fe5fd9b9627f3f19cc0ef1420508f9f9a46f45cd0769ef75ede5f0b7", size = 26452, upload-time = "2024-06-18T20:03:14.633Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/20/a7/84c96b61fd13205f2cafbe263cdb2745965974bdf3e0078f121dfeca5f02/schedule-1.2.2-py3-none-any.whl", hash = "sha256:5bef4a2a0183abf44046ae0d164cadcac21b1db011bdd8102e4a0c1e91e06a7d", size = 12220, upload-time = "2024-05-25T18:41:59.121Z" },
+]
+
+[[package]]
 name = "secretstorage"
 version = "3.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2317,6 +2326,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic-ai" },
     { name = "python-dotenv", extra = ["cli"] },
+    { name = "schedule" },
     { name = "semver" },
     { name = "simple-salesforce" },
     { name = "slack-bolt" },
@@ -2338,6 +2348,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.10" },
     { name = "pydantic-ai", specifier = ">=1.28.0" },
     { name = "python-dotenv", extras = ["cli"], specifier = ">=1.1.1" },
+    { name = "schedule", specifier = ">=1.2.2" },
     { name = "semver", specifier = ">=3.0.4" },
     { name = "simple-salesforce", specifier = ">=1.12.9" },
     { name = "slack-bolt", specifier = ">=1.26.0" },

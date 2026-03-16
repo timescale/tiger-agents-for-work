@@ -1,6 +1,8 @@
+import asyncio
 from asyncio import TaskGroup
 
 import logfire
+import schedule
 from simple_salesforce.api import Salesforce
 
 from tiger_agent.db.utils import insert_event
@@ -14,6 +16,7 @@ from tiger_agent.salesforce.constants import (
     CASE_OWNER_ID_FIELD,
     SALESFORCE_CASE_CHANNEL,
 )
+from tiger_agent.salesforce.new_case_poller import SalesforceNewCasePoller
 from tiger_agent.salesforce.types import CaseData, SalesforceNewCaseEvent
 from tiger_agent.salesforce.utils import subscribe_to_topic
 
@@ -23,12 +26,22 @@ class SalesforceEventHandler:
         self._salesforce_client: Salesforce | None
         self._pool = hctx.pool
         self._trigger = hctx.trigger
+        self._new_case_poller: SalesforceNewCasePoller | None
 
     @logfire.instrument("SalesforceEventHandler start")
     async def start(self, tasks: TaskGroup):
         self._salesforce_client = get_salesforce_api_client()
+        self._new_case_poller = SalesforceNewCasePoller(
+            pool=self._pool,
+            salesforce_client=self._salesforce_client,
+            trigger=self._trigger,
+        )
         tasks.create_task(self._subscribe_to_new_cases())
         tasks.create_task(self._subscribe_to_case_assignee_changed())
+        self._new_case_poller.start()
+        tasks.create_task(self._run_schedule())
+
+        await self._new_case_poller._process_missed_cases()
 
     def _upsert_case_push_topic_definition(
         self,
@@ -80,6 +93,11 @@ class SalesforceEventHandler:
         )
 
         await self._trigger.put(True)
+
+    async def _run_schedule(self):
+        while True:
+            schedule.run_pending()
+            await asyncio.sleep(1)
 
     async def handle_updated_case_assignee(self, case: CaseData):
         logfire.info("Case assignee changed", extra={"case": case.model_dump()})
