@@ -82,7 +82,10 @@ class SalesforceEventHandler:
                 extra={"case": case.model_dump_json()},
             )
             return
+        if case.Status == "Spam":
+            logfire.info("Ignoring case flagged as spam")
 
+            return
         full_case_data = self._salesforce_client.Case.get(case.Id)
         case = case.model_copy(
             update={"Description": full_case_data.get("Description")}
