@@ -32,6 +32,7 @@ class SalesforceNewCasePoller:
         self._salesforce_client = salesforce_client
         self._handler = handler
 
+    @logfire.instrument("_process_missed_cases")
     async def _process_missed_cases(self) -> None:
         since = datetime.now(UTC) - timedelta(days=1)
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
