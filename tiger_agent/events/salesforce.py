@@ -34,7 +34,7 @@ class SalesforceEventHandler:
         self._new_case_poller = SalesforceNewCasePoller(
             pool=self._pool,
             salesforce_client=self._salesforce_client,
-            trigger=self._trigger,
+            handler=self.handle_new_case,
         )
         tasks.create_task(self._subscribe_to_new_cases())
         tasks.create_task(self._subscribe_to_case_assignee_changed())

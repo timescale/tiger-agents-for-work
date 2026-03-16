@@ -1,23 +1,24 @@
+"""
+This will call Salesforce's API to find all cases created in the last day
+and then find any of those cases that have not been processed/are being processed by
+the agent. Any cases that were missed are inserted into agent.events to be processed.
+"""
+
 import asyncio
 import logging
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import logfire
 import schedule
 from psycopg_pool import AsyncConnectionPool
 from simple_salesforce.api import Salesforce
 
-from tiger_agent.db.utils import insert_event
 from tiger_agent.salesforce.constants import CASE_FIELDS
-from tiger_agent.salesforce.types import CaseData, SalesforceNewCaseEvent
+from tiger_agent.salesforce.types import CaseData
 
 logger = logging.getLogger(__name__)
-
-"""
-This will call Salesforce's API to find all cases created in the last day
-and then find any of those cases that have not been processed/are being processed by
-the agent. Any cases that were missed are inserted into agent.events to be processed.
-"""
 
 
 class SalesforceNewCasePoller:
@@ -25,11 +26,11 @@ class SalesforceNewCasePoller:
         self,
         pool: AsyncConnectionPool,
         salesforce_client: Salesforce,
-        trigger: asyncio.Queue,
+        handler: Callable[[CaseData], Coroutine[Any, Any, None]],
     ):
         self._pool = pool
         self._salesforce_client = salesforce_client
-        self._trigger = trigger
+        self._handler = handler
 
     async def _process_missed_cases(self) -> None:
         since = datetime.now(UTC) - timedelta(days=1)
@@ -74,12 +75,7 @@ class SalesforceNewCasePoller:
                 case_id=case.Id,
                 case_number=case.CaseNumber,
             )
-            await insert_event(
-                pool=self._pool,
-                event=SalesforceNewCaseEvent(case=case).model_dump(),
-            )
-
-            self._trigger.put(True)
+            await self._handler(case)
 
     def start(self) -> None:
         def job():
