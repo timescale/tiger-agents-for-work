@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -15,6 +16,14 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import CaseData
 
 RECONNECT_DELAY_SECONDS = 30
+IGNORED_CONTACT_EMAILS = set(
+    os.environ.get("SALESFORCE_IGNORE_CONTACT_EMAILS", "")
+    .lower()
+    .replace(" ", "")
+    .split(",")
+)
+
+logfire.info("Salesforce ignore list", extra={"list": IGNORED_CONTACT_EMAILS})
 
 
 async def subscribe_to_topic(
@@ -27,7 +36,9 @@ async def subscribe_to_topic(
         try:
             async with Client(ClientCredentialsAuthenticator()) as streaming_client:
                 await streaming_client.subscribe(channel)
-                logfire.info("Subscribed to PushTopic ", extra={"topic_name": topic_name})
+                logfire.info(
+                    "Subscribed to PushTopic ", extra={"topic_name": topic_name}
+                )
 
                 async for message in streaming_client:
                     sobject = message.get("data", {}).get("sobject", {})
@@ -62,3 +73,9 @@ async def subscribe_to_topic(
             )
 
         await asyncio.sleep(RECONNECT_DELAY_SECONDS)
+
+
+def should_ignore_new_case(case: CaseData) -> bool:
+    if not case.ContactEmail:
+        return False
+    return case.ContactEmail in IGNORED_CONTACT_EMAILS

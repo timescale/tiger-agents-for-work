@@ -17,6 +17,7 @@ class CaseData(BaseModel):
 
     Id: str
     CaseNumber: str | None = None
+    ContactEmail: str | None = None
     Subject: str | None = None
     Description: str | None = None
     OwnerId: str | None = None
