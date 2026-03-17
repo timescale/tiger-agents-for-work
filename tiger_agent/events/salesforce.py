@@ -18,7 +18,7 @@ from tiger_agent.salesforce.constants import (
 )
 from tiger_agent.salesforce.new_case_poller import SalesforceNewCasePoller
 from tiger_agent.salesforce.types import CaseData, SalesforceNewCaseEvent
-from tiger_agent.salesforce.utils import subscribe_to_topic
+from tiger_agent.salesforce.utils import should_ignore_new_case, subscribe_to_topic
 
 
 class SalesforceEventHandler:
@@ -84,8 +84,12 @@ class SalesforceEventHandler:
             return
         if case.Status == "Spam":
             logfire.info("Ignoring case flagged as spam")
-
             return
+
+        if should_ignore_new_case(case):
+            logfire.info("Ignoring case")
+            return
+
         full_case_data = self._salesforce_client.Case.get(case.Id)
         case = case.model_copy(
             update={"Description": full_case_data.get("Description")}

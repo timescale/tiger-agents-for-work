@@ -8,6 +8,7 @@ CASE_FIELDS = [
     CASE_ID_FIELD,
     "CaseNumber",
     CASE_OWNER_ID_FIELD,
+    "ContactEmail",
     "Subject",
     "Status",
     "Priority",
