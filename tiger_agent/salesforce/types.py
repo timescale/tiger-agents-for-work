@@ -17,11 +17,13 @@ class CaseData(BaseModel):
 
     Id: str
     CaseNumber: str | None = None
+    Cloud_Impact__c: str | None = None
     ContactEmail: str | None = None
     Subject: str | None = None
     Description: str | None = None
     OwnerId: str | None = None
     Status: str | None = None
+    Severity__c: str | None = None
     Priority: str | None = None
     CreatedDate: str | None = None
     CreatedById: str | None = None
