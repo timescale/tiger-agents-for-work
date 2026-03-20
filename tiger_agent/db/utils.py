@@ -128,7 +128,6 @@ async def insert_handled_event(pool: AsyncConnectionPool, event: dict[str, Any])
         return result[0] if result else None
 
 
-@logfire.instrument("claim_event", extract_args=False)
 async def claim_event(
     pool: AsyncConnectionPool, max_attempts: int = 3, invisibility_minutes: int = 10
 ) -> Event | None:

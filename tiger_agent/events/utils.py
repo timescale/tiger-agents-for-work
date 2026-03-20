@@ -36,7 +36,6 @@ async def process_event(
         return False
 
 
-@logfire.instrument("process_events", extract_args=False)
 async def process_events(
     event_processor: EventProcessor,
     hctx: HarnessContext,

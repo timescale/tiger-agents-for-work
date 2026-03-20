@@ -5,7 +5,10 @@ from pydantic import BaseModel
 
 from tiger_agent.events.types import Event
 from tiger_agent.mcp.types import MCPDict
-from tiger_agent.salesforce.types import SalesforceNewCaseEvent
+from tiger_agent.salesforce.types import (
+    SalesforceAssignmentChangedEvent,
+    SalesforceNewCaseEvent,
+)
 from tiger_agent.slack.types import (
     BotInfo,
     SlackAppMentionEvent,
@@ -31,7 +34,12 @@ class AgentResponseContext(BaseModel):
     """
 
     event: Event
-    mention: SlackAppMentionEvent | SlackMessageEvent | SalesforceNewCaseEvent
+    mention: (
+        SlackAppMentionEvent
+        | SlackMessageEvent
+        | SalesforceNewCaseEvent
+        | SalesforceAssignmentChangedEvent
+    )
     bot: BotInfo
     user: UserInfo | None = None
     local_time: datetime | None = None
