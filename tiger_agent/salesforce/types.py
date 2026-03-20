@@ -10,6 +10,13 @@ from tiger_agent.salesforce.constants import (
 )
 
 
+class SalesforceUser(BaseModel):
+    Id: str | None = None
+    Username: str | None = None
+    FirstName: str | None = None
+    Email: str | None = None
+
+
 class CaseData(BaseModel):
     """Pydantic model for a Salesforce Case record."""
 
@@ -21,7 +28,7 @@ class CaseData(BaseModel):
     ContactEmail: str | None = None
     Subject: str | None = None
     Description: str | None = None
-    OwnerId: str | None = None
+    Owner: SalesforceUser | None = None
     Status: str | None = None
     Severity__c: str | None = None
     Priority: str | None = None
@@ -59,4 +66,12 @@ class SalesforceNewCaseEvent(SalesforceBaseEvent):
 
     type: str = "salesforce_event"
     subtype: str = "new_case"
+    case: CaseData
+
+
+class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
+    """Pydantic model for Salesforce new case event."""
+
+    type: str = "salesforce_event"
+    subtype: str = "new_assignee"
     case: CaseData

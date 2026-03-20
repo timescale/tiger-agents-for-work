@@ -17,8 +17,16 @@ from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
 )
 from tiger_agent.salesforce.new_case_poller import SalesforceNewCasePoller
-from tiger_agent.salesforce.types import CaseData, SalesforceNewCaseEvent
-from tiger_agent.salesforce.utils import should_ignore_new_case, subscribe_to_topic
+from tiger_agent.salesforce.types import (
+    CaseData,
+    SalesforceAssignmentChangedEvent,
+    SalesforceNewCaseEvent,
+)
+from tiger_agent.salesforce.utils import (
+    is_case_assignment_new,
+    should_ignore_new_case,
+    subscribe_to_topic,
+)
 
 
 class SalesforceEventHandler:
@@ -36,7 +44,10 @@ class SalesforceEventHandler:
             salesforce_client=self._salesforce_client,
             handler=self.handle_new_case,
         )
-        tasks.create_task(self._subscribe_to_new_cases())
+
+        # for now, we are going to use just assignment events
+        # tasks.create_task(self._subscribe_to_new_cases())
+
         tasks.create_task(self._subscribe_to_case_assignee_changed())
         self._new_case_poller.start()
         tasks.create_task(self._run_schedule())
@@ -106,8 +117,36 @@ class SalesforceEventHandler:
             schedule.run_pending()
             await asyncio.sleep(1)
 
+    @logfire.instrument("handle_updated_case_assignee", extract_args=["case"])
     async def handle_updated_case_assignee(self, case: CaseData):
-        logfire.info("Case assignee changed", extra={"case": case.model_dump()})
+        if not case.Owner.Email:
+            # no user assigned yet
+            logfire.info("Ignoring event, no user assigned to case")
+            return
+
+        if case.Status != "New":
+            logfire.info("Ignoring case event as status is not new")
+            return
+
+        if not await is_case_assignment_new(
+            case_id=case.Id, owner_id=case.Owner.Id, pool=self._pool
+        ):
+            logfire.info("Ignoring case event as owner has not changed")
+            return
+
+        full_case_data = self._salesforce_client.Case.get(case.Id)
+        case = case.model_copy(
+            update={
+                "Description": full_case_data.get("Description"),
+            }
+        )
+
+        await insert_event(
+            pool=self._pool,
+            event=SalesforceAssignmentChangedEvent(case=case).model_dump(),
+        )
+
+        await self._trigger.put(True)
 
     async def _subscribe_to_new_cases(self):
         try:

@@ -47,7 +47,10 @@ from tiger_agent.events.types import Event, HarnessContext
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
 from tiger_agent.prompts.types import PromptPackage
-from tiger_agent.salesforce.constants import SALESFORCE_CASE_CHANNEL
+from tiger_agent.salesforce.constants import (
+    SALESFORCE_CASE_CHANNEL,
+    SALESFORCE_ENABLE_SPAM_FILTERING,
+)
 from tiger_agent.salesforce.types import SalesforceBaseEvent
 from tiger_agent.slack.types import BotInfo, SlackFile
 from tiger_agent.slack.utils import (
@@ -403,9 +406,14 @@ class TigerAgent:
                 deps=ctx,
                 usage_limits=UsageLimits(output_tokens_limit=9_000),
             )
+
             if response.output.is_spam:
-                logfire.info("Ignoring Salesforce case identified as spam")
-                return
+                logfire.info(
+                    "Salesforce case identified as spam",
+                    extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
+                )
+                if SALESFORCE_ENABLE_SPAM_FILTERING:
+                    return
 
             await post_response(
                 client=hctx.app.client,

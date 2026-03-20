@@ -8,6 +8,10 @@ CASE_FIELDS = [
     CASE_ID_FIELD,
     "CaseNumber",
     CASE_OWNER_ID_FIELD,
+    "Owner.Id",
+    "Owner.Username",
+    "Owner.FirstName",
+    "Owner.Email",
     "Cloud_Impact__c",
     "ContactEmail",
     "Severity__c",
@@ -23,3 +27,6 @@ SALESFORCE_DOMAIN = os.environ.get("SALESFORCE_DOMAIN", None)
 SALESFORCE_CLIENT_ID = os.environ.get("SALESFORCE_CLIENT_ID", None)
 SALESFORCE_CLIENT_SECRET = os.environ.get("SALESFORCE_CLIENT_SECRET", None)
 SALESFORCE_CASE_CHANNEL = os.environ.get("SALESFORCE_CASE_CHANNEL", None)
+SALESFORCE_ENABLE_SPAM_FILTERING = os.environ.get(
+    "SALESFORCE_ENABLE_SPAM_FILTERING", None
+)

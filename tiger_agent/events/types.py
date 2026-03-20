@@ -7,7 +7,10 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
 from slack_bolt.app.async_app import AsyncApp
 
-from tiger_agent.salesforce.types import SalesforceNewCaseEvent
+from tiger_agent.salesforce.types import (
+    SalesforceAssignmentChangedEvent,
+    SalesforceNewCaseEvent,
+)
 from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
 
 
@@ -51,7 +54,12 @@ class Event(BaseModel):
     attempts: int
     vt: datetime
     claimed: list[datetime]
-    event: SlackAppMentionEvent | SlackMessageEvent | SalesforceNewCaseEvent
+    event: (
+        SlackAppMentionEvent
+        | SlackMessageEvent
+        | SalesforceNewCaseEvent
+        | SalesforceAssignmentChangedEvent
+    )
 
 
 # Type alias for event processing callback

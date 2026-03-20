@@ -20,7 +20,6 @@ import random
 from asyncio import QueueShutDown, TaskGroup
 from collections.abc import Sequence
 
-import logfire
 from psycopg_pool import AsyncConnectionPool
 from slack_bolt.app.async_app import AsyncApp
 
@@ -174,19 +173,18 @@ class EventHarness:
             initial_sleep_seconds: Initial delay before starting work
         """
 
-        async def worker_run(reason: str):
-            with logfire.span("worker_run", worker_id=worker_id, reason=reason) as _:
-                await process_events(
-                    self._event_processor,
-                    self._make_harness_context(),
-                    self._max_attempts,
-                    self._invisibility_minutes,
-                )
-                await delete_expired_events(
-                    pool=self._pool,
-                    max_attempts=self._max_attempts,
-                    max_age_minutes=self._max_age_minutes,
-                )
+        async def worker_run():
+            await process_events(
+                self._event_processor,
+                self._make_harness_context(),
+                self._max_attempts,
+                self._invisibility_minutes,
+            )
+            await delete_expired_events(
+                pool=self._pool,
+                max_attempts=self._max_attempts,
+                max_age_minutes=self._max_age_minutes,
+            )
 
         # initial staggering of workers
         if initial_sleep_seconds > 0:
@@ -205,9 +203,9 @@ class EventHarness:
                 await asyncio.wait_for(
                     self._trigger.get(), timeout=self._calc_worker_sleep()
                 )
-                await worker_run("triggered")
+                await worker_run()
             except TimeoutError:
-                await worker_run("timeout")
+                await worker_run()
             except QueueShutDown:
                 return
 
