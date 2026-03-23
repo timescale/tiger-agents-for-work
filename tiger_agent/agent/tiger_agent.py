@@ -569,7 +569,7 @@ class TigerAgent:
 
                     logfire.info(
                         "Updated Salesforce case to include the thread link",
-                        extra={"permalink", permalink},
+                        extra={"permalink": permalink},
                     )
         except Exception as e:
             logger.exception("response failed", exc_info=e)
