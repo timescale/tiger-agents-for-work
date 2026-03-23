@@ -221,7 +221,6 @@ async def get_event_hist(pool: AsyncConnectionPool, event_id: int) -> Event | No
             return None
 
 
-@logfire.instrument("delete_expired_events", extract_args=False)
 async def delete_expired_events(
     pool: AsyncConnectionPool, max_attempts: int = 3, max_age_minutes: int = 60
 ) -> None:

@@ -564,6 +564,11 @@ class TigerAgent:
                     hctx.salesforce_client.Case.update(
                         event_to_handle.case.Id, {"EON_Slack_Thread__c": permalink}
                     )
+
+                    logfire.info(
+                        "Updated Salesforce case to include the thread link",
+                        extra={"permalink", permalink},
+                    )
         except Exception as e:
             logger.exception("response failed", exc_info=e)
             if isinstance(event_to_handle, SalesforceBaseEvent):
