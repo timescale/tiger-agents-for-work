@@ -138,6 +138,11 @@ class SlackUrlParts:
     thread_ts: str | None
 
 
+@dataclass
+class SlackMessage(SlackUrlParts):
+    text: str
+
+
 class SlackCommand(BaseModel):
     """This represents a partial definition of the command object emitted to a handler for a slash command."""
 

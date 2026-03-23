@@ -7,9 +7,6 @@ from simple_salesforce.api import Salesforce
 
 from tiger_agent.db.utils import insert_event
 from tiger_agent.events.types import HarnessContext
-from tiger_agent.salesforce.clients import (
-    get_salesforce_api_client,
-)
 from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
     CASE_ID_FIELD,
@@ -31,14 +28,14 @@ from tiger_agent.salesforce.utils import (
 
 class SalesforceEventHandler:
     def __init__(self, hctx: HarnessContext):
-        self._salesforce_client: Salesforce | None
+        self._salesforce_client: Salesforce | None = hctx.salesforce_client
         self._pool = hctx.pool
         self._trigger = hctx.trigger
         self._new_case_poller: SalesforceNewCasePoller | None
 
     @logfire.instrument("SalesforceEventHandler start")
     async def start(self, tasks: TaskGroup):
-        self._salesforce_client = get_salesforce_api_client()
+
         self._new_case_poller = SalesforceNewCasePoller(
             pool=self._pool,
             salesforce_client=self._salesforce_client,

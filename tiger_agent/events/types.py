@@ -5,6 +5,7 @@ from datetime import datetime
 
 from psycopg_pool import AsyncConnectionPool
 from pydantic import BaseModel
+from simple_salesforce.api import Salesforce
 from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent.salesforce.types import (
@@ -29,6 +30,7 @@ class HarnessContext:
 
     app: AsyncApp
     pool: AsyncConnectionPool
+    salesforce_client: Salesforce | None
     slack_bot_token: str
     slack_app_token: str
     trigger: Queue

@@ -21,6 +21,7 @@ from asyncio import QueueShutDown, TaskGroup
 from collections.abc import Sequence
 
 from psycopg_pool import AsyncConnectionPool
+from simple_salesforce.api import Salesforce
 from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent.db.utils import (
@@ -32,6 +33,7 @@ from tiger_agent.events.slack import SlackEventHandler
 from tiger_agent.events.types import EventProcessor, HarnessContext
 from tiger_agent.events.utils import process_events
 from tiger_agent.migrations import runner
+from tiger_agent.salesforce.clients import get_salesforce_api_client
 from tiger_agent.salesforce.types import SalesforceConfig
 
 logger = logging.getLogger(__name__)
@@ -130,7 +132,7 @@ class EventHarness:
                 ignoring_self_events_enabled=False,
             )
         )
-
+        self._salesforce_client: Salesforce | None = None
         self._salesforce_config = salesforce_config
 
     def _make_harness_context(self) -> HarnessContext:
@@ -139,9 +141,11 @@ class EventHarness:
         Returns:
             HarnessContext: Context containing Slack app, database pool, and task group
         """
+
         return HarnessContext(
             self._app,
             self._pool,
+            self._salesforce_client,
             self._slack_bot_token,
             self._slack_app_token,
             self._trigger,
@@ -245,14 +249,15 @@ class EventHarness:
         until interrupted or an unhandled exception occurs.
         """
         await self._pool.open(wait=True)
+        if self._salesforce_config and self._salesforce_config.is_valid():
+            self._salesforce_client = get_salesforce_api_client()
+
         hctx = self._make_harness_context()
         slack_event_handler = SlackEventHandler(
             hctx=hctx,
             event_processor=self._event_processor,
             proactive_prompt_channels=self._proactive_prompt_channels,
         )
-
-        salesforce_event_handler = SalesforceEventHandler(hctx=hctx)
 
         async with asyncio.TaskGroup() as tasks:
             async with self._pool.connection() as con:
@@ -265,5 +270,6 @@ class EventHarness:
 
             await slack_event_handler.start(tasks=tasks)
 
-            if self._salesforce_config and self._salesforce_config.is_valid():
+            if self._salesforce_client:
+                salesforce_event_handler = SalesforceEventHandler(hctx=hctx)
                 await salesforce_event_handler.start(tasks=tasks)
