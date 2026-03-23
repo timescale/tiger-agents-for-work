@@ -50,6 +50,7 @@ from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_ENABLE_SPAM_FILTERING,
+    SALESFORCE_SLACK_THREAD_FIELD,
 )
 from tiger_agent.salesforce.types import SalesforceBaseEvent
 from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage
@@ -555,14 +556,15 @@ class TigerAgent:
                     "white_check_mark",
                 )
             else:
-                if message:
+                if message and SALESFORCE_SLACK_THREAD_FIELD:
                     result = await hctx.app.client.chat_getPermalink(
                         channel=message.channel_id, message_ts=message.ts
                     )
                     permalink = result.data.get("permalink")
 
                     hctx.salesforce_client.Case.update(
-                        event_to_handle.case.Id, {"EON_Slack_Thread__c": permalink}
+                        event_to_handle.case.Id,
+                        {SALESFORCE_SLACK_THREAD_FIELD: permalink},
                     )
 
                     logfire.info(
