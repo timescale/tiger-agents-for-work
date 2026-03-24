@@ -50,9 +50,10 @@ from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_ENABLE_SPAM_FILTERING,
+    SALESFORCE_SLACK_THREAD_FIELD,
 )
 from tiger_agent.salesforce.types import SalesforceBaseEvent
-from tiger_agent.slack.types import BotInfo, SlackFile
+from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage
 from tiger_agent.slack.utils import (
     add_reaction,
     download_private_file,
@@ -60,7 +61,6 @@ from tiger_agent.slack.utils import (
     fetch_bot_info,
     fetch_user_info,
     post_response,
-    remove_reaction,
     set_status,
     stream_response_to_mention,
 )
@@ -298,7 +298,9 @@ class TigerAgent:
         """
 
     @logfire.instrument("generate_response", extract_args=False)
-    async def generate_response(self, hctx: HarnessContext, stream_event: Event) -> str:
+    async def create_and_send_response(
+        self, hctx: HarnessContext, stream_event: Event
+    ) -> SlackMessage | None:
         """Generate AI response to an event.
 
         This is the core logic that:
@@ -415,13 +417,25 @@ class TigerAgent:
                 if SALESFORCE_ENABLE_SPAM_FILTERING:
                     return
 
-            await post_response(
+            res = await post_response(
                 client=hctx.app.client,
                 channel=channel_to_respond,
                 thread_ts=None,
                 text=response.output.message,
             )
-            return
+            if not res.data.get("ok"):
+                logfire.error(
+                    "Failed to create thread for new Salesforce case",
+                    extra={"res": res.data},
+                )
+                return
+
+            return SlackMessage(
+                channel_id=channel_to_respond,
+                ts=res.data.get("ts"),
+                text=response.output.message,
+                thread_ts=None,
+            )
 
         if await usage_limit_reached(
             pool=hctx.pool,
@@ -445,6 +459,7 @@ class TigerAgent:
 
             return
 
+        response_message: SlackMessage | None = None
         await set_status(
             client=hctx.app.client,
             channel_id=event.channel,
@@ -472,7 +487,14 @@ class TigerAgent:
             )
 
         if slack_stream is not None and slack_stream._state != "completed":
-            await slack_stream.stop()
+            rest = await slack_stream.stop()
+            response_message = SlackMessage(
+                text=rest.data.get("message").get("text"),
+                ts=rest.data.get("ts"),
+                channel_id=rest.data.get("channel"),
+                thread_ts=None,
+            )
+            logfire.info("ended", extra={"res": rest})
 
         # clear the status widget
         await set_status(
@@ -481,6 +503,8 @@ class TigerAgent:
             thread_ts=event.thread_ts or event.ts,
             is_busy=False,
         )
+
+        return response_message
 
     async def __call__(self, hctx: HarnessContext, event: Event) -> None:
         """Processes various events.
@@ -511,31 +535,56 @@ class TigerAgent:
         Raises:
             Exception: Re-raises any processing exceptions for EventHarness retry handling
         """
-        mention = event.event
+        event_to_handle = event.event
         try:
-            if not isinstance(mention, SalesforceBaseEvent):
-                if await user_ignored(pool=hctx.pool, user_id=mention.user):
-                    logfire.info("Ignore user", user_id=mention.user)
-                    return
-
-            await self.generate_response(hctx, event)
-            if not isinstance(mention, SalesforceBaseEvent):
-                await add_reaction(
-                    hctx.app.client, mention.channel, mention.ts, "white_check_mark"
-                )
-        except Exception as e:
-            logger.exception("response failed", exc_info=e)
-            if isinstance(mention, SalesforceBaseEvent):
+            if not isinstance(
+                event_to_handle, SalesforceBaseEvent
+            ) and await user_ignored(pool=hctx.pool, user_id=event_to_handle.user):
+                logfire.info("Ignore user", user_id=event_to_handle.user)
                 return
 
-            await remove_reaction(
-                hctx.app.client, mention.channel, mention.ts, "spinthinking"
+            message = await self.create_and_send_response(hctx, event)
+
+            if message:
+                logfire.info("Reponse sent", extra={"message": message})
+
+            if not isinstance(event_to_handle, SalesforceBaseEvent):
+                await add_reaction(
+                    hctx.app.client,
+                    event_to_handle.channel,
+                    event_to_handle.ts,
+                    "white_check_mark",
+                )
+            else:
+                if message and SALESFORCE_SLACK_THREAD_FIELD:
+                    result = await hctx.app.client.chat_getPermalink(
+                        channel=message.channel_id, message_ts=message.ts
+                    )
+                    permalink = result.data.get("permalink")
+
+                    hctx.salesforce_client.Case.update(
+                        event_to_handle.case.Id,
+                        {SALESFORCE_SLACK_THREAD_FIELD: permalink},
+                    )
+
+                    logfire.info(
+                        "Updated Salesforce case to include the thread link",
+                        extra={"permalink": permalink},
+                    )
+        except Exception as e:
+            logger.exception("response failed", exc_info=e)
+            if isinstance(event_to_handle, SalesforceBaseEvent):
+                return
+
+            await add_reaction(
+                hctx.app.client, event_to_handle.channel, event_to_handle.ts, "x"
             )
-            await add_reaction(hctx.app.client, mention.channel, mention.ts, "x")
             await post_response(
                 client=hctx.app.client,
-                channel=mention.channel,
-                thread_ts=mention.thread_ts if mention.thread_ts else mention.ts,
+                channel=event_to_handle.channel,
+                thread_ts=event_to_handle.thread_ts
+                if event_to_handle.thread_ts
+                else event_to_handle.ts,
                 text="I experienced an issue trying to respond. I will try again."
                 if event.attempts < self.max_attempts
                 else " I give up. Sorry.",

@@ -56,7 +56,6 @@ async def process_events(
             invisibility_minutes=invisibility_minutes,
         )
         if not event:
-            logger.info("no event found")
             return
         if not await process_event(event_processor, hctx, event):
             # if we failed to process the event, stop working for now
