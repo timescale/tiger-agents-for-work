@@ -56,11 +56,11 @@ class SalesforceNewCasePoller:
                 SELECT event->'case'->>'Id' AS case_id
                 FROM (
                     SELECT event, event_ts FROM agent.event
-                    WHERE event->>'subtype' = 'new_case'
+                    WHERE event->>'subtype' = 'assignment_changed'
                     AND event_ts >= %s
                     UNION ALL
                     SELECT event, event_ts FROM agent.event_hist
-                    WHERE event->>'subtype' = 'new_case'
+                    WHERE event->>'subtype' = 'assignment_changed'
                     AND event_ts >= %s
                 ) combined
                 WHERE event->'case'->>'Id' IN ({placeholders})
