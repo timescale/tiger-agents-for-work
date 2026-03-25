@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from tiger_agent.events.types import Event
 from tiger_agent.mcp.types import MCPDict
@@ -62,6 +62,9 @@ class AgentSalesforceResponse(BaseModel):
 
     is_spam: bool
     message: str
+    short_description_of_case: str = Field(
+        description="A brief 1-2 sentence summary of the support case issue."
+    )
 
 
 type ExtraContextDict = dict[str, BaseModel]
