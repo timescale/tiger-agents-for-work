@@ -39,7 +39,7 @@ class SalesforceEventHandler:
         self._new_case_poller = SalesforceNewCasePoller(
             pool=self._pool,
             salesforce_client=self._salesforce_client,
-            handler=self.handle_new_case,
+            handler=self.handle_updated_case_assignee,
         )
 
         # for now, we are going to use just assignment events
@@ -104,7 +104,8 @@ class SalesforceEventHandler:
         )
 
         await insert_event(
-            pool=self._pool, event=SalesforceNewCaseEvent(case=case).model_dump()
+            pool=self._pool,
+            event=SalesforceNewCaseEvent(case=case).model_dump(),
         )
 
         await self._trigger.put(True)
