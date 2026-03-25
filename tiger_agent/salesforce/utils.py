@@ -16,6 +16,7 @@ from tiger_agent.salesforce.clients import (
 )
 from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
+    SALESFORCE_DOMAIN,
 )
 from tiger_agent.salesforce.types import CaseData, SalesforceBaseEvent
 
@@ -164,3 +165,7 @@ async def is_case_assignment_new(
                 )
 
         return True
+
+
+def create_case_url(case: CaseData) -> str:
+    return f"https://{SALESFORCE_DOMAIN}/lightning/r/Case/${case.Id}/view"

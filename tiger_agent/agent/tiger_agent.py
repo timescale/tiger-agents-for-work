@@ -53,6 +53,7 @@ from tiger_agent.salesforce.constants import (
     SALESFORCE_SLACK_THREAD_FIELD,
 )
 from tiger_agent.salesforce.types import SalesforceBaseEvent
+from tiger_agent.salesforce.utils import create_case_url
 from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage
 from tiger_agent.slack.utils import (
     add_reaction,
@@ -301,35 +302,6 @@ class TigerAgent:
     async def create_and_send_response(
         self, hctx: HarnessContext, stream_event: Event
     ) -> SlackMessage | None:
-        """Generate AI response to an event.
-
-        This is the core logic that:
-        1. Builds context from event data, user info, and bot info
-        2. Renders system and user prompts from Jinja2 templates
-        3. Creates a Pydantic-AI agent with MCP server toolsets
-        4. Runs the AI model to generate a response with streaming support
-        5. Posts the response directly to Slack with real-time updates
-
-        The method supports two modes:
-        - **Streaming Mode (default)**: Uses Slack's chat_stream API for real-time updates,
-          shows tool calls in the status bar, and optionally displays tool arguments
-        - **Non-streaming Mode**: Traditional approach that generates complete response
-          before posting to Slack
-
-        The context dictionary provides templates with access to:
-        - event: The full Event object with processing metadata
-        - mention: The AppMentionEvent with Slack message details
-        - bot: Bot information and capabilities
-        - user: User profile information including timezone
-        - local_time: Event timestamp in user's local timezone
-
-        Args:
-            hctx: Harness context providing Slack app and database access
-            event: The Slack event to process
-
-        Returns:
-            None - responses are posted directly to Slack during processing
-        """
         event = stream_event.event
 
         if not self.bot_info:
@@ -371,6 +343,8 @@ class TigerAgent:
 
         toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 
+        # need to create this closure here so we can pass it in
+        # as a tool to Pydantic agent
         async def _download_slack_hosted_file(
             file: SlackFile,
         ) -> BinaryContent | str | None:
@@ -402,6 +376,10 @@ class TigerAgent:
             else None,
         )
 
+        # when creating a thread for a new Salesforce case
+        # we post a short description as a new top level message
+        # then post the details response as a threaded message
+        # within the OP, but only if the case is not deemed as spam
         if isinstance(event, SalesforceBaseEvent):
             response = await agent.run(
                 user_prompt=user_prompt,
@@ -417,25 +395,30 @@ class TigerAgent:
                 if SALESFORCE_ENABLE_SPAM_FILTERING:
                     return
 
-            res = await post_response(
+            original_message = await post_response(
                 client=hctx.app.client,
                 channel=channel_to_respond,
                 thread_ts=None,
-                text=response.output.message,
+                text=f"*New Case <{create_case_url(event.case)}|{event.case.CaseNumber}> - {event.case.Subject}*\n{response.output.short_description_of_case}",
             )
-            if not res.data.get("ok"):
-                logfire.error(
-                    "Failed to create thread for new Salesforce case",
-                    extra={"res": res.data},
-                )
-                return
 
-            return SlackMessage(
+            message_to_link_to = SlackMessage(
                 channel_id=channel_to_respond,
-                ts=res.data.get("ts"),
+                ts=original_message.data.get("ts"),
                 text=response.output.message,
                 thread_ts=None,
             )
+
+            if not response.output.is_spam:
+                # this is the detailed message
+                await post_response(
+                    client=hctx.app.client,
+                    channel=channel_to_respond,
+                    thread_ts=message_to_link_to.ts,
+                    text=response.output.message,
+                )
+
+            return message_to_link_to
 
         if await usage_limit_reached(
             pool=hctx.pool,
