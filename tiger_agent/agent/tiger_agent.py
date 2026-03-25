@@ -565,6 +565,7 @@ class TigerAgent:
                     hctx.salesforce_client.Case.update(
                         event_to_handle.case.Id,
                         {SALESFORCE_SLACK_THREAD_FIELD: permalink},
+                        headers={"Sforce-Auto-Assign": "false"},
                     )
 
                     logfire.info(
