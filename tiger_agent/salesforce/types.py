@@ -1,5 +1,3 @@
-from datetime import date
-
 import logfire
 from pydantic import BaseModel
 
@@ -58,7 +56,6 @@ class SalesforceBaseEvent(BaseModel):
     type: str = "salesforce_event"
     case: CaseData
     subtype: str
-    event_ts: date | None = None
 
 
 class SalesforceNewCaseEvent(SalesforceBaseEvent):
