@@ -59,6 +59,7 @@ from tiger_agent.slack.utils import (
     download_private_file,
     download_slack_hosted_file,
     fetch_bot_info,
+    fetch_thread_messages,
     fetch_user_info,
     post_response,
     set_status,
@@ -365,6 +366,21 @@ class TigerAgent:
 
         extra_ctx = {}
         await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
+
+        if (
+            not isinstance(event, SalesforceBaseEvent)
+            and event.thread_ts
+            and self.bot_info
+        ):
+            thread_history = await fetch_thread_messages(
+                client=hctx.app.client,
+                channel=event.channel,
+                thread_ts=event.thread_ts,
+                current_ts=event.ts,
+                bot_user_id=self.bot_info.user_id,
+            )
+            if thread_history:
+                extra_ctx["thread_history"] = thread_history
 
         system_prompt = await self.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
         user_prompt = await self.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)

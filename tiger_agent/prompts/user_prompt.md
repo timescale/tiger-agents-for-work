@@ -19,6 +19,16 @@ channel: {{ mention.channel }}
 ts: {{ mention.ts }}
 {% if mention.thread_ts %}thread_ts: {{ mention.thread_ts }}{% endif %}
 event_ts: {{ event.event_ts }}
+{% if thread_history and thread_history.messages %}
+
+## Conversation History
+
+{% for msg in thread_history.messages %}
+**{{ msg.role }}** ({{ msg.user_id }}):
+{{ msg.text }}
+
+{% endfor %}
+{% endif %}
 
 ## Respond to this message
 

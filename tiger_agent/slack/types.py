@@ -131,6 +131,21 @@ class UserInfo(BaseModel):
     profile: UserProfile
 
 
+class ThreadMessage(BaseModel):
+    """A single message in a Slack thread conversation."""
+
+    role: str
+    user_id: str
+    text: str
+    ts: str
+
+
+class ThreadHistory(BaseModel):
+    """Conversation history from a Slack thread."""
+
+    messages: list[ThreadMessage]
+
+
 @dataclass
 class SlackUrlParts:
     channel_id: str

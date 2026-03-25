@@ -48,6 +48,8 @@ from tiger_agent.slack.types import (
     ChannelInfo,
     SlackFile,
     SlackUrlParts,
+    ThreadHistory,
+    ThreadMessage,
     UserInfo,
 )
 from tiger_agent.utils import file_type_supported
@@ -164,6 +166,62 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
         return UserInfo(**(resp.data["user"]))
     except Exception:
         logfire.exception("Failed to fetch user info", user_id=user_id)
+        return None
+
+
+@logfire.instrument("fetch_thread_messages", extract_args=["channel", "thread_ts"])
+async def fetch_thread_messages(
+    client: AsyncWebClient,
+    channel: str,
+    thread_ts: str,
+    current_ts: str,
+    bot_user_id: str,
+) -> ThreadHistory | None:
+    """Fetch conversation history from a Slack thread.
+
+    Retrieves all messages in a thread (up to 50) and labels each as "assistant"
+    or "user" based on whether the message was sent by the bot. The current
+    message is excluded since it's already in the user prompt.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel: Slack channel ID containing the thread
+        thread_ts: Thread timestamp to fetch replies for
+        current_ts: Timestamp of the current message to exclude
+        bot_user_id: Bot's Slack user ID for role labeling
+
+    Returns:
+        ThreadHistory with ordered messages, or None if fetch failed
+    """
+    try:
+        resp = await client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=50
+        )
+        assert isinstance(resp.data, dict)
+        assert resp.data["ok"]
+
+        messages = []
+        for msg in resp.data.get("messages", []):
+            msg_ts = msg.get("ts", "")
+            if msg_ts == current_ts:
+                continue
+
+            msg_user = msg.get("user", "")
+            role = "assistant" if msg_user == bot_user_id else "user"
+            text = msg.get("text", "")
+
+            if text:
+                messages.append(
+                    ThreadMessage(role=role, user_id=msg_user, text=text, ts=msg_ts)
+                )
+
+        return ThreadHistory(messages=messages)
+    except Exception:
+        logfire.exception(
+            "Failed to fetch thread messages",
+            channel=channel,
+            thread_ts=thread_ts,
+        )
         return None
 
 
