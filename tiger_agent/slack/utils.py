@@ -48,6 +48,7 @@ from tiger_agent.slack.types import (
     ChannelInfo,
     SlackFile,
     SlackUrlParts,
+    ThreadMessage,
     UserInfo,
 )
 from tiger_agent.utils import file_type_supported
@@ -165,6 +166,65 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
     except Exception:
         logfire.exception("Failed to fetch user info", user_id=user_id)
         return None
+
+
+@logfire.instrument("fetch_thread_replies", extract_args=["channel", "thread_ts"])
+async def fetch_thread_replies(
+    client: AsyncWebClient,
+    channel: str,
+    thread_ts: str,
+    current_message_ts: str,
+    bot_user_id: str,
+    limit: int = 10,
+) -> list[ThreadMessage]:
+    """Fetch previous replies in a Slack thread for conversation context.
+
+    Retrieves messages from the thread, filtering out the current message
+    and any messages with empty text. Bot messages are identified by user ID
+    or bot_id presence.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel: Slack channel ID containing the thread
+        thread_ts: Thread timestamp to fetch replies for
+        current_message_ts: Timestamp of the current message to exclude
+        bot_user_id: Bot's user ID to identify bot messages
+        limit: Maximum number of messages to return (default 10)
+
+    Returns:
+        List of ThreadMessage objects, capped to limit
+    """
+    try:
+        resp = await client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=limit + 1, inclusive=True
+        )
+        assert isinstance(resp.data, dict)
+
+        messages = resp.data.get("messages", [])
+        thread_messages: list[ThreadMessage] = []
+
+        for msg in messages:
+            ts = msg.get("ts", "")
+            text = msg.get("text", "")
+
+            if ts == current_message_ts or not text:
+                continue
+
+            user = msg.get("user", "")
+            is_bot = user == bot_user_id or msg.get("bot_id") is not None
+
+            thread_messages.append(
+                ThreadMessage(user=user, text=text, ts=ts, is_bot=is_bot)
+            )
+
+        return thread_messages[:limit]
+    except Exception:
+        logfire.exception(
+            "Failed to fetch thread replies",
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        return []
 
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])

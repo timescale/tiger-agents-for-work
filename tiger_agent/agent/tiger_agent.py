@@ -30,7 +30,12 @@ from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, Tool, UsageLimits, models
 from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
     UserContent,
+    UserPromptPart,
 )
 from pydantic_ai.models.anthropic import AnthropicModel
 from slack_sdk.web.async_client import (
@@ -54,12 +59,13 @@ from tiger_agent.salesforce.constants import (
 )
 from tiger_agent.salesforce.types import SalesforceBaseEvent
 from tiger_agent.salesforce.utils import create_case_url
-from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage
+from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage, ThreadMessage
 from tiger_agent.slack.utils import (
     add_reaction,
     download_private_file,
     download_slack_hosted_file,
     fetch_bot_info,
+    fetch_thread_replies,
     fetch_user_info,
     post_response,
     set_status,
@@ -74,6 +80,19 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT_REGEX = r"^system_prompt.*\.md$"
 USER_PROMPT_REGEX = r"^user_prompt.*\.md$"
+
+
+def _build_message_history(
+    thread_messages: list[ThreadMessage],
+) -> list[ModelMessage]:
+    """Convert Slack thread messages into pydantic-ai message history."""
+    history: list[ModelMessage] = []
+    for msg in thread_messages:
+        if msg.is_bot:
+            history.append(ModelResponse(parts=[TextPart(content=msg.text)]))
+        else:
+            history.append(ModelRequest(parts=[UserPromptPart(content=msg.text)]))
+    return history
 
 
 class TigerAgent:
@@ -442,11 +461,46 @@ class TigerAgent:
 
             return
 
+        is_dm = event.is_dm
+
+        # Fetch thread history for conversation context
+        thread_ts = event.thread_ts or event.ts
+        message_history: list[ModelMessage] = []
+        if event.thread_ts and self.bot_info:
+            thread_messages = await fetch_thread_replies(
+                client=hctx.app.client,
+                channel=event.channel,
+                thread_ts=event.thread_ts,
+                current_message_ts=event.ts,
+                bot_user_id=self.bot_info.user_id,
+            )
+            message_history = _build_message_history(thread_messages)
+
+        if is_dm:
+            response = await agent.run(
+                user_prompt=user_prompt,
+                deps=ctx,
+                message_history=message_history or None,
+                usage_limits=UsageLimits(output_tokens_limit=9_000),
+            )
+            await post_response(
+                client=hctx.app.client,
+                channel=event.channel,
+                thread_ts=thread_ts,
+                text=response.output,
+            )
+            return SlackMessage(
+                channel_id=event.channel,
+                ts=event.ts,
+                text=response.output,
+                thread_ts=event.thread_ts,
+            )
+
         response_message: SlackMessage | None = None
         await set_status(
             client=hctx.app.client,
             channel_id=event.channel,
-            thread_ts=event.thread_ts or event.ts,
+            thread_ts=thread_ts,
             is_busy=True,
         )
         slack_stream: AsyncChatStream | None = None
@@ -456,6 +510,7 @@ class TigerAgent:
         async for stream_event in agent.run_stream_events(
             user_prompt=user_prompt,
             deps=ctx,
+            message_history=message_history or None,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
             slack_stream = await stream_response_to_mention(
@@ -483,7 +538,7 @@ class TigerAgent:
         await set_status(
             client=hctx.app.client,
             channel_id=event.channel,
-            thread_ts=event.thread_ts or event.ts,
+            thread_ts=thread_ts,
             is_busy=False,
         )
 

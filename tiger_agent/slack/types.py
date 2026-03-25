@@ -174,6 +174,15 @@ class SlackFile(BaseModel):
     size: int | None = None
 
 
+class ThreadMessage(BaseModel):
+    """A single message in a Slack thread conversation."""
+
+    user: str
+    text: str
+    ts: str
+    is_bot: bool = False
+
+
 class SlackBaseEvent(BaseModel):
     """Base Pydantic model for Slack events.
 
@@ -206,6 +215,10 @@ class SlackBaseEvent(BaseModel):
     event_ts: str
     files: list[SlackFile] | None = None
 
+    @property
+    def is_dm(self) -> bool:
+        return False
+
 
 class SlackAppMentionEvent(SlackBaseEvent):
     """Pydantic model for Slack app_mention events."""
@@ -218,3 +231,7 @@ class SlackMessageEvent(SlackBaseEvent):
 
     type: str = "message"
     subtype: str | None = None
+
+    @property
+    def is_dm(self) -> bool:
+        return self.subtype == "im"
