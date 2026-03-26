@@ -175,7 +175,7 @@ async def fetch_thread_replies(
     thread_ts: str,
     current_message_ts: str,
     bot_user_id: str,
-    limit: int = 10,
+    limit: int = 20,
 ) -> list[ThreadMessage]:
     """Fetch previous replies in a Slack thread for conversation context.
 
