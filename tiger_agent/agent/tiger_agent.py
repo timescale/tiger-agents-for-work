@@ -30,7 +30,6 @@ from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, BinaryContent, Tool, UsageLimits, models
 from pydantic_ai.messages import (
-    ModelMessage,
     UserContent,
 )
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -48,7 +47,7 @@ from tiger_agent.events.types import Event, HarnessContext
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
 from tiger_agent.prompts.types import PromptPackage
-from tiger_agent.prompts.utils import build_message_history_from_slack_messages
+from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_ENABLE_SPAM_FILTERING,
@@ -195,7 +194,10 @@ class TigerAgent:
         )
 
         extra_context: dict[str, Any] = (
-            {k: v.model_dump() for k, v in extra_ctx.items()}
+            {
+                k: v.model_dump() if isinstance(v, BaseModel) else v
+                for k, v in extra_ctx.items()
+            }
             if self.extra_context is not None and isinstance(self.extra_context, dict)
             else {}
         )
@@ -341,7 +343,6 @@ class TigerAgent:
         extra_ctx = {}
         await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
-        message_history: list[ModelMessage] = []
         if (
             not isinstance(event, SalesforceBaseEvent)
             and event.thread_ts
@@ -352,7 +353,7 @@ class TigerAgent:
                 channel=event.channel,
                 thread_ts=event.thread_ts,
             )
-            message_history = build_message_history_from_slack_messages(
+            extra_ctx["thread_history"] = format_thread_history(
                 thread_messages, self.bot_info, [event.ts]
             )
 
@@ -474,7 +475,6 @@ class TigerAgent:
         async for stream_event in agent.run_stream_events(
             user_prompt=user_prompt,
             deps=ctx,
-            message_history=message_history if message_history else None,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
             slack_stream = await stream_response_to_mention(

@@ -1,46 +1,30 @@
-from pydantic_ai.messages import (
-    ModelMessage,
-    ModelRequest,
-    ModelResponse,
-    TextPart,
-    UserPromptPart,
-)
+from datetime import UTC, datetime
 
 from tiger_agent.slack.types import BotInfo, SlackMessageEvent
 
 
-def build_message_history_from_slack_messages(
+def format_thread_history(
     thread_messages: list[SlackMessageEvent],
     bot_info: BotInfo,
     filter_message_ts: list[str] | None = None,
-) -> list[ModelMessage]:
-    """Convert thread messages to Pydantic-AI message history format.
-
-    Transforms Slack thread messages into the ModelMessage format expected
-    by Pydantic-AI for conversation history. User messages become ModelRequest
-    with UserPromptPart, and bot messages become ModelResponse with TextPart.
+) -> str:
+    """Format Slack thread messages as a readable conversation transcript.
 
     Args:
         thread_messages: List of messages from Slack thread
-        bot_info: The agent's slack bot info, used to determine which messages are agentic responses
-        filter_message_ts: Optional list of messages to filter out
+        bot_info: The agent's slack bot info, used to label bot messages
+        filter_message_ts: Optional list of message timestamps to exclude
 
     Returns:
-        List of ModelMessage objects suitable for agent.run(message_history=...)
+        Formatted string transcript, or empty string if no messages.
     """
-    message_history: list[ModelMessage] = []
+    lines: list[str] = []
 
     for msg in thread_messages:
         if filter_message_ts and msg.ts in filter_message_ts:
-            # dont process ignored messages
             continue
-        if msg.user == bot_info.user_id:
-            # Bot messages become assistant responses
-            message_history.append(ModelResponse(parts=[TextPart(content=msg.text)]))
-        else:
-            # all other messages are requests
-            message_history.append(
-                ModelRequest(parts=[UserPromptPart(content=msg.text)])
-            )
+        actor = f"{bot_info.name} (you)" if msg.user == bot_info.user_id else f"<@{msg.user}>"
+        ts = datetime.fromtimestamp(float(msg.ts), tz=UTC).isoformat()
+        lines.append(f"[{ts}] {actor}: {msg.text}")
 
-    return message_history
+    return "\n".join(lines)
