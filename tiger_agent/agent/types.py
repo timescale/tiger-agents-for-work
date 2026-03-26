@@ -65,6 +65,10 @@ class AgentSalesforceResponse(BaseModel):
     short_description_of_case: str = Field(
         description="A brief 1-2 sentence summary of the support case issue."
     )
+    case_owner_slack_user_id: str | None = Field(
+        default=None,
+        description="The Slack user ID of the case owner (e.g. 'U012AB3CD'). Null if the Slack user ID cannot be determined for the case owner.",
+    )
 
 
 type ExtraContextDict = dict[str, BaseModel]
