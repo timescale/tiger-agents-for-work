@@ -180,7 +180,6 @@ class ThreadMessage(BaseModel):
     user: str
     text: str
     ts: str
-    is_bot: bool = False
 
 
 class SlackBaseEvent(BaseModel):

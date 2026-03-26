@@ -47,6 +47,7 @@ from tiger_agent.slack.types import (
     BotInfo,
     ChannelInfo,
     SlackFile,
+    SlackMessageEvent,
     SlackUrlParts,
     ThreadMessage,
     UserInfo,
@@ -171,12 +172,10 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
 @logfire.instrument(
     "fetch_thread_replies", extract_args=["channel", "thread_ts", "limit"]
 )
-async def fetch_thread_replies(
+async def fetch_thread_messages(
     client: AsyncWebClient,
     channel: str,
     thread_ts: str,
-    bot_user_id: str,
-    current_message_ts: str,
     limit: int = 20,
 ) -> list[ThreadMessage]:
     """Fetch recent messages from a Slack thread for conversation history.
@@ -189,8 +188,6 @@ async def fetch_thread_replies(
         client: Slack AsyncWebClient for API calls
         channel: Slack channel ID where the thread is located
         thread_ts: Thread timestamp identifier (the parent message ts)
-        bot_user_id: The bot's user ID to identify bot messages
-        current_message_ts: The ts of the current message being processed (to exclude)
         limit: Maximum number of messages to fetch (default 10)
 
     Returns:
@@ -210,36 +207,16 @@ async def fetch_thread_replies(
         assert resp.data["ok"]
 
         messages = resp.data.get("messages", [])
-        thread_messages: list[ThreadMessage] = []
+        thread_messages: list[SlackMessageEvent] = []
 
         for msg in messages:
-            # Skip the current message being processed
-            if msg.get("ts") == current_message_ts:
-                continue
+            thread_messages.append(SlackMessageEvent(
+                **msg,
+                channel=channel,
+                event_ts=msg.get("ts", ""),
+            ))
 
-            # Skip messages without text content
-            text = msg.get("text")
-            if not text:
-                continue
-
-            user = msg.get("user", "")
-            is_bot = user == bot_user_id or msg.get("bot_id") is not None
-
-            thread_messages.append(
-                ThreadMessage(
-                    user=user,
-                    text=text,
-                    ts=msg.get("ts", ""),
-                    is_bot=is_bot,
-                )
-            )
-
-        # Return only the last `limit` messages (excluding current), in chronological order
-        return (
-            thread_messages[-limit:]
-            if len(thread_messages) > limit
-            else thread_messages
-        )
+        return thread_messages
 
     except Exception:
         logfire.exception(
