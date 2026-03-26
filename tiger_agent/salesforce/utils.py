@@ -168,4 +168,4 @@ async def is_case_assignment_new(
 
 
 def create_case_url(case: CaseData) -> str:
-    return f"https://{SALESFORCE_DOMAIN}/lightning/r/Case/${case.Id}/view"
+    return f"https://{SALESFORCE_DOMAIN}/lightning/r/Case/{case.Id}/view"
