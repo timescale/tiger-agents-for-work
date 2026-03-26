@@ -21,7 +21,7 @@ def build_message_history_from_slack_messages(
     with UserPromptPart, and bot messages become ModelResponse with TextPart.
 
     Args:
-        thread_messages: List of ThreadMessage objects from Slack thread
+        thread_messages: List of messages from Slack thread
         bot_info: The agent's slack bot info, used to determine which messages are agentic responses
         filter_message_ts: Optional list of messages to filter out
 

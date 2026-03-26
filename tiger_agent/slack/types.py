@@ -174,14 +174,6 @@ class SlackFile(BaseModel):
     size: int | None = None
 
 
-class ThreadMessage(BaseModel):
-    """A single message in a Slack thread conversation."""
-
-    user: str
-    text: str
-    ts: str
-
-
 class SlackBaseEvent(BaseModel):
     """Base Pydantic model for Slack events.
 

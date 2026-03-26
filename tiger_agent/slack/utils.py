@@ -49,7 +49,6 @@ from tiger_agent.slack.types import (
     SlackFile,
     SlackMessageEvent,
     SlackUrlParts,
-    ThreadMessage,
     UserInfo,
 )
 from tiger_agent.utils import file_type_supported
@@ -177,7 +176,7 @@ async def fetch_thread_messages(
     channel: str,
     thread_ts: str,
     limit: int = 20,
-) -> list[ThreadMessage]:
+) -> list[SlackMessageEvent]:
     """Fetch recent messages from a Slack thread for conversation history.
 
     Retrieves the most recent messages from a thread to provide context for
@@ -191,8 +190,7 @@ async def fetch_thread_messages(
         limit: Maximum number of messages to fetch (default 10)
 
     Returns:
-        List of ThreadMessage objects in chronological order, excluding the
-        current message being processed. Returns empty list on failure.
+        List of message objects in chronological order
     """
     try:
         # Fetch thread replies - Slack returns messages oldest-first by default
@@ -210,11 +208,13 @@ async def fetch_thread_messages(
         thread_messages: list[SlackMessageEvent] = []
 
         for msg in messages:
-            thread_messages.append(SlackMessageEvent(
-                **msg,
-                channel=channel,
-                event_ts=msg.get("ts", ""),
-            ))
+            thread_messages.append(
+                SlackMessageEvent(
+                    **msg,
+                    channel=channel,
+                    event_ts=msg.get("ts", ""),
+                )
+            )
 
         return thread_messages
 
