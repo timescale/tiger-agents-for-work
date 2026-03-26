@@ -47,6 +47,7 @@ from tiger_agent.slack.types import (
     BotInfo,
     ChannelInfo,
     SlackFile,
+    SlackMessageEvent,
     SlackUrlParts,
     UserInfo,
 )
@@ -86,14 +87,14 @@ def parse_slack_url(url: str) -> SlackUrlParts:
     channel_id = path_match.group(1)
     raw_ts = path_match.group(2)
 
-    # p-prefix ts has no decimal — insert before last 6 digits
+    # p-prefix ts has no decimal -- insert before last 6 digits
     # Handles both with and without fractional seconds (though Slack always uses 6 digits)
     ts = f"{raw_ts[:-6]}.{raw_ts[-6:]}" if len(raw_ts) > 6 else f"0.{raw_ts.zfill(6)}"
 
     # thread_ts from query param may or may not have a decimal
     raw_thread_ts = parse_qs(parsed.query).get("thread_ts", [None])[0]
     if raw_thread_ts is not None and "." not in raw_thread_ts:
-        # No decimal — insert before last 6 digits
+        # No decimal -- insert before last 6 digits
         if len(raw_thread_ts) > 6:
             thread_ts = f"{raw_thread_ts[:-6]}.{raw_thread_ts[-6:]}"
         else:
@@ -165,6 +166,63 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
     except Exception:
         logfire.exception("Failed to fetch user info", user_id=user_id)
         return None
+
+
+@logfire.instrument(
+    "fetch_thread_replies", extract_args=["channel", "thread_ts", "limit"]
+)
+async def fetch_thread_messages(
+    client: AsyncWebClient,
+    channel: str,
+    thread_ts: str,
+    limit: int = 20,
+) -> list[SlackMessageEvent]:
+    """Fetch recent messages from a Slack thread for conversation history.
+
+    Retrieves the most recent messages from a thread to provide context for
+    the AI agent. Messages are returned in chronological order (oldest first)
+    to preserve conversation flow.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel: Slack channel ID where the thread is located
+        thread_ts: Thread timestamp identifier (the parent message ts)
+        limit: Maximum number of messages to fetch (default 10)
+
+    Returns:
+        List of message objects in chronological order
+    """
+    try:
+        # Fetch thread replies - Slack returns messages oldest-first by default
+        # We request limit+1 because we'll exclude the current message
+        resp = await client.conversations_replies(
+            channel=channel,
+            ts=thread_ts,
+            limit=limit + 1,
+            inclusive=True,
+        )
+        assert isinstance(resp.data, dict)
+        assert resp.data["ok"]
+
+        messages = resp.data.get("messages", [])
+        thread_messages: list[SlackMessageEvent] = []
+
+        for msg in messages:
+            thread_messages.append(
+                SlackMessageEvent(
+                    **msg,
+                    channel=channel,
+                    event_ts=msg.get("ts", ""),
+                )
+            )
+
+        return thread_messages
+
+    except Exception:
+        logfire.exception(
+            "Failed to fetch thread replies", channel=channel, thread_ts=thread_ts
+        )
+        return []
 
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])

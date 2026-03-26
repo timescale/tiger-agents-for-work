@@ -47,6 +47,7 @@ from tiger_agent.events.types import Event, HarnessContext
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
 from tiger_agent.prompts.types import PromptPackage
+from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_ENABLE_SPAM_FILTERING,
@@ -60,6 +61,7 @@ from tiger_agent.slack.utils import (
     download_private_file,
     download_slack_hosted_file,
     fetch_bot_info,
+    fetch_thread_messages,
     fetch_user_info,
     post_response,
     set_status,
@@ -192,7 +194,10 @@ class TigerAgent:
         )
 
         extra_context: dict[str, Any] = (
-            {k: v.model_dump() for k, v in extra_ctx.items()}
+            {
+                k: v.model_dump() if isinstance(v, BaseModel) else v
+                for k, v in extra_ctx.items()
+            }
             if self.extra_context is not None and isinstance(self.extra_context, dict)
             else {}
         )
@@ -337,6 +342,20 @@ class TigerAgent:
 
         extra_ctx = {}
         await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
+
+        if (
+            not isinstance(event, SalesforceBaseEvent)
+            and event.thread_ts
+            and self.bot_info
+        ):
+            thread_messages = await fetch_thread_messages(
+                client=hctx.app.client,
+                channel=event.channel,
+                thread_ts=event.thread_ts,
+            )
+            extra_ctx["thread_history"] = format_thread_history(
+                thread_messages, self.bot_info, [event.ts]
+            )
 
         system_prompt = await self.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
         user_prompt = await self.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)

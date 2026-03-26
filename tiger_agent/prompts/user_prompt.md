@@ -17,8 +17,17 @@ created_date: {{ mention.case.CreatedDate }}
 
 channel: {{ mention.channel }}
 ts: {{ mention.ts }}
-{% if mention.thread_ts %}thread_ts: {{ mention.thread_ts }}{% endif %}
 event_ts: {{ event.event_ts }}
+
+{% if thread_history %}
+
+## Thread History
+
+The following is the prior message history from the Slack thread that contains the message you are responding to, in chronological order.
+
+{{ thread_history }}
+
+{% endif %}
 
 ## Respond to this message
 
