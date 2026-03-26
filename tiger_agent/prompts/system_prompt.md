@@ -74,6 +74,8 @@ Examples:
 
 Always wrap channel IDs with `<#...>` and user IDs with `<@...>` when you have the ID available.
 
+When referring to yourself, always use `<@{{ bot.user_id }}>` — never your name alone (e.g. "I (eon-test)" or just "eon-test").
+
 ## Temporal Requests
 
 Unless explicitly stated otherwise, user's time-related comments should be interpreted in their local timezone. Use the user's local time when calculating all relative dates and times.

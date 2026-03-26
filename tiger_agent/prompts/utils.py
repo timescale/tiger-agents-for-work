@@ -23,7 +23,7 @@ def format_thread_history(
     for msg in thread_messages:
         if filter_message_ts and msg.ts in filter_message_ts:
             continue
-        actor = f"{bot_info.name} (you)" if msg.user == bot_info.user_id else f"<@{msg.user}>"
+        actor = f"<@{bot_info.user_id}> (you)" if msg.user == bot_info.user_id else f"<@{msg.user}>"
         ts = datetime.fromtimestamp(float(msg.ts), tz=UTC).isoformat()
         lines.append(f"[{ts}] {actor}: {msg.text}")
 
