@@ -12,6 +12,7 @@ class SalesforceUser(BaseModel):
     Id: str | None = None
     Username: str | None = None
     FirstName: str | None = None
+    LastName: str | None = None
     Email: str | None = None
 
 
