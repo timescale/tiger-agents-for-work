@@ -11,6 +11,7 @@ CASE_FIELDS = [
     "Owner.Id",
     "Owner.Username",
     "Owner.FirstName",
+    "Owner.LastName",
     "Owner.Email",
     "Cloud_Impact__c",
     "ContactEmail",
