@@ -73,3 +73,4 @@ class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
     type: str = "salesforce_event"
     subtype: str = "new_assignee"
     case: CaseData
+    update_link_to_thread: bool = True
