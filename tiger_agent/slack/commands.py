@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 
 import logfire
 
+from tiger_agent.db.utils import insert_event
 from tiger_agent.events.types import HarnessContext
+from tiger_agent.salesforce.constants import (
+    SALESFORCE_CASE_CHANNEL,
+)
+from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
 from tiger_agent.slack.types import SlackCommand
 from tiger_agent.slack.utils import parse_slack_url, parse_slack_user_name
 from tiger_agent.utils import serialize_to_jsonb
@@ -237,6 +242,36 @@ async def handle_admins_list_command(ctx: CommandContext, _: list[str]) -> str:
         return f"Current admin users ({len(user_list)}):\n" + "\n".join(user_list)
 
 
+async def handle_salesforce_create_notification_command(
+    ctx: CommandContext, args: list[str]
+) -> str:
+    _case_id = args[0]
+    salesforce_client = ctx.hctx.salesforce_client
+    if not salesforce_client:
+        return "Salesforce not configured"
+
+    if not SALESFORCE_CASE_CHANNEL:
+        return "Salesforce thread channel not configured"
+
+    case = salesforce_client.Case.get(_case_id)
+
+    if not case:
+        return "Could not find case"
+
+    logfire.info("Manually added request to generate Salesforce Slack notification")
+    await insert_event(
+        pool=ctx.hctx.pool,
+        event=SalesforceAssignmentChangedEvent(
+            case=case,
+            update_link_to_thread=False,  # we do not want to update the link on the case
+        ).model_dump(),
+    )
+
+    await ctx.hctx.trigger.put(True)
+
+    return f"The Slack message should be sent to channel <#{SALESFORCE_CASE_CHANNEL}>"
+
+
 async def handle_delete_agent_message_command(
     ctx: CommandContext, args: list[str]
 ) -> str:
@@ -264,6 +299,16 @@ def _build_command_handlers() -> CommandGroup:
     if _slash_commands is None:
         _slash_commands = CommandGroup(
             commands=[
+                CommandGroup(
+                    key="salesforce",
+                    commands=[
+                        Command(
+                            key="create-notification",
+                            expected_parameters=1,
+                            func=handle_salesforce_create_notification_command,
+                        ),
+                    ],
+                ),
                 CommandGroup(
                     key="messages",
                     commands=[
