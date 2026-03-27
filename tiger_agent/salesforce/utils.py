@@ -46,7 +46,8 @@ async def subscribe_to_topic(
                 )
 
                 async for message in streaming_client:
-                    sobject = message.get("data", {}).get("sobject", {})
+                    data = message.get("data", {})
+                    sobject = data.get("sobject", {})
 
                     case_id = sobject.get("Id")
                     if not case_id:
@@ -63,6 +64,11 @@ async def subscribe_to_topic(
                             )
                             continue
                         case = CaseData(**result["records"][0])
+
+                        logfire.info(
+                            "Handling Salesforce event",
+                            extra={"topic": topic_name, "payload": data},
+                        )
                         await handler(case)
                     except Exception:
                         logfire.exception("Error handling new case", case_id=case_id)
