@@ -418,7 +418,7 @@ class TigerAgent:
                 client=hctx.app.client,
                 channel=channel_to_respond,
                 thread_ts=None,
-                text=f":thread: *New Case <{create_case_url(event.case)}|{event.case.CaseNumber}> - {event.case.Subject}{f', assigned to <@{response.output.case_owner_slack_user_id}>' if response.output.case_owner_slack_user_id else ''}*\n```\n{response.output.short_description_of_case}\n```",
+                text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to <@{response.output.case_owner_slack_user_id}>' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
             )
 
             message_to_link_to = SlackMessage(
