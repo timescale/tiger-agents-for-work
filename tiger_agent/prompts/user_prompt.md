@@ -1,17 +1,55 @@
 {% if mention.type == "salesforce_event" %}
 
-A new Salesforce support case has been received. Use the `salesforce-new-case-notification` skill to gather context and return the structured notification.
+## Event Type
 
-## Case
+A new Salesforce support case has been received.
 
-case_id: {{ mention.case.Id }}
-case_number: {{ mention.case.CaseNumber }}
-subject: {{ mention.case.Subject }}
-status: {{ mention.case.Status }}
-priority: {{ mention.case.Priority }}
-created_date: {{ mention.case.CreatedDate }}
-{% if mention.case.Description %}description: {{ mention.case.Description }}{% endif %}
+## Case Information
+
+- Case ID: {{ mention.case.Id }}
+- Case Number: {{ mention.case.CaseNumber }}
+- Subject: {{ mention.case.Subject }}
+- Status: {{ mention.case.Status }}
+- Priority: {{ mention.case.Priority }}
+- Severity: {{ mention.case.Severity__c }}
+- Cloud Impact: {{ mention.case.Cloud_Impact__c }}
+- Contact Email: {{ mention.case.ContactEmail }}
+- Created Date: {{ mention.case.CreatedDate }}
+- Created By ID: {{ mention.case.CreatedById }}
+
+{% if mention.case.Owner %}
+
+- Owner ID: {{ mention.case.Owner.Id }}
+- Owner Username: {{ mention.case.Owner.Username }}
+- Owner First Name: {{ mention.case.Owner.FirstName }}
+- Owner Last Name: {{ mention.case.Owner.LastName }}
+- Owner Email: {{ mention.case.Owner.Email }}
+
+{% endif %}
+
+{% if mention.case.Description %}
+
+- Description: {{ mention.case.Description }}
+
+{% endif %}
+
+{% elif mention.type in ["app_mention", "message"] %}
+
+## Event Type
+
+A Slack user has sent you a prompt.
+
+## User Info
+
+{% if user %}
+id: {{ user.id }}
+username: {{ user.name }}
+real_name: {{ user.real_name }}
+local time zone: {{ user.tz }}
+{% if local_time %}user's local time: {{ local_time }}{% endif %}
 {% else %}
+User info unavailable.
+{% endif %}
 
 ## Message Details
 
