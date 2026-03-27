@@ -40,7 +40,7 @@ class SalesforceNewCasePoller:
         fields = ", ".join(CASE_FIELDS)
         # condition on Owner.Email ensures we are only handling cases that have been assigned
         result = self._salesforce_client.query(
-            f"SELECT {fields} FROM Case WHERE CreatedDate >= {since_str} AND Owner.Email != null AND Status != 'Spam'"
+            f"SELECT {fields} FROM Case WHERE CreatedDate >= {since_str} AND Owner.Email != null AND Status = 'New'"
         )
         cases = [CaseData(**record) for record in result.get("records", [])]
 
