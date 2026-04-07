@@ -74,3 +74,12 @@ class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
     subtype: str = "new_assignee"
     case: CaseData
     update_link_to_thread: bool = True
+
+
+class AgentFeedbackRatingEvent(BaseModel):
+    type: str = "agent_feedback_rating"
+
+    # the agent message that was rated
+    message_ts: str
+    channel: str
+    rating: int

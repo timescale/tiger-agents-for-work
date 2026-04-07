@@ -141,6 +141,7 @@ class SlackUrlParts:
 @dataclass
 class SlackMessage(SlackUrlParts):
     text: str
+    to_user_id: str | None = None
 
 
 class SlackCommand(BaseModel):

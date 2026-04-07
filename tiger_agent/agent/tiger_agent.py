@@ -64,6 +64,7 @@ from tiger_agent.slack.utils import (
     fetch_thread_messages,
     fetch_user_info,
     post_response,
+    send_feedback_rating_prompt,
     set_status,
     stream_response_to_mention,
 )
@@ -426,6 +427,7 @@ class TigerAgent:
                 ts=original_message.data.get("ts"),
                 text=response.output.message,
                 thread_ts=None,
+                to_user_id=response.output.case_owner_slack_user_id,
             )
 
             if not response.output.is_spam:
@@ -495,6 +497,7 @@ class TigerAgent:
                 ts=rest.data.get("ts"),
                 channel_id=rest.data.get("channel"),
                 thread_ts=None,
+                to_user_id=event.user,
             )
             logfire.info("ended", extra={"res": rest})
 
@@ -578,6 +581,10 @@ class TigerAgent:
                         "Updated Salesforce case to include the thread link",
                         extra={"permalink": permalink},
                     )
+
+                if message.to_user_id:
+                    await send_feedback_rating_prompt(hctx.app.client, message)
+
         except Exception as e:
             logger.exception("response failed", exc_info=e)
             if isinstance(event_to_handle, SalesforceBaseEvent):

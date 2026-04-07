@@ -40,6 +40,7 @@ from slack_sdk.web.async_client import (
 )
 
 from tiger_agent.slack.constants import (
+    AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
     REJECT_PROACTIVE_PROMPT,
 )
@@ -47,6 +48,7 @@ from tiger_agent.slack.types import (
     BotInfo,
     ChannelInfo,
     SlackFile,
+    SlackMessage,
     SlackMessageEvent,
     SlackUrlParts,
     UserInfo,
@@ -623,6 +625,79 @@ async def send_proactive_prompt(
                         "text": {"type": "plain_text", "text": "No"},
                         "value": f"{event_hist_id}",
                     },
+                ],
+            },
+        ],
+    )
+
+
+async def send_feedback_rating_prompt(
+    client: AsyncWebClient, agent_message: SlackMessage
+):
+    agent_message_ts = agent_message.ts
+    channel = agent_message.channel_id
+    user = agent_message.to_user_id
+
+    def get_encoded_value(rating: int) -> str:
+        return f"{agent_message_ts}|{channel}|{user}|{rating}"
+
+    await client.chat_postEphemeral(
+        channel=channel,
+        user=user,
+        thread_ts=agent_message_ts,
+        text=f"Hey <@{user}>, how would you rate the helpfulness of my response? ",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Hey <@{user}>, how would you rate the helpfulness of my response?",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "radio_buttons",
+                        "action_id": AGENT_FEEDBACK_RATING,
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "1 - Not helpful at all",
+                                },
+                                "value": get_encoded_value(1),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "2 - Slightly helpful",
+                                },
+                                "value": get_encoded_value(2),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "3 - Somewhat helpful",
+                                },
+                                "value": get_encoded_value(3),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "4 - Mostly helpful",
+                                },
+                                "value": get_encoded_value(4),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "5 - Very helpful",
+                                },
+                                "value": get_encoded_value(5),
+                            },
+                        ],
+                    }
                 ],
             },
         ],
