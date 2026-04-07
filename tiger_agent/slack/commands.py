@@ -269,7 +269,7 @@ async def handle_salesforce_create_notification_command(
 
     await ctx.hctx.trigger.put(True)
 
-    return f"The Slack message should be sent to channel <#{SALESFORCE_CASE_CHANNEL}>"
+    return f"The Slack message will be sent to channel <#{SALESFORCE_CASE_CHANNEL}>"
 
 
 async def handle_delete_agent_message_command(

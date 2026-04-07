@@ -1,5 +1,6 @@
 import re
 from asyncio import TaskGroup
+from collections.abc import Sequence
 from typing import Any
 
 import logfire
@@ -10,8 +11,10 @@ from slack_bolt.context.respond.async_respond import AsyncRespond
 from tiger_agent.db.utils import get_event_hist, insert_event, insert_handled_event
 from tiger_agent.events.types import EventProcessor, HarnessContext
 from tiger_agent.events.utils import process_event
+from tiger_agent.salesforce.types import AgentFeedbackRatingEvent
 from tiger_agent.slack.commands import handle_command
 from tiger_agent.slack.constants import (
+    AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
     REJECT_PROACTIVE_PROMPT,
 )
@@ -54,6 +57,7 @@ class SlackEventHandler:
         self._bot_info = await fetch_bot_info(self._app.client)
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
+        self._app.action(AGENT_FEEDBACK_RATING)(self._handle_agent_feedback_rating)
         self._app.event("message")(self._on_message)
 
         self._app.command(re.compile(r"\/.*"))(self._on_slack_command)
@@ -145,3 +149,54 @@ class SlackEventHandler:
             return
 
         await process_event(self._event_processor, self._hctx, event)
+
+    async def _handle_agent_feedback_rating(
+        self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
+    ):
+        await ack()
+
+        actions = body.get("actions")
+        if actions is None or not isinstance(actions, Sequence) or len(actions) != 1:
+            logfire.error("Actions was not an expected payload", event=body)
+            return
+
+        selected_option = actions[0].get("selected_option")
+        if selected_option is None:
+            logfire.error("No selected option in feedback rating action", event=body)
+            return
+
+        value = selected_option.get("value")
+        if value is None:
+            logfire.error("No value in selected option", event=body)
+            return
+
+        parts = value.split("|")
+        if len(parts) != 4:
+            logfire.error("Unexpected value format in feedback rating", value=value)
+            return
+
+        agent_message_ts, channel, user, rating = parts
+
+        await respond(
+            response_type="ephemeral",
+            text="",
+            replace_original=True,
+            delete_original=True,
+        )
+
+        logfire.info(
+            "Agent feedback rating received",
+            agent_message_ts=agent_message_ts,
+            channel=channel,
+            user=user,
+            rating=rating,
+        )
+
+        await insert_handled_event(
+            pool=self._hctx.pool,
+            event=AgentFeedbackRatingEvent(
+                message_ts=agent_message_ts,
+                channel=channel,
+                rating=int(rating),
+            ).model_dump(),
+        )
