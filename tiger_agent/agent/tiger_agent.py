@@ -566,24 +566,25 @@ class TigerAgent:
                     and SALESFORCE_SLACK_THREAD_FIELD
                     and event_to_handle.update_link_to_thread
                 ):
-                    result = await hctx.app.client.chat_getPermalink(
-                        channel=message.channel_id, message_ts=message.ts
-                    )
-                    permalink = result.data.get("permalink")
+                    if event_to_handle.update_link_to_thread:
+                        result = await hctx.app.client.chat_getPermalink(
+                            channel=message.channel_id, message_ts=message.ts
+                        )
+                        permalink = result.data.get("permalink")
 
-                    hctx.salesforce_client.Case.update(
-                        event_to_handle.case.Id,
-                        {SALESFORCE_SLACK_THREAD_FIELD: permalink},
-                        headers={"Sforce-Auto-Assign": "false"},
-                    )
+                        hctx.salesforce_client.Case.update(
+                            event_to_handle.case.Id,
+                            {SALESFORCE_SLACK_THREAD_FIELD: permalink},
+                            headers={"Sforce-Auto-Assign": "false"},
+                        )
 
-                    logfire.info(
-                        "Updated Salesforce case to include the thread link",
-                        extra={"permalink": permalink},
-                    )
+                        logfire.info(
+                            "Updated Salesforce case to include the thread link",
+                            extra={"permalink": permalink},
+                        )
 
-                if message.to_user_id:
-                    await send_feedback_rating_prompt(hctx.app.client, message)
+                    if message.to_user_id:
+                        await send_feedback_rating_prompt(hctx.app.client, message)
 
         except Exception as e:
             logger.exception("response failed", exc_info=e)
