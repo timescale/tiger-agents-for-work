@@ -1,4 +1,6 @@
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -178,10 +180,17 @@ def load_mcp_config(mcp_config: Path) -> dict[str, dict[str, Any]]:
     Returns:
         Dictionary mapping server names to their configuration dictionaries
     """
-    loaded_mcp_config: dict[str, dict[str, Any]] = (
-        json.loads(mcp_config.read_text()) if mcp_config else {}
+    if not mcp_config:
+        return {}
+
+    # this regex replacement allows us to reference env vars
+    # from the mcp_config provided e.g. ${SOME_BEARER_TOKEN}
+    text = re.sub(
+        r"\$\{(\w+)\}",
+        lambda m: os.environ.get(m.group(1), m.group(0)),
+        mcp_config.read_text(),
     )
-    return loaded_mcp_config
+    return json.loads(text)
 
 
 class MCPLoader:
