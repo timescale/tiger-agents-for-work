@@ -561,11 +561,7 @@ class TigerAgent:
                     "white_check_mark",
                 )
             else:
-                if (
-                    message
-                    and SALESFORCE_SLACK_THREAD_FIELD
-                    and event_to_handle.update_link_to_thread
-                ):
+                if message and SALESFORCE_SLACK_THREAD_FIELD:
                     if event_to_handle.update_link_to_thread:
                         result = await hctx.app.client.chat_getPermalink(
                             channel=message.channel_id, message_ts=message.ts
