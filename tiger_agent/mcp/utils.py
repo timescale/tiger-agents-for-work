@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import logfire
+from pydantic_ai._run_context import RunContext
 from pydantic_ai.mcp import (
     MCPServerStdio,
     MCPServerStreamableHTTP,
@@ -14,6 +15,22 @@ from slack_bolt.app.async_app import AsyncApp
 from tiger_agent.mcp.constants import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
 from tiger_agent.mcp.types import McpConfig, MCPDict
 from tiger_agent.slack.utils import fetch_channel_info
+
+
+class FilteredMCPServerStreamableHTTP(MCPServerStreamableHTTP):
+    """MCPServerStreamableHTTP that filters tools to an allowed list."""
+
+    _allowed_tools: list[str]
+
+    def __init__(self, allowed_tools: list[str], **kwargs: Any):
+        super().__init__(**kwargs)
+        self._allowed_tools = allowed_tools
+
+    async def get_tools(self, ctx: RunContext[Any]) -> dict[str, Any]:
+        tools = await super().get_tools(ctx)
+        prefix = f"{self.tool_prefix}_" if self.tool_prefix else ""
+        prefixed_allowed = {f"{prefix}{t}" for t in self._allowed_tools}
+        return {name: tool for name, tool in tools.items() if name in prefixed_allowed}
 
 
 async def filter_unresponsive_mcp_servers(mcp_servers: MCPDict) -> MCPDict:
@@ -160,10 +177,17 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
 
         mcp_server: MCPServerStdio | MCPServerStreamableHTTP
 
+        allowed_tools: list[str] | None = cfg.get("allowed_tools")
+
         if server_cfg.get("command"):
             mcp_server = MCPServerStdio(**server_cfg)
         elif server_cfg.get("url"):
-            mcp_server = MCPServerStreamableHTTP(**server_cfg)
+            if allowed_tools is not None:
+                mcp_server = FilteredMCPServerStreamableHTTP(
+                    allowed_tools=allowed_tools, **server_cfg
+                )
+            else:
+                mcp_server = MCPServerStreamableHTTP(**server_cfg)
         mcp_servers[name] = McpConfig(
             internal_only=internal_only, mcp_server=mcp_server
         )
