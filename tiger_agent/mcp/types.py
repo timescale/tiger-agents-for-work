@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic_ai.mcp import MCPServerStdio, MCPServerStreamableHTTP
 
@@ -27,6 +28,7 @@ class McpConfig:
 
     internal_only: bool
     mcp_server: MCPServerStreamableHTTP | MCPServerStdio
+    headers: dict[str, Any] | None = None
 
 
 type MCPDict = dict[str, McpConfig]
