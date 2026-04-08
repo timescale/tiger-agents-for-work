@@ -11,11 +11,13 @@ class McpConfigExtraFields:
     Each item can use properties from MCPServerStreamableHTTP or MCPServerStdio, plus these fields
     Attributes:
         internal_only: Specifies if this can be used in externally shared channels
+        allowed_tools: Optional list of tool names to expose from this server
 
     """
 
     internal_only: bool
     disabled: bool
+    allowed_tools: list[str] | None
 
 
 @dataclass
