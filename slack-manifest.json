@@ -12,7 +12,12 @@
     "slash_commands": [
       {
         "command": "/your-bot-name",
-        "description": "Slash commands for your Agent",
+        "description": "Admin slash commands for your Agent",
+        "should_escape": true
+      },
+      {
+        "command": "/support-command",
+        "description": "Slash commands creating a Salesforce case. Should match SLACK_CREATE_SALESFORCE_CASE_COMMAND",
         "should_escape": true
       }
     ]
