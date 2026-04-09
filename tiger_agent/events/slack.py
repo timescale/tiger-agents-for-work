@@ -8,20 +8,36 @@ from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.context.ack.async_ack import AsyncAck
 from slack_bolt.context.respond.async_respond import AsyncRespond
 
-from tiger_agent.db.utils import get_event_hist, insert_event, insert_handled_event
+from tiger_agent.db.utils import (
+    get_event_hist,
+    get_salesforce_account_id_for_channel,
+    insert_event,
+    insert_handled_event,
+)
 from tiger_agent.events.types import EventProcessor, HarnessContext
 from tiger_agent.events.utils import process_event
-from tiger_agent.salesforce.types import AgentFeedbackRatingEvent
-from tiger_agent.slack.commands import handle_command
+from tiger_agent.salesforce.types import (
+    AgentFeedbackRatingEvent,
+    SalesforceCreateNewCaseEvent,
+)
+from tiger_agent.slack.commands import (
+    handle_command,
+)
 from tiger_agent.slack.constants import (
     AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
+    CREATE_SUPPORT_CASE_COMMAND,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     REJECT_PROACTIVE_PROMPT,
 )
 from tiger_agent.slack.types import BotInfo, SlackCommand
 from tiger_agent.slack.utils import (
     fetch_bot_info,
+    handle_new_salesforce_case_workflow_form_cancel,
+    handle_new_salesforce_case_workflow_form_submit,
     handle_proactive_prompt,
+    send_new_salesforce_case_workflow_form,
     send_proactive_prompt,
     set_status,
 )
@@ -58,9 +74,26 @@ class SlackEventHandler:
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(AGENT_FEEDBACK_RATING)(self._handle_agent_feedback_rating)
+        self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT)(
+            self._handle_new_salesforce_case_workflow_form_submit
+        )
+        self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL)(
+            self._handle_new_salesforce_case_workflow_form_cancel
+        )
         self._app.event("message")(self._on_message)
 
-        self._app.command(re.compile(r"\/.*"))(self._on_slack_command)
+        if CREATE_SUPPORT_CASE_COMMAND:
+            self._app.command(
+                re.compile(rf"\/(?!{re.escape(CREATE_SUPPORT_CASE_COMMAND)}).*")
+            )(self._on_slack_admin_command)
+
+            self._app.command(f"/{CREATE_SUPPORT_CASE_COMMAND}")(
+                self._on_slack_create_support_case
+            )
+
+        else:
+            self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
+
         self._app.event("app_mention")(self._on_slack_event)
 
         handler = AsyncSocketModeHandler(
@@ -79,13 +112,40 @@ class SlackEventHandler:
         await ack()
         await self._trigger.put(True)
 
-    async def _on_slack_command(
+    async def _on_slack_admin_command(
         self, ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]
     ):
         slack_command = SlackCommand(**command)
         await ack()
         response = await handle_command(command=slack_command, hctx=self._hctx)
         await respond(text=response, response_type="ephemeral", delete_original=True)
+
+    async def _on_slack_create_support_case(
+        self, ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]
+    ):
+        slack_command = SlackCommand(**command)
+
+        await ack()
+
+        salesforce_account_id_for_channel = await get_salesforce_account_id_for_channel(
+            self._hctx.pool, channel_id=slack_command.channel_id
+        )
+
+        if not salesforce_account_id_for_channel:
+            await respond(
+                "This command is not available in this channel.",
+                response_type="ephemeral",
+                delete_original=True,
+            )
+            return
+
+        await send_new_salesforce_case_workflow_form(
+            client=self._hctx.app.client,
+            channel=slack_command.channel_id,
+            user=slack_command.user_id,
+        )
+
+        respond()
 
     async def _on_message(self, ack: AsyncAck, event: dict[str, Any]):
         await ack()
@@ -128,6 +188,41 @@ class SlackEventHandler:
             user=user,
             event_hist_id=event_hist_id,
         )
+
+    async def _handle_new_salesforce_case_workflow_form_submit(
+        self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
+    ):
+        form_data = await handle_new_salesforce_case_workflow_form_submit(
+            ack=ack, body=body, respond=respond
+        )
+        if form_data is None:
+            return
+
+        user = (body.get("user") or {}).get("id")
+        channel = (body.get("channel") or {}).get("id")
+        if not user or not channel:
+            logfire.error(
+                "Could not determine user or channel from new Salesforce case form submission",
+                body=body,
+            )
+            return
+
+        await insert_event(
+            self._pool,
+            SalesforceCreateNewCaseEvent(
+                subject=form_data["subject"],
+                description=form_data["description"],
+                user=user,
+                channel=channel,
+                severity="Severity 3 - Medium",  # for now, this will be hardcoded
+            ).model_dump(),
+        )
+        await self._trigger.put(True)
+
+    async def _handle_new_salesforce_case_workflow_form_cancel(
+        self, ack: AsyncAck, respond: AsyncRespond
+    ):
+        await handle_new_salesforce_case_workflow_form_cancel(ack=ack, respond=respond)
 
     async def _handle_proactive_prompt(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond

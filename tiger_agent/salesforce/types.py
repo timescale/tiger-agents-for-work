@@ -55,7 +55,6 @@ class SalesforceBaseEvent(BaseModel):
     """Base class for events from Salesforce"""
 
     type: str = "salesforce_event"
-    case: CaseData
     subtype: str
 
 
@@ -65,6 +64,21 @@ class SalesforceNewCaseEvent(SalesforceBaseEvent):
     type: str = "salesforce_event"
     subtype: str = "new_case"
     case: CaseData
+
+
+# this event represents the initiation of a new Salesforce
+# case via Slack. We want to capture the case details, as well as
+# created the case and from which channel they created it
+class SalesforceCreateNewCaseEvent(SalesforceBaseEvent):
+    """Pydantic model for Salesforce new case event."""
+
+    type: str = "salesforce_event"
+    subtype: str = "create_new_case"
+    subject: str
+    description: str
+    user: str
+    channel: str
+    severity: str
 
 
 class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):

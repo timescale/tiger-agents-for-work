@@ -42,6 +42,8 @@ from slack_sdk.web.async_client import (
 from tiger_agent.slack.constants import (
     AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     REJECT_PROACTIVE_PROMPT,
 )
 from tiger_agent.slack.types import (
@@ -754,3 +756,140 @@ async def handle_proactive_prompt(
             event=body,
         )
         return
+
+
+async def send_new_salesforce_case_workflow_form(
+    client: AsyncWebClient,
+    channel: str,
+    user: str,
+):
+    """Send an ephemeral message with a form to collect new Salesforce case details.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel: Slack channel ID to post the form in
+        user: Slack user ID to send the ephemeral message to
+    """
+    await client.chat_postEphemeral(
+        channel=channel,
+        user=user,
+        text="New Support Case",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*New Support Case*\nPlease fill out the details below.",
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "subject_block",
+                "label": {"type": "plain_text", "text": "Title"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "subject_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Brief summary of the case",
+                    },
+                    "max_length": 200,
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "description_block",
+                "label": {"type": "plain_text", "text": "Description"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "description_input",
+                    "multiline": True,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Detailed description of the issue",
+                    },
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Submit"},
+                    },
+                    {
+                        "type": "button",
+                        "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+                        "text": {"type": "plain_text", "text": "Cancel"},
+                    },
+                ],
+            },
+        ],
+    )
+
+
+async def handle_new_salesforce_case_workflow_form_submit(
+    ack: AsyncAck,
+    body: dict[str, Any],
+    respond: AsyncRespond,
+) -> dict[str, Any] | None:
+    """Handle submission of the new Salesforce case workflow form.
+
+    Extracts form field values from the block actions body and returns them.
+    Deletes the form after submission.
+
+    Args:
+        ack: Slack ack function
+        body: Full action body from Slack
+        respond: Slack respond function for deleting the ephemeral message
+
+    Returns:
+        Dict with title and description if valid; None if fields are missing.
+    """
+    await ack()
+
+    await respond(text="", replace_original=True, delete_original=True)
+
+    state_values = (body.get("state") or {}).get("values") or {}
+
+    subject = (
+        state_values.get("subject_block", {}).get("subject_input", {}).get("value")
+    )
+    description = (
+        state_values.get("description_block", {})
+        .get("description_input", {})
+        .get("value")
+    )
+
+    if not subject or not description:
+        logfire.error(
+            "New Salesforce case form submission missing required fields",
+            title=subject,
+            description=description,
+        )
+        return None
+
+    logfire.info(
+        "New Salesforce case workflow form submitted",
+        subject=subject,
+    )
+
+    return {"subject": subject, "description": description}
+
+
+async def handle_new_salesforce_case_workflow_form_cancel(
+    ack: AsyncAck,
+    respond: AsyncRespond,
+):
+    """Handle cancellation of the new Salesforce case workflow form.
+
+    Dismisses the ephemeral form message without taking any action.
+
+    Args:
+        ack: Slack ack function
+        respond: Slack respond function for deleting the ephemeral message
+    """
+    await ack()
+    await respond(text="", replace_original=True, delete_original=True)

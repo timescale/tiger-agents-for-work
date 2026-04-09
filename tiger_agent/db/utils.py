@@ -87,6 +87,18 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
         return bool(row[0]) if row and row[0] is not None else False
 
 
+async def get_salesforce_account_id_for_channel(
+    pool: AsyncConnectionPool, channel_id: str
+) -> str | None:
+    async with pool.connection() as con:
+        result = await con.execute(
+            "SELECT salesforce_account_id FROM agent.customer_channel_salesforce_link WHERE channel_id = %s",
+            (channel_id,),
+        )
+        row = await result.fetchone()
+        return row[0] if row else None
+
+
 @logfire.instrument("insert_event", extract_args=False)
 async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
     """Insert a Slack/Salesforce event into the database work queue.

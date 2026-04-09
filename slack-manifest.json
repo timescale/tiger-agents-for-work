@@ -10,11 +10,16 @@
       "always_online": true
     },
     "slash_commands": [
-        {
-            "command": "/your-bot-name",
-            "description": "Slash commands for your Agent",
-            "should_escape": true
-        }
+      {
+        "command": "/your-bot-name",
+        "description": "Admin slash commands for your Agent",
+        "should_escape": true
+      },
+      {
+        "command": "/support-command",
+        "description": "Slash commands creating a Salesforce case. Should match SLACK_CREATE_SALESFORCE_CASE_COMMAND",
+        "should_escape": true
+      }
     ]
   },
   "oauth_config": {
@@ -40,7 +45,8 @@
       "bot_events": [
         "app_mention",
         "message.channels",
-        "message.im"
+        "message.im",
+        "function_executed"
       ]
     },
     "interactivity": {
