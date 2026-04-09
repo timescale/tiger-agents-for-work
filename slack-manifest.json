@@ -10,11 +10,11 @@
       "always_online": true
     },
     "slash_commands": [
-        {
-            "command": "/your-bot-name",
-            "description": "Slash commands for your Agent",
-            "should_escape": true
-        }
+      {
+        "command": "/your-bot-name",
+        "description": "Slash commands for your Agent",
+        "should_escape": true
+      }
     ]
   },
   "oauth_config": {
@@ -40,7 +40,8 @@
       "bot_events": [
         "app_mention",
         "message.channels",
-        "message.im"
+        "message.im",
+        "function_executed"
       ]
     },
     "interactivity": {
