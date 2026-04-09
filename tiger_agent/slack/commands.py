@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import logfire
 
-from tiger_agent.db.utils import insert_event
+from tiger_agent.db.utils import insert_event, user_is_admin
 from tiger_agent.events.types import HarnessContext
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
@@ -362,8 +362,8 @@ def _build_command_handlers() -> CommandGroup:
 
 
 async def handle_command(command: SlackCommand, hctx: HarnessContext) -> str:
-    # if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
-    #     return "Slash commands can only be used by admins."
+    if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
+        return "Slash commands can only be used by admins."
     ctx = CommandContext(hctx=hctx, command=command)
     handlers = _build_command_handlers()
     return await handlers(command.text, ctx)

@@ -175,3 +175,24 @@ async def is_case_assignment_new(
 
 def create_case_url(case: CaseData) -> str:
     return f"https://{SALESFORCE_DOMAIN}/lightning/r/Case/{case.Id}/view"
+
+
+def create_case(
+    salesforce_client: Salesforce,
+    subject: str,
+    description: str,
+    severity: str,
+    account_id: str,
+) -> CaseData:
+    payload = {
+        "Subject": subject,
+        "Description": description,
+        "Severity__c": severity,
+        "AccountId": account_id,
+    }
+    result = salesforce_client.Case.create(payload)
+    if not result["success"] or not result["id"]:
+        logfire.error("Could not create a new salesforce case")
+        return
+    case = salesforce_client.Case.get(result["id"])
+    return CaseData(**case)
