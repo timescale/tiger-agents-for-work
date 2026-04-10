@@ -39,6 +39,7 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
+from tiger_agent.salesforce.types import ServiceRecord
 from tiger_agent.slack.constants import (
     AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
@@ -762,6 +763,7 @@ async def send_new_salesforce_case_workflow_form(
     client: AsyncWebClient,
     channel: str,
     user: str,
+    services: list[ServiceRecord] | None,
 ):
     """Send an ephemeral message with a form to collect new Salesforce case details.
 
@@ -770,63 +772,105 @@ async def send_new_salesforce_case_workflow_form(
         channel: Slack channel ID to post the form in
         user: Slack user ID to send the ephemeral message to
     """
+
+    service_options = []
+    if services:
+        seen_projects: set[str] = set()
+        for s in services:
+            if s.project_id and s.project_id not in seen_projects:
+                seen_projects.add(s.project_id)
+                service_options.append(
+                    {
+                        "text": {"type": "plain_text", "text": f"Project: {s.project_id}"},
+                        "value": s.project_id,
+                    }
+                )
+        for s in services:
+            label = f"Project: {s.project_id}, Service: {s.service_id}"
+            value = f"{s.project_id}|{s.service_id}"
+            service_options.append(
+                {
+                    "text": {"type": "plain_text", "text": label},
+                    "value": value,
+                }
+            )
+
+    service_block = (
+        {
+            "type": "input",
+            "block_id": "service_block",
+            "label": {"type": "plain_text", "text": "Service"},
+            "element": {
+                "type": "static_select",
+                "action_id": "service_select",
+                "placeholder": {"type": "plain_text", "text": "Select a service"},
+                "options": service_options,
+            },
+        }
+        if service_options
+        else None
+    )
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*New Support Case*\nPlease fill out the details below.",
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "subject_block",
+            "label": {"type": "plain_text", "text": "Title"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "subject_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Brief summary of the case",
+                },
+                "max_length": 200,
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "description_block",
+            "label": {"type": "plain_text", "text": "Description"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "description_input",
+                "multiline": True,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Detailed description of the issue",
+                },
+            },
+        },
+        *([service_block] if service_block else []),
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Submit"},
+                },
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+                    "text": {"type": "plain_text", "text": "Cancel"},
+                },
+            ],
+        },
+    ]
+
     await client.chat_postEphemeral(
         channel=channel,
         user=user,
         text="New Support Case",
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "*New Support Case*\nPlease fill out the details below.",
-                },
-            },
-            {
-                "type": "input",
-                "block_id": "subject_block",
-                "label": {"type": "plain_text", "text": "Title"},
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "subject_input",
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "Brief summary of the case",
-                    },
-                    "max_length": 200,
-                },
-            },
-            {
-                "type": "input",
-                "block_id": "description_block",
-                "label": {"type": "plain_text", "text": "Description"},
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": "description_input",
-                    "multiline": True,
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "Detailed description of the issue",
-                    },
-                },
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
-                        "style": "primary",
-                        "text": {"type": "plain_text", "text": "Submit"},
-                    },
-                    {
-                        "type": "button",
-                        "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
-                        "text": {"type": "plain_text", "text": "Cancel"},
-                    },
-                ],
-            },
-        ],
+        blocks=blocks,
     )
 
 
@@ -862,6 +906,12 @@ async def handle_new_salesforce_case_workflow_form_submit(
         .get("description_input", {})
         .get("value")
     )
+    service_value = (
+        state_values.get("service_block", {})
+        .get("service_select", {})
+        .get("selected_option", {})
+        or {}
+    ).get("value")
 
     if not subject or not description:
         logfire.error(
@@ -876,7 +926,7 @@ async def handle_new_salesforce_case_workflow_form_submit(
         subject=subject,
     )
 
-    return {"subject": subject, "description": description}
+    return {"subject": subject, "description": description, "service": service_value}
 
 
 async def handle_new_salesforce_case_workflow_form_cancel(
