@@ -18,7 +18,7 @@ from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
     SALESFORCE_DOMAIN,
 )
-from tiger_agent.salesforce.types import CaseData, SalesforceBaseEvent
+from tiger_agent.salesforce.types import CaseData, SalesforceBaseEvent, ServiceRecord
 
 RECONNECT_DELAY_SECONDS = 30
 IGNORED_CONTACT_EMAILS = set(
@@ -183,6 +183,8 @@ def create_case(
     description: str,
     severity: str,
     account_id: str,
+    project_id: str | None = None,
+    service_id: str | None = None,
 ) -> CaseData:
     payload = {
         "Subject": subject,
@@ -190,9 +192,41 @@ def create_case(
         "Severity__c": severity,
         "AccountId": account_id,
     }
+    if project_id:
+        payload["Cloud_Project_ID__c"] = project_id
+    if service_id:
+        payload["Cloud_Service_ID__c"] = service_id
     result = salesforce_client.Case.create(payload)
     if not result["success"] or not result["id"]:
         logfire.error("Could not create a new salesforce case")
         return
     case = salesforce_client.Case.get(result["id"])
     return CaseData(**case)
+
+
+def get_services_for_account(
+    salesforce_client: Salesforce, account_id: str
+) -> list[ServiceRecord] | None:
+    result = salesforce_client.query(
+        f"SELECT Name, Project_Id__c FROM Service__c WHERE Account__c = '{account_id}'"
+    )
+    records = result.get("records", [])
+    if not records:
+        return None
+    return [
+        ServiceRecord(service_id=r["Name"], project_id=r.get("Project_Id__c"))
+        for r in records
+        if r.get("Name")
+    ]
+
+
+def get_project_ids_for_account(
+    salesforce_client: Salesforce, account_id: str
+) -> list[str] | None:
+    result = salesforce_client.query(
+        f"SELECT Project_Id__c FROM Project__c WHERE Account__c = '{account_id}'"
+    )
+    records = result.get("records", [])
+    if not records:
+        return None
+    return [r["Project_Id__c"] for r in records if r.get("Project_Id__c")]

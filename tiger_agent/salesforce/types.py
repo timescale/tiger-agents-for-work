@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import logfire
 from pydantic import BaseModel
 
@@ -79,6 +81,8 @@ class SalesforceCreateNewCaseEvent(SalesforceBaseEvent):
     user: str
     channel: str
     severity: str
+    project_id: str | None
+    service_id: str | None
 
 
 class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
@@ -97,3 +101,9 @@ class AgentFeedbackRatingEvent(BaseModel):
     message_ts: str
     channel: str
     rating: int
+
+
+@dataclass
+class ServiceRecord:
+    service_id: str
+    project_id: str | None

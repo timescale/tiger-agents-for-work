@@ -305,6 +305,40 @@ class TigerAgent:
             extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
 
+    async def handle_create_salesforce_case(
+        self,
+        hctx: HarnessContext,
+        event: SalesforceCreateNewCaseEvent,
+        channel_to_respond: str,
+    ) -> None:
+        account_id_for_channel = await get_salesforce_account_id_for_channel(
+            pool=hctx.pool, channel_id=channel_to_respond
+        )
+
+        if not account_id_for_channel:
+            logfire.warn(
+                "Skipping Salesforce case creation. No Salesforce account associated with the channel.",
+                channel=channel_to_respond,
+                user=event.user,
+            )
+            return
+
+        new_case = create_case(
+            salesforce_client=hctx.salesforce_client,
+            subject=event.subject,
+            description=event.description,
+            severity=event.severity,
+            account_id=account_id_for_channel,
+            project_id=event.project_id,
+            service_id=event.service_id,
+        )
+        await post_response(
+            client=hctx.app.client,
+            channel=channel_to_respond,
+            thread_ts=None,
+            text=f"*Support Case Created*\nCase Number: {new_case.CaseNumber}\nSubject: {new_case.Subject} \nDescription: {new_case.Description}",
+        )
+
     async def handle_salesforce_event(
         self,
         hctx: HarnessContext,
@@ -377,7 +411,7 @@ class TigerAgent:
 
         return message_to_link_to
 
-    async def handle_slack_mention(
+    async def handle_slack_event(
         self,
         hctx: HarnessContext,
         event: SlackAppMentionEvent | SlackMessageEvent,
@@ -476,32 +510,11 @@ class TigerAgent:
         )
 
         if isinstance(event, SalesforceCreateNewCaseEvent):
-            account_id_for_channel = await get_salesforce_account_id_for_channel(
-                pool=hctx.pool, channel_id=channel_to_respond
+            await self.handle_create_salesforce_case(
+                hctx=hctx,
+                event=event,
+                channel_to_respond=channel_to_respond,
             )
-
-            if not account_id_for_channel:
-                logfire.warn(
-                    "Skipping Salesforce case creation. No Salesforce account associated with the channel.",
-                    channel=channel_to_respond,
-                    user=event.user,
-                )
-                return
-
-            new_case = create_case(
-                salesforce_client=hctx.salesforce_client,
-                subject=event.subject,
-                description=event.description,
-                severity=event.severity,
-                account_id=account_id_for_channel,
-            )
-            await post_response(
-                client=hctx.app.client,
-                channel=channel_to_respond,
-                thread_ts=None,
-                text=f"*Support Case Created*\nCase Number: {new_case.CaseNumber}\nSubject: {new_case.Subject} \nDescription: {new_case.Description}",
-            )
-
             return
 
         agent_and_ctx, self.bot_info = await create_agent_and_context(
@@ -532,7 +545,7 @@ class TigerAgent:
                 channel_to_respond=channel_to_respond,
             )
 
-        return await self.handle_slack_mention(
+        return await self.handle_slack_event(
             hctx=hctx,
             event=event,
             agent=agent,
