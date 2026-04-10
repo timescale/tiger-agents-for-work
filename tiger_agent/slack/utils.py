@@ -771,20 +771,28 @@ async def send_new_salesforce_case_workflow_form(
         client: Slack AsyncWebClient for API calls
         channel: Slack channel ID to post the form in
         user: Slack user ID to send the ephemeral message to
+        services: List of project/services id associated with account
     """
 
     service_options = []
     if services:
+        # let's get a unique set of projects with the service+project items
+        # so that the user can just select a project, rather than
+        # tying support case to a specific service within a project
         seen_projects: set[str] = set()
         for s in services:
             if s.project_id and s.project_id not in seen_projects:
                 seen_projects.add(s.project_id)
                 service_options.append(
                     {
-                        "text": {"type": "plain_text", "text": f"Project: {s.project_id}"},
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"Project: {s.project_id}",
+                        },
                         "value": s.project_id,
                     }
                 )
+        # then create options for each service within each project
         for s in services:
             label = f"Project: {s.project_id}, Service: {s.service_id}"
             value = f"{s.project_id}|{s.service_id}"
