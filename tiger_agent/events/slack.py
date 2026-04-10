@@ -20,6 +20,7 @@ from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
     SalesforceCreateNewCaseEvent,
 )
+from tiger_agent.salesforce.utils import get_services_for_account
 from tiger_agent.slack.commands import (
     handle_command,
 )
@@ -139,10 +140,15 @@ class SlackEventHandler:
             )
             return
 
+        services_and_projects = get_services_for_account(
+            self._hctx.salesforce_client, salesforce_account_id_for_channel
+        )
+
         await send_new_salesforce_case_workflow_form(
             client=self._hctx.app.client,
             channel=slack_command.channel_id,
             user=slack_command.user_id,
+            services=services_and_projects,
         )
 
         respond()
@@ -200,6 +206,19 @@ class SlackEventHandler:
 
         user = (body.get("user") or {}).get("id")
         channel = (body.get("channel") or {}).get("id")
+        service_id: str | None = None
+        project_id: str | None = None
+        maybe_project_and_service = form_data.get("service")
+
+        if maybe_project_and_service:
+            # we can get either "<project id>" or "<project id>|<service id>"
+            items = maybe_project_and_service.split("|")
+            if len(items) == 1:
+                project_id = items[0]
+            elif len(items) == 2:
+                project_id = items[0]
+                service_id = items[1]
+
         if not user or not channel:
             logfire.error(
                 "Could not determine user or channel from new Salesforce case form submission",
@@ -215,6 +234,8 @@ class SlackEventHandler:
                 user=user,
                 channel=channel,
                 severity="Severity 3 - Medium",  # for now, this will be hardcoded
+                project_id=project_id,
+                service_id=service_id,
             ).model_dump(),
         )
         await self._trigger.put(True)
