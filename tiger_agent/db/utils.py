@@ -99,6 +99,28 @@ async def get_salesforce_account_id_for_channel(
         return row[0] if row else None
 
 
+async def upsert_salesforce_account_id_for_channel(
+    pool: AsyncConnectionPool, channel_id: str, salesforce_account_id: str
+) -> None:
+    async with pool.connection() as con:
+        await con.execute(
+            """INSERT INTO agent.customer_channel_salesforce_link (channel_id, salesforce_account_id)
+               VALUES (%s, %s)
+               ON CONFLICT (channel_id) DO UPDATE SET salesforce_account_id = EXCLUDED.salesforce_account_id""",
+            (channel_id, salesforce_account_id),
+        )
+
+
+async def remove_salesforce_account_id_for_channel(
+    pool: AsyncConnectionPool, channel_id: str
+) -> None:
+    async with pool.connection() as con:
+        await con.execute(
+            "DELETE FROM agent.customer_channel_salesforce_link WHERE channel_id = %s",
+            (channel_id,),
+        )
+
+
 @logfire.instrument("insert_event", extract_args=False)
 async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
     """Insert a Slack/Salesforce event into the database work queue.

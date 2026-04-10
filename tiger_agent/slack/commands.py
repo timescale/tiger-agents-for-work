@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 
 import logfire
 
-from tiger_agent.db.utils import insert_event, user_is_admin
+from tiger_agent.db.utils import (
+    insert_event,
+    remove_salesforce_account_id_for_channel,
+    upsert_salesforce_account_id_for_channel,
+    user_is_admin,
+)
 from tiger_agent.events.types import HarnessContext
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
@@ -242,6 +247,31 @@ async def handle_admins_list_command(ctx: CommandContext, _: list[str]) -> str:
         return f"Current admin users ({len(user_list)}):\n" + "\n".join(user_list)
 
 
+async def handle_salesforce_add_customer_channel_command(
+    ctx: CommandContext, args: list[str]
+) -> str:
+    [channel_id, salesforce_account_id] = args
+    await upsert_salesforce_account_id_for_channel(
+        ctx.hctx.pool,
+        channel_id=channel_id,
+        salesforce_account_id=salesforce_account_id,
+    )
+
+    return f"Assigned channel {channel_id} to Salesforce account id {salesforce_account_id}"
+
+
+async def handle_salesforce_remove_customer_channel_command(
+    ctx: CommandContext, args: list[str]
+) -> str:
+    [channel_id] = args
+    await remove_salesforce_account_id_for_channel(
+        ctx.hctx.pool,
+        channel_id=channel_id,
+    )
+
+    return f"Removed Salesforce channel {channel_id}"
+
+
 async def handle_salesforce_create_notification_command(
     ctx: CommandContext, args: list[str]
 ) -> str:
@@ -306,6 +336,21 @@ def _build_command_handlers() -> CommandGroup:
                             key="create-notification",
                             expected_parameters=1,
                             func=handle_salesforce_create_notification_command,
+                        ),
+                        CommandGroup(
+                            key="customer-channel",
+                            commands=[
+                                Command(
+                                    "add",
+                                    expected_parameters=2,
+                                    func=handle_salesforce_add_customer_channel_command,
+                                ),
+                                Command(
+                                    "remove",
+                                    expected_parameters=1,
+                                    func=handle_salesforce_remove_customer_channel_command,
+                                ),
+                            ],
                         ),
                     ],
                 ),
