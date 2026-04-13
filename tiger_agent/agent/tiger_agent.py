@@ -51,6 +51,7 @@ from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_ENABLE_SPAM_FILTERING,
+    SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD,
     SALESFORCE_SLACK_THREAD_FIELD,
 )
 from tiger_agent.salesforce.types import (
@@ -331,13 +332,34 @@ class TigerAgent:
             account_id=account_id_for_channel,
             project_id=event.project_id,
             service_id=event.service_id,
+            origin="Slack",
         )
-        await post_response(
+        response = await post_response(
             client=hctx.app.client,
             channel=channel_to_respond,
             thread_ts=None,
             text=f"*Support Case Created*\nCase Number: {new_case.CaseNumber}\nSubject: {new_case.Subject} \nDescription: {new_case.Description}",
         )
+
+        new_case_thread_ts = response.data.get("ts", None)
+
+        if new_case_thread_ts and SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD:
+            result = await hctx.app.client.chat_getPermalink(
+                channel=channel_to_respond,
+                message_ts=new_case_thread_ts,
+            )
+            permalink = result.data.get("permalink")
+
+            hctx.salesforce_client.Case.update(
+                new_case.Id,
+                {SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD: permalink},
+                headers={"Sforce-Auto-Assign": "false"},
+            )
+
+            logfire.info(
+                "Updated Salesforce case to include the customer thread link",
+                extra={"permalink": permalink},
+            )
 
     async def handle_salesforce_event(
         self,
@@ -378,14 +400,13 @@ class TigerAgent:
             to_user_id=response.output.case_owner_slack_user_id,
         )
 
-        if not response.output.is_spam:
-            # this is the detailed message
-            await post_response(
-                client=hctx.app.client,
-                channel=channel_to_respond,
-                thread_ts=message_to_link_to.ts,
-                text=response.output.message,
-            )
+        # this is the detailed message
+        await post_response(
+            client=hctx.app.client,
+            channel=channel_to_respond,
+            thread_ts=message_to_link_to.ts,
+            text=response.output.message,
+        )
 
         if message_to_link_to and SALESFORCE_SLACK_THREAD_FIELD:
             if event.update_link_to_thread:
@@ -407,7 +428,11 @@ class TigerAgent:
                 )
 
             if message_to_link_to.to_user_id:
-                await send_feedback_rating_prompt(hctx.app.client, message_to_link_to)
+                async def _delayed_feedback(client, message):
+                    await asyncio.sleep(10)
+                    await send_feedback_rating_prompt(client, message)
+
+                asyncio.create_task(_delayed_feedback(hctx.app.client, message_to_link_to))
 
         return message_to_link_to
 

@@ -27,6 +27,7 @@ class CaseData(BaseModel):
     CaseNumber: str | None = None
     Cloud_Impact__c: str | None = None
     ContactEmail: str | None = None
+    Customer_Slack_Thread__c: str | None = None
     Subject: str | None = None
     Description: str | None = None
     Owner: SalesforceUser | None = None
