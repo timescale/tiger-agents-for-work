@@ -185,6 +185,7 @@ def create_case(
     account_id: str,
     project_id: str | None = None,
     service_id: str | None = None,
+    origin: str | None = None,
 ) -> CaseData:
     payload = {
         "Subject": subject,
@@ -196,6 +197,8 @@ def create_case(
         payload["Cloud_Project_ID__c"] = project_id
     if service_id:
         payload["Cloud_Service_ID__c"] = service_id
+    if origin:
+        payload["Origin"] = origin
     result = salesforce_client.Case.create(payload)
     if not result["success"] or not result["id"]:
         logfire.error("Could not create a new salesforce case")

@@ -16,6 +16,7 @@ A new Salesforce support case has been received.
 - Contact Email: {{ mention.case.ContactEmail }}
 - Created Date: {{ mention.case.CreatedDate }}
 - Created By ID: {{ mention.case.CreatedById }}
+- Customer Thread: {{ mention.case.Customer_Slack_Thread__c }}
 
 {% if mention.case.Owner %}
 
