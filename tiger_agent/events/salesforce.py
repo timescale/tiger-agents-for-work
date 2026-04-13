@@ -133,15 +133,10 @@ class SalesforceEventHandler:
             return
 
         full_case_data = self._salesforce_client.Case.get(case.Id)
-        case = case.model_copy(
-            update={
-                "Description": full_case_data.get("Description"),
-            }
-        )
 
         await insert_event(
             pool=self._pool,
-            event=SalesforceAssignmentChangedEvent(case=case).model_dump(),
+            event=SalesforceAssignmentChangedEvent(case=full_case_data).model_dump(),
         )
 
         await self._trigger.put(True)
