@@ -11,16 +11,26 @@ from slack_bolt.context.respond.async_respond import AsyncRespond
 from tiger_agent.db.utils import (
     get_event_hist,
     get_salesforce_account_id_for_channel,
+    get_salesforce_case_thread_case_id,
     insert_event,
     insert_handled_event,
 )
 from tiger_agent.events.types import EventProcessor, HarnessContext
 from tiger_agent.events.utils import process_event
+from tiger_agent.salesforce.constants import (
+    SALESFORCE_CASE_EMAIL_COMMENT_PREFIX,
+    SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
+    SALESFORCE_CASE_SUPPORT_EMAIL,
+    SALESFORCE_INTERNAL_FROM_NAME_SUFFIX,
+)
 from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
     SalesforceCreateNewCaseEvent,
 )
-from tiger_agent.salesforce.utils import get_services_for_account
+from tiger_agent.salesforce.utils import (
+    add_case_email_comment,
+    get_services_for_account,
+)
 from tiger_agent.slack.commands import (
     handle_command,
 )
@@ -35,6 +45,7 @@ from tiger_agent.slack.constants import (
 from tiger_agent.slack.types import BotInfo, SlackCommand
 from tiger_agent.slack.utils import (
     fetch_bot_info,
+    fetch_user_info,
     handle_new_salesforce_case_workflow_form_cancel,
     handle_new_salesforce_case_workflow_form_submit,
     handle_proactive_prompt,
@@ -163,12 +174,58 @@ class SlackEventHandler:
 
         event["subtype"] = event["channel_type"]
         channel = event.get("channel")
+        thread_ts = event.get("thread_ts")
 
         # if the message was in an im to the agent, respond (even though agent was not mentioned)
         if event["subtype"] in ("im"):
             await self._on_slack_event(ack, event)
             return
 
+        salesforce_case_id_for_slack_thread = await get_salesforce_case_thread_case_id(
+            self._hctx.pool, thread_ts=thread_ts, channel_id=channel
+        )
+        if salesforce_case_id_for_slack_thread:
+            if not self._hctx.salesforce_client:
+                logfire.error(
+                    "Cannot sync new Slack message to Salesforce case",
+                    salesforce_case_id_for_slack_thread=salesforce_case_id_for_slack_thread,
+                )
+            else:
+                text = event.get("text", "")
+                if not text:
+                    logfire.info("No text in Slack message, not syncing to Salesforce")
+                else:
+                    user_info = await fetch_user_info(
+                        self._hctx.app.client, user_id=user
+                    )
+                    user_is_external = user_info.is_external
+
+                    # for internal users, we will set the
+                    # from address and the display name (real name from Slack) + an envvar for internal user suffix
+                    # but for external users, we just display the email address
+
+                    add_case_email_comment(
+                        self._hctx.salesforce_client,
+                        case_id=salesforce_case_id_for_slack_thread,
+                        body=f"{SALESFORCE_CASE_EMAIL_COMMENT_PREFIX}\n{text}",
+                        from_address=user_info.profile.email,
+                        to_address=SALESFORCE_CASE_SUPPORT_EMAIL
+                        if user_is_external
+                        else None,
+                        subject=SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
+                        from_name=f"{user_info.real_name} ({SALESFORCE_INTERNAL_FROM_NAME_SUFFIX})"
+                        if not user_is_external
+                        else None,
+                    )
+
+                    logfire.info(
+                        "Synced Slack message to Salesforce",
+                        case_id=salesforce_case_id_for_slack_thread,
+                        comment_body=text,
+                        user_id=user,
+                        user_name=user_info.real_name,
+                        user_is_external=user_is_external,
+                    )
         elif (
             not self._proactive_prompt_channels
             or channel not in self._proactive_prompt_channels
@@ -180,7 +237,6 @@ class SlackEventHandler:
 
         # if the channel is one that the agent should proactively respond to and the agent was not @mentioned
         user = event.get("user")
-        thread_ts = event.get("thread_ts")
 
         # only offer proactive prompts on top level messages
         if thread_ts is not None:

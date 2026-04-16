@@ -255,6 +255,30 @@ async def get_event_hist(pool: AsyncConnectionPool, event_id: int) -> Event | No
             return None
 
 
+async def add_salesforce_case_thread(
+    pool: AsyncConnectionPool, thread_ts: str, channel_id: str, case_id: str
+) -> None:
+    async with pool.connection() as con:
+        await con.execute(
+            """INSERT INTO agent.salesforce_case_thread (channel_id, thread_ts, case_id)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (channel_id, thread_ts) DO NOTHING""",
+            (channel_id, thread_ts, case_id),
+        )
+
+
+async def get_salesforce_case_thread_case_id(
+    pool: AsyncConnectionPool, thread_ts: str, channel_id: str
+) -> str | None:
+    async with pool.connection() as con:
+        result = await con.execute(
+            "SELECT case_id FROM agent.salesforce_case_thread WHERE channel_id = %s AND thread_ts = %s",
+            (channel_id, thread_ts),
+        )
+        row = await result.fetchone()
+        return row[0] if row else None
+
+
 async def delete_expired_events(
     pool: AsyncConnectionPool, max_attempts: int = 3, max_age_minutes: int = 60
 ) -> None:

@@ -32,6 +32,7 @@
         "reactions:read",
         "reactions:write",
         "users:read",
+        "users:read.email",
         "channels:read",
         "groups:read",
         "mpim:read",

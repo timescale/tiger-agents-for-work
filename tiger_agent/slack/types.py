@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ChannelInfo(BaseModel):
@@ -129,6 +129,14 @@ class UserInfo(BaseModel):
     tz_label: str | None = None
     tz_offset: int | None = None
     profile: UserProfile
+    is_restricted: bool = False
+    is_ultra_restricted: bool = False
+    is_external: bool = False
+
+    @model_validator(mode="after")
+    def set_is_external(self) -> "UserInfo":
+        self.is_external = self.is_restricted or self.is_ultra_restricted
+        return self
 
 
 @dataclass
