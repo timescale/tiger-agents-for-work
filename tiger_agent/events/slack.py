@@ -18,7 +18,6 @@ from tiger_agent.db.utils import (
 from tiger_agent.events.types import EventProcessor, HarnessContext
 from tiger_agent.events.utils import process_event
 from tiger_agent.salesforce.constants import (
-    SALESFORCE_CASE_EMAIL_COMMENT_PREFIX,
     SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
     SALESFORCE_CASE_SUPPORT_EMAIL,
     SALESFORCE_INTERNAL_FROM_NAME_SUFFIX,
@@ -42,9 +41,10 @@ from tiger_agent.slack.constants import (
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     REJECT_PROACTIVE_PROMPT,
 )
-from tiger_agent.slack.types import BotInfo, SlackCommand
+from tiger_agent.slack.types import BotInfo, SlackCommand, UserInfo
 from tiger_agent.slack.utils import (
     fetch_bot_info,
+    fetch_team_info,
     fetch_user_info,
     handle_new_salesforce_case_workflow_form_cancel,
     handle_new_salesforce_case_workflow_form_submit,
@@ -164,6 +164,28 @@ class SlackEventHandler:
 
         respond()
 
+    async def get_reply_prefix_for_sender(self, user_info: UserInfo) -> tuple[str, str]:
+        """Returns (text_prefix, html_prefix) for use in Salesforce email comments."""
+        in_same_team_as_bot = self._bot_info.team_id == user_info.team_id
+        profile_workspace_url: str | None = None
+        if in_same_team_as_bot:
+            profile_workspace_url = self._bot_info.url.strip("/")
+        else:
+            team_info = await fetch_team_info(
+                self._app.client, team_id=user_info.team_id
+            )
+            if team_info:
+                profile_workspace_url = f"https://{team_info.domain}.slack.com"
+
+        text_prefix = f"[Replied via Slack as @{user_info.name}]"
+        if profile_workspace_url:
+            user_profile_url = f"{profile_workspace_url}/team/{user_info.id}"
+            html_prefix = f'[Replied via Slack as <a href="{user_profile_url}">@{user_info.name}</a>]'
+        else:
+            html_prefix = text_prefix
+
+        return text_prefix, html_prefix
+
     async def _on_message(self, ack: AsyncAck, event: dict[str, Any]):
         await ack()
 
@@ -199,6 +221,9 @@ class SlackEventHandler:
                         self._hctx.app.client, user_id=user
                     )
                     user_is_external = user_info.is_external
+                    text_prefix, html_prefix = await self.get_reply_prefix_for_sender(
+                        user_info
+                    )
 
                     # for internal users, we will set the
                     # from address and the display name (real name from Slack) + an envvar for internal user suffix
@@ -207,7 +232,8 @@ class SlackEventHandler:
                     add_case_email_comment(
                         self._hctx.salesforce_client,
                         case_id=salesforce_case_id_for_slack_thread,
-                        body=f"{SALESFORCE_CASE_EMAIL_COMMENT_PREFIX}\n{text}",
+                        body=f"{text_prefix}\n{text}",
+                        html_body=f"<p>{html_prefix}</p><p>{text}</p>",
                         from_address=user_info.profile.email,
                         to_address=SALESFORCE_CASE_SUPPORT_EMAIL
                         if user_is_external

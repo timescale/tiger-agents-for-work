@@ -232,6 +232,7 @@ def add_case_email_comment(
     subject: str,
     from_name: str | None = None,
     incoming: bool = True,
+    html_body: str | None = None,
 ) -> None:
     payload = {
         "ParentId": case_id,
@@ -240,6 +241,7 @@ def add_case_email_comment(
         "ToAddress": to_address,
         "Subject": subject,
         "TextBody": body,
+        "HtmlBody": html_body,
         "Incoming": incoming,
         "Status": "0",  # 0 = "New"
     }

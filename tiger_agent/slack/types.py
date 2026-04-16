@@ -139,6 +139,17 @@ class UserInfo(BaseModel):
         return self
 
 
+class TeamInfo(BaseModel):
+    model_config = {"extra": "allow"}
+
+    id: str
+    name: str
+    domain: str | None = None
+    email_domain: str | None = None
+    enterprise_id: str | None = None
+    enterprise_name: str | None = None
+
+
 @dataclass
 class SlackUrlParts:
     channel_id: str
