@@ -53,7 +53,7 @@ Respond in valid Markdown format, following these rules:
 - DO NOT include tables
 - DO NOT use hyphens for creating line separators
 - When using block quotes, there MUST be an empty line after the block quote.
-- Your response MUST be less than 40,000 characters.
+- Your response MUST be less than 12,000 characters.
 - For bullet points, you MUST ONLY use asterisks (\*), not dashes (-), pluses (+), or any other character.
 
 ## IMPORTANT: Slack Mention Formatting
