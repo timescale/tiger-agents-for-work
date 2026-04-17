@@ -13,7 +13,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
     SalesforceNewCaseEvent,
 )
-from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
+from tiger_agent.slack.types import BotInfo, SlackAppMentionEvent, SlackMessageEvent
 
 
 @dataclass
@@ -35,6 +35,7 @@ class HarnessContext:
     slack_bot_token: str
     slack_app_token: str
     trigger: Queue
+    bot_info: BotInfo | None = None
 
 
 class Event(BaseModel):

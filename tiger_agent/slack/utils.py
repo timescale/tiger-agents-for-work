@@ -45,6 +45,7 @@ from tiger_agent.slack.constants import (
     CONFIRM_PROACTIVE_PROMPT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
 )
 from tiger_agent.slack.types import (
@@ -770,6 +771,35 @@ async def handle_proactive_prompt(
             event=body,
         )
         return
+
+
+async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | None:
+    resp = await client.chat_postMessage(
+        channel=channel,
+        text="Open a new support case",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Need help? Click the button below to open a new support case.",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Open Support Case"},
+                    }
+                ],
+            },
+        ],
+    )
+    assert isinstance(resp.data, dict)
+    return resp.data.get("ts")
 
 
 async def send_new_salesforce_case_workflow_form(

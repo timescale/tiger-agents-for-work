@@ -36,6 +36,7 @@
         "channels:read",
         "groups:read",
         "mpim:read",
+        "pins:write",
         "im:read",
         "files:read"
       ]

@@ -10,3 +10,4 @@ CREATE_SUPPORT_CASE_COMMAND = os.environ.get(
 
 NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT = "new_salesforce_case_workflow_form_submit"
 NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL = "new_salesforce_case_workflow_form_cancel"
+NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER = "new_salesforce_case_workflow_form_trigger"

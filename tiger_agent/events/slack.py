@@ -39,6 +39,7 @@ from tiger_agent.slack.constants import (
     CREATE_SUPPORT_CASE_COMMAND,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
 )
 from tiger_agent.slack.types import BotInfo, SlackCommand, UserInfo
@@ -83,6 +84,7 @@ class SlackEventHandler:
 
     async def start(self, tasks: TaskGroup):
         self._bot_info = await fetch_bot_info(self._app.client)
+        self._hctx.bot_info = self._bot_info
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(AGENT_FEEDBACK_RATING)(self._handle_agent_feedback_rating)
@@ -91,6 +93,9 @@ class SlackEventHandler:
         )
         self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL)(
             self._handle_new_salesforce_case_workflow_form_cancel
+        )
+        self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER)(
+            self._handle_new_salesforce_case_workflow_form_trigger
         )
         self._app.event("message")(self._on_message)
 
@@ -326,6 +331,29 @@ class SlackEventHandler:
         self, ack: AsyncAck, respond: AsyncRespond
     ):
         await handle_new_salesforce_case_workflow_form_cancel(ack=ack, respond=respond)
+
+    async def _handle_new_salesforce_case_workflow_form_trigger(
+        self, ack: AsyncAck, body: dict[str, Any]
+    ):
+        await ack()
+        channel = body.get("channel", {}).get("id")
+        user = body.get("user", {}).get("id")
+        if not channel or not user:
+            return
+        salesforce_account_id_for_channel = await get_salesforce_account_id_for_channel(
+            self._hctx.pool, channel_id=channel
+        )
+        if not salesforce_account_id_for_channel:
+            return
+        services_and_projects = get_services_for_account(
+            self._hctx.salesforce_client, salesforce_account_id_for_channel
+        )
+        await send_new_salesforce_case_workflow_form(
+            client=self._hctx.app.client,
+            channel=channel,
+            user=user,
+            services=services_and_projects,
+        )
 
     async def _handle_proactive_prompt(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
