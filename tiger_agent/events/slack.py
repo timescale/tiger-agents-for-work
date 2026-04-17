@@ -36,7 +36,6 @@ from tiger_agent.slack.commands import (
 from tiger_agent.slack.constants import (
     AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
-    CREATE_SUPPORT_CASE_COMMAND,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
@@ -98,19 +97,7 @@ class SlackEventHandler:
             self._handle_new_salesforce_case_workflow_form_trigger
         )
         self._app.event("message")(self._on_message)
-
-        if CREATE_SUPPORT_CASE_COMMAND:
-            self._app.command(
-                re.compile(rf"\/(?!{re.escape(CREATE_SUPPORT_CASE_COMMAND)}).*")
-            )(self._on_slack_admin_command)
-
-            self._app.command(f"/{CREATE_SUPPORT_CASE_COMMAND}")(
-                self._on_slack_create_support_case
-            )
-
-        else:
-            self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
-
+        self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
         self._app.event("app_mention")(self._on_slack_event)
 
         handler = AsyncSocketModeHandler(
@@ -138,38 +125,6 @@ class SlackEventHandler:
             command=slack_command, hctx=self._hctx, bot_info=self._bot_info
         )
         await respond(text=response, response_type="ephemeral", delete_original=True)
-
-    async def _on_slack_create_support_case(
-        self, ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]
-    ):
-        slack_command = SlackCommand(**command)
-
-        await ack()
-
-        salesforce_account_id_for_channel = await get_salesforce_account_id_for_channel(
-            self._hctx.pool, channel_id=slack_command.channel_id
-        )
-
-        if not salesforce_account_id_for_channel:
-            await respond(
-                "This command is not available in this channel.",
-                response_type="ephemeral",
-                delete_original=True,
-            )
-            return
-
-        services_and_projects = get_services_for_account(
-            self._hctx.salesforce_client, salesforce_account_id_for_channel
-        )
-
-        await send_new_salesforce_case_workflow_form(
-            client=self._hctx.app.client,
-            channel=slack_command.channel_id,
-            user=slack_command.user_id,
-            services=services_and_projects,
-        )
-
-        respond()
 
     async def get_reply_prefix_for_sender(self, user_info: UserInfo) -> tuple[str, str]:
         """Returns (text_prefix, html_prefix) for use in Salesforce email comments."""
