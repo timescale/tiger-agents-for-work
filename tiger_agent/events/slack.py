@@ -134,7 +134,9 @@ class SlackEventHandler:
     ):
         slack_command = SlackCommand(**command)
         await ack()
-        response = await handle_command(command=slack_command, hctx=self._hctx)
+        response = await handle_command(
+            command=slack_command, hctx=self._hctx, bot_info=self._bot_info
+        )
         await respond(text=response, response_type="ephemeral", delete_original=True)
 
     async def _on_slack_create_support_case(
