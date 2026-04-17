@@ -11,16 +11,25 @@ from slack_bolt.context.respond.async_respond import AsyncRespond
 from tiger_agent.db.utils import (
     get_event_hist,
     get_salesforce_account_id_for_channel,
+    get_salesforce_case_thread_case_id,
     insert_event,
     insert_handled_event,
 )
 from tiger_agent.events.types import EventProcessor, HarnessContext
 from tiger_agent.events.utils import process_event
+from tiger_agent.salesforce.constants import (
+    SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
+    SALESFORCE_CASE_SUPPORT_EMAIL,
+    SALESFORCE_INTERNAL_FROM_NAME_SUFFIX,
+)
 from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
     SalesforceCreateNewCaseEvent,
 )
-from tiger_agent.salesforce.utils import get_services_for_account
+from tiger_agent.salesforce.utils import (
+    add_case_email_comment,
+    get_services_for_account,
+)
 from tiger_agent.slack.commands import (
     handle_command,
 )
@@ -30,11 +39,14 @@ from tiger_agent.slack.constants import (
     CREATE_SUPPORT_CASE_COMMAND,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
 )
-from tiger_agent.slack.types import BotInfo, SlackCommand
+from tiger_agent.slack.types import BotInfo, SlackCommand, UserInfo
 from tiger_agent.slack.utils import (
     fetch_bot_info,
+    fetch_team_info,
+    fetch_user_info,
     handle_new_salesforce_case_workflow_form_cancel,
     handle_new_salesforce_case_workflow_form_submit,
     handle_proactive_prompt,
@@ -72,6 +84,7 @@ class SlackEventHandler:
 
     async def start(self, tasks: TaskGroup):
         self._bot_info = await fetch_bot_info(self._app.client)
+        self._hctx.bot_info = self._bot_info
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(AGENT_FEEDBACK_RATING)(self._handle_agent_feedback_rating)
@@ -80,6 +93,9 @@ class SlackEventHandler:
         )
         self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL)(
             self._handle_new_salesforce_case_workflow_form_cancel
+        )
+        self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER)(
+            self._handle_new_salesforce_case_workflow_form_trigger
         )
         self._app.event("message")(self._on_message)
 
@@ -153,6 +169,28 @@ class SlackEventHandler:
 
         respond()
 
+    async def get_reply_prefix_for_sender(self, user_info: UserInfo) -> tuple[str, str]:
+        """Returns (text_prefix, html_prefix) for use in Salesforce email comments."""
+        in_same_team_as_bot = self._bot_info.team_id == user_info.team_id
+        profile_workspace_url: str | None = None
+        if in_same_team_as_bot:
+            profile_workspace_url = self._bot_info.url.strip("/")
+        else:
+            team_info = await fetch_team_info(
+                self._app.client, team_id=user_info.team_id
+            )
+            if team_info:
+                profile_workspace_url = f"https://{team_info.domain}.slack.com"
+
+        text_prefix = f"[Replied via Slack as @{user_info.name}]"
+        if profile_workspace_url:
+            user_profile_url = f"{profile_workspace_url}/team/{user_info.id}"
+            html_prefix = f'[Replied via Slack as <a href="{user_profile_url}">@{user_info.name}</a>]'
+        else:
+            html_prefix = text_prefix
+
+        return text_prefix, html_prefix
+
     async def _on_message(self, ack: AsyncAck, event: dict[str, Any]):
         await ack()
 
@@ -163,12 +201,62 @@ class SlackEventHandler:
 
         event["subtype"] = event["channel_type"]
         channel = event.get("channel")
+        thread_ts = event.get("thread_ts")
 
         # if the message was in an im to the agent, respond (even though agent was not mentioned)
         if event["subtype"] in ("im"):
             await self._on_slack_event(ack, event)
             return
 
+        salesforce_case_id_for_slack_thread = await get_salesforce_case_thread_case_id(
+            self._hctx.pool, thread_ts=thread_ts, channel_id=channel
+        )
+        if salesforce_case_id_for_slack_thread:
+            if not self._hctx.salesforce_client:
+                logfire.error(
+                    "Cannot sync new Slack message to Salesforce case",
+                    salesforce_case_id_for_slack_thread=salesforce_case_id_for_slack_thread,
+                )
+            else:
+                text = event.get("text", "")
+                if not text:
+                    logfire.info("No text in Slack message, not syncing to Salesforce")
+                else:
+                    user_info = await fetch_user_info(
+                        self._hctx.app.client, user_id=user
+                    )
+                    user_is_external = user_info.is_external
+                    text_prefix, html_prefix = await self.get_reply_prefix_for_sender(
+                        user_info
+                    )
+
+                    # for internal users, we will set the
+                    # from address and the display name (real name from Slack) + an envvar for internal user suffix
+                    # but for external users, we just display the email address
+
+                    add_case_email_comment(
+                        self._hctx.salesforce_client,
+                        case_id=salesforce_case_id_for_slack_thread,
+                        body=f"{text_prefix}\n{text}",
+                        html_body=f"<p>{html_prefix}</p><p>{text}</p>",
+                        from_address=user_info.profile.email,
+                        to_address=SALESFORCE_CASE_SUPPORT_EMAIL
+                        if user_is_external
+                        else None,
+                        subject=SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
+                        from_name=f"{user_info.real_name} ({SALESFORCE_INTERNAL_FROM_NAME_SUFFIX})"
+                        if not user_is_external
+                        else None,
+                    )
+
+                    logfire.info(
+                        "Synced Slack message to Salesforce",
+                        case_id=salesforce_case_id_for_slack_thread,
+                        comment_body=text,
+                        user_id=user,
+                        user_name=user_info.real_name,
+                        user_is_external=user_is_external,
+                    )
         elif (
             not self._proactive_prompt_channels
             or channel not in self._proactive_prompt_channels
@@ -180,7 +268,6 @@ class SlackEventHandler:
 
         # if the channel is one that the agent should proactively respond to and the agent was not @mentioned
         user = event.get("user")
-        thread_ts = event.get("thread_ts")
 
         # only offer proactive prompts on top level messages
         if thread_ts is not None:
@@ -244,6 +331,29 @@ class SlackEventHandler:
         self, ack: AsyncAck, respond: AsyncRespond
     ):
         await handle_new_salesforce_case_workflow_form_cancel(ack=ack, respond=respond)
+
+    async def _handle_new_salesforce_case_workflow_form_trigger(
+        self, ack: AsyncAck, body: dict[str, Any]
+    ):
+        await ack()
+        channel = body.get("channel", {}).get("id")
+        user = body.get("user", {}).get("id")
+        if not channel or not user:
+            return
+        salesforce_account_id_for_channel = await get_salesforce_account_id_for_channel(
+            self._hctx.pool, channel_id=channel
+        )
+        if not salesforce_account_id_for_channel:
+            return
+        services_and_projects = get_services_for_account(
+            self._hctx.salesforce_client, salesforce_account_id_for_channel
+        )
+        await send_new_salesforce_case_workflow_form(
+            client=self._hctx.app.client,
+            channel=channel,
+            user=user,
+            services=services_and_projects,
+        )
 
     async def _handle_proactive_prompt(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond

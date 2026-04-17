@@ -17,8 +17,12 @@ from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
 )
 from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
-from tiger_agent.slack.types import SlackCommand
-from tiger_agent.slack.utils import parse_slack_url, parse_slack_user_name
+from tiger_agent.slack.types import BotInfo, SlackCommand
+from tiger_agent.slack.utils import (
+    parse_slack_url,
+    parse_slack_user_name,
+    send_new_case_button,
+)
 from tiger_agent.utils import serialize_to_jsonb
 
 """
@@ -73,6 +77,7 @@ class CommandContext:
 
     hctx: HarnessContext
     command: SlackCommand
+    bot_info: BotInfo
 
 
 @dataclass
@@ -256,6 +261,20 @@ async def handle_salesforce_add_customer_channel_command(
         channel_id=channel_id,
         salesforce_account_id=salesforce_account_id,
     )
+    bot_name = ctx.bot_info.name if ctx.bot_info else "Support Bot"
+    bot_user_id = ctx.bot_info.user_id if ctx.bot_info else None
+    bot_mention = f"<@{bot_user_id}>" if bot_user_id else bot_name
+    await ctx.hctx.app.client.chat_postMessage(
+        channel=channel_id,
+        text=(
+            f"Hi there! I'm {bot_name}. I'm here to help — you can get assistance by "
+            f"@mentioning {bot_mention} in this channel, or open a support ticket by "
+            "clicking the button below. That button will be pinned to this channel for easy access."
+        ),
+    )
+    ts = await send_new_case_button(ctx.hctx.app.client, channel=channel_id)
+    if ts:
+        await ctx.hctx.app.client.pins_add(channel=channel_id, timestamp=ts)
 
     return f"Assigned channel {channel_id} to Salesforce account id {salesforce_account_id}"
 
@@ -406,9 +425,11 @@ def _build_command_handlers() -> CommandGroup:
     return _slash_commands
 
 
-async def handle_command(command: SlackCommand, hctx: HarnessContext) -> str:
+async def handle_command(
+    command: SlackCommand, hctx: HarnessContext, bot_info: BotInfo
+) -> str:
     if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
         return "Slash commands can only be used by admins."
-    ctx = CommandContext(hctx=hctx, command=command)
+    ctx = CommandContext(hctx=hctx, command=command, bot_info=bot_info)
     handlers = _build_command_handlers()
     return await handlers(command.text, ctx)

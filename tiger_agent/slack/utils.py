@@ -45,6 +45,7 @@ from tiger_agent.slack.constants import (
     CONFIRM_PROACTIVE_PROMPT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
 )
 from tiger_agent.slack.types import (
@@ -54,6 +55,7 @@ from tiger_agent.slack.types import (
     SlackMessage,
     SlackMessageEvent,
     SlackUrlParts,
+    TeamInfo,
     UserInfo,
 )
 from tiger_agent.utils import file_type_supported
@@ -257,6 +259,18 @@ async def post_response(
         unfurl_links=False,
         unfurl_media=False,
     )
+
+
+@logfire.instrument("fetch_team_info", extract_args=["team_id"])
+async def fetch_team_info(client: AsyncWebClient, team_id: str) -> TeamInfo | None:
+    try:
+        resp = await client.team_info(team=team_id)
+        assert isinstance(resp.data, dict)
+        assert resp.data["ok"]
+        return TeamInfo(**(resp.data["team"]))
+    except Exception:
+        logfire.exception("Failed to fetch team info", team_id=team_id)
+        return None
 
 
 @logfire.instrument("fetch_bot_info", extract_args=False)
@@ -757,6 +771,35 @@ async def handle_proactive_prompt(
             event=body,
         )
         return
+
+
+async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | None:
+    resp = await client.chat_postMessage(
+        channel=channel,
+        text="Open a new support case",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Need help? Click the button below to open a new support case.",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Open Support Case"},
+                    }
+                ],
+            },
+        ],
+    )
+    assert isinstance(resp.data, dict)
+    return resp.data.get("ts")
 
 
 async def send_new_salesforce_case_workflow_form(

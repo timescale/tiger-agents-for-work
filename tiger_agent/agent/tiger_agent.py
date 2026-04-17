@@ -40,6 +40,7 @@ from tiger_agent.agent.types import (
 )
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import (
+    add_salesforce_case_thread,
     get_salesforce_account_id_for_channel,
     usage_limit_reached,
     user_ignored,
@@ -343,23 +344,43 @@ class TigerAgent:
 
         new_case_thread_ts = response.data.get("ts", None)
 
-        if new_case_thread_ts and SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD:
-            result = await hctx.app.client.chat_getPermalink(
-                channel=channel_to_respond,
-                message_ts=new_case_thread_ts,
-            )
-            permalink = result.data.get("permalink")
-
-            hctx.salesforce_client.Case.update(
-                new_case.Id,
-                {SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD: permalink},
-                headers={"Sforce-Auto-Assign": "false"},
+        if not new_case_thread_ts:
+            raise Exception(
+                "Could not create a thread for the customer-created Salesforce case"
             )
 
-            logfire.info(
-                "Updated Salesforce case to include the customer thread link",
-                extra={"permalink": permalink},
+        # this stores the relationship betwixt the Slack thread
+        # and the Salesforce case so that we can sync the messages
+        # in the thread with the Salesforce case comments
+        await add_salesforce_case_thread(
+            hctx.pool,
+            thread_ts=new_case_thread_ts,
+            channel_id=channel_to_respond,
+            case_id=new_case.Id,
+        )
+
+        if not SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD:
+            logfire.error(
+                "SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD not specified, skipping"
             )
+            return
+
+        result = await hctx.app.client.chat_getPermalink(
+            channel=channel_to_respond,
+            message_ts=new_case_thread_ts,
+        )
+        permalink = result.data.get("permalink")
+
+        hctx.salesforce_client.Case.update(
+            new_case.Id,
+            {SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD: permalink},
+            headers={"Sforce-Auto-Assign": "false"},
+        )
+
+        logfire.info(
+            "Updated Salesforce case to include the customer thread link",
+            extra={"permalink": permalink},
+        )
 
     async def handle_salesforce_event(
         self,
@@ -428,11 +449,14 @@ class TigerAgent:
                 )
 
             if message_to_link_to.to_user_id:
+
                 async def _delayed_feedback(client, message):
                     await asyncio.sleep(10)
                     await send_feedback_rating_prompt(client, message)
 
-                asyncio.create_task(_delayed_feedback(hctx.app.client, message_to_link_to))
+                asyncio.create_task(
+                    _delayed_feedback(hctx.app.client, message_to_link_to)
+                )
 
         return message_to_link_to
 

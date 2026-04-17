@@ -223,6 +223,35 @@ def get_services_for_account(
     ]
 
 
+def add_case_email_comment(
+    salesforce_client: Salesforce,
+    case_id: str,
+    body: str,
+    from_address: str,
+    to_address: str | None,
+    subject: str,
+    from_name: str | None = None,
+    incoming: bool = True,
+    html_body: str | None = None,
+) -> None:
+    payload = {
+        "ParentId": case_id,
+        "FromAddress": from_address,
+        "FromName": from_name or from_address,
+        "ToAddress": to_address,
+        "Subject": subject,
+        "TextBody": body,
+        "HtmlBody": html_body,
+        "Incoming": incoming,
+        "Status": "0",  # 0 = "New"
+    }
+    result = salesforce_client.EmailMessage.create(payload)
+    if not result["success"] or not result["id"]:
+        logfire.error(
+            "Could not add email comment to Salesforce case", extra={"case_id": case_id}
+        )
+
+
 def get_project_ids_for_account(
     salesforce_client: Salesforce, account_id: str
 ) -> list[str] | None:
