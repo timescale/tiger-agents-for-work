@@ -162,6 +162,7 @@ async def insert_handled_event(pool: AsyncConnectionPool, event: dict[str, Any])
         return result[0] if result else None
 
 
+@logfire.instrument("claim_event", extract_args=False, level="trace")
 async def claim_event(
     pool: AsyncConnectionPool, max_attempts: int = 3, invisibility_minutes: int = 10
 ) -> Event | None:
@@ -279,6 +280,7 @@ async def get_salesforce_case_thread_case_id(
         return row[0] if row else None
 
 
+@logfire.instrument("delete_expired_events", extract_args=False, level="trace")
 async def delete_expired_events(
     pool: AsyncConnectionPool, max_attempts: int = 3, max_age_minutes: int = 60
 ) -> None:
