@@ -162,7 +162,6 @@ async def insert_handled_event(pool: AsyncConnectionPool, event: dict[str, Any])
         return result[0] if result else None
 
 
-@logfire.instrument("claim_event", extract_args=False, level="trace")
 async def claim_event(
     pool: AsyncConnectionPool, max_attempts: int = 3, invisibility_minutes: int = 10
 ) -> Event | None:
@@ -175,34 +174,35 @@ async def claim_event(
     Returns:
         Event: Claimed event ready for processing, or None if no events available
     """
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor(row_factory=dict_row) as cur,
-    ):
-        await cur.execute(
-            "select * from agent.claim_event(%s, %s::int8 * interval '1m')",
-            (max_attempts, invisibility_minutes),
-        )
-        row: dict[str, Any] | None = await cur.fetchone()
-        if not row:
-            return None
-        try:
-            assert row["id"] is not None, "claimed an empty event"
-            return Event(**row)
-        except ValidationError as e:
-            logger.exception(
-                "failed to parse claimed event",
-                exc_info=e,
-                extra={"id": row.get("id")},
+    with logfire.suppress_instrumentation():
+        async with (
+            pool.connection() as con,
+            con.transaction() as _,
+            con.cursor(row_factory=dict_row) as cur,
+        ):
+            await cur.execute(
+                "select * from agent.claim_event(%s, %s::int8 * interval '1m')",
+                (max_attempts, invisibility_minutes),
             )
-            if row["id"] is not None:
-                # if we got a malformed event, delete it to avoid retry loops
-                await cur.execute(
-                    "select agent.delete_event(%s::int8, _processed=>false)",
-                    (row["id"],),
+            row: dict[str, Any] | None = await cur.fetchone()
+            if not row:
+                return None
+            try:
+                assert row["id"] is not None, "claimed an empty event"
+                return Event(**row)
+            except ValidationError as e:
+                logger.exception(
+                    "failed to parse claimed event",
+                    exc_info=e,
+                    extra={"id": row.get("id")},
                 )
-            return None
+                if row["id"] is not None:
+                    # if we got a malformed event, delete it to avoid retry loops
+                    await cur.execute(
+                        "select agent.delete_event(%s::int8, _processed=>false)",
+                        (row["id"],),
+                    )
+                return None
 
 
 @logfire.instrument("delete_event", extract_args=False)
@@ -280,7 +280,6 @@ async def get_salesforce_case_thread_case_id(
         return row[0] if row else None
 
 
-@logfire.instrument("delete_expired_events", extract_args=False, level="trace")
 async def delete_expired_events(
     pool: AsyncConnectionPool, max_attempts: int = 3, max_age_minutes: int = 60
 ) -> None:
@@ -290,12 +289,13 @@ async def delete_expired_events(
     attempted too many times or are stuck invisible for too long to
     the history table.
     """
-    async with (
-        pool.connection() as con,
-        con.transaction() as _,
-        con.cursor() as cur,
-    ):
-        await cur.execute(
-            "select agent.delete_expired_events(%s, %s::int8 * interval '1m')",
-            (max_attempts, max_age_minutes),
-        )
+    with logfire.suppress_instrumentation():
+        async with (
+            pool.connection() as con,
+            con.transaction() as _,
+            con.cursor() as cur,
+        ):
+            await cur.execute(
+                "select agent.delete_expired_events(%s, %s::int8 * interval '1m')",
+                (max_attempts, max_age_minutes),
+            )
