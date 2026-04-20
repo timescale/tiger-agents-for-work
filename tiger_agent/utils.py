@@ -17,7 +17,9 @@ import os
 from logging.config import dictConfig
 from typing import Any
 
+import httpx
 import logfire
+from opentelemetry.trace import Span
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 from pydantic_ai import RunContext
@@ -66,11 +68,17 @@ def setup_logging(service_name: str = "tiger-agent") -> None:
             service_version=__version__,
         )
 
+        def _set_httpx_trace_level(span: Span, request: httpx.Request) -> None:
+            span.set_attribute("logfire.level_num", 1)  # trace
+
         # Set up all the logfire instrumentation
         logfire.instrument_psycopg()  # Database query tracing
         logfire.instrument_pydantic_ai()  # AI model interaction tracing
         logfire.instrument_mcp()  # MCP server communication tracing
-        logfire.instrument_httpx(capture_headers=True)  # HTTP client request tracing
+        logfire.instrument_httpx(
+            capture_headers=True,
+            request_hook=_set_httpx_trace_level,
+        )  # HTTP client request tracing
         logfire.instrument_system_metrics(
             {
                 "process.cpu.time": ["user", "system"],
