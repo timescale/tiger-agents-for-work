@@ -1,6 +1,8 @@
 import asyncio
+import base64
 import os
 from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
 from typing import Any
 
 import logfire
@@ -223,6 +225,13 @@ def get_services_for_account(
     ]
 
 
+@dataclass
+class EmailAttachment:
+    name: str
+    body: bytes
+    content_type: str
+
+
 def add_case_email_comment(
     salesforce_client: Salesforce,
     case_id: str,
@@ -233,6 +242,7 @@ def add_case_email_comment(
     from_name: str | None = None,
     incoming: bool = True,
     html_body: str | None = None,
+    attachments: list[EmailAttachment] | None = None,
 ) -> None:
     payload = {
         "ParentId": case_id,
@@ -250,6 +260,24 @@ def add_case_email_comment(
         logfire.error(
             "Could not add email comment to Salesforce case", extra={"case_id": case_id}
         )
+        return
+
+    email_message_id = result["id"]
+    for attachment in attachments or []:
+        encoded = base64.b64encode(attachment.body).decode("utf-8")
+        att_result = salesforce_client.Attachment.create(
+            {
+                "ParentId": email_message_id,
+                "Name": attachment.name,
+                "ContentType": attachment.content_type,
+                "Body": encoded,
+            }
+        )
+        if not att_result["success"] or not att_result["id"]:
+            logfire.error(
+                "Could not attach file to Salesforce email message",
+                extra={"email_message_id": email_message_id, "name": attachment.name},
+            )
 
 
 def get_project_ids_for_account(

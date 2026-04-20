@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import logfire
+from pydantic_ai.messages import BinaryContent
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.context.ack.async_ack import AsyncAck
 from slack_bolt.context.respond.async_respond import AsyncRespond
@@ -27,6 +28,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
 )
 from tiger_agent.salesforce.utils import (
+    EmailAttachment,
     add_case_email_comment,
     get_services_for_account,
 )
@@ -43,6 +45,7 @@ from tiger_agent.slack.constants import (
 )
 from tiger_agent.slack.types import BotInfo, SlackCommand, UserInfo
 from tiger_agent.slack.utils import (
+    download_private_file,
     fetch_bot_info,
     fetch_team_info,
     fetch_user_info,
@@ -159,6 +162,7 @@ class SlackEventHandler:
         event["subtype"] = event["channel_type"]
         channel = event.get("channel")
         thread_ts = event.get("thread_ts")
+        files = event.get("files", [])
 
         # if the message was in an im to the agent, respond (even though agent was not mentioned)
         if event["subtype"] in ("im"):
@@ -187,6 +191,26 @@ class SlackEventHandler:
                         user_info
                     )
 
+                    attachments: list[EmailAttachment] = []
+
+                    for file in files:
+                        type = file.get("mimetype")
+                        url = file.get("url_private_download")
+                        name = file.get("name")
+
+                        file_content = await download_private_file(
+                            url_private_download=url,
+                            slack_bot_token=self._hctx.slack_bot_token,
+                        )
+                        if isinstance(file_content, BinaryContent):
+                            attachments.append(
+                                EmailAttachment(
+                                    name=name,
+                                    body=file_content.data,
+                                    content_type=type,
+                                )
+                            )
+
                     # for internal users, we will set the
                     # from address and the display name (real name from Slack) + an envvar for internal user suffix
                     # but for external users, we just display the email address
@@ -204,6 +228,7 @@ class SlackEventHandler:
                         from_name=f"{user_info.real_name} ({SALESFORCE_INTERNAL_FROM_NAME_SUFFIX})"
                         if not user_is_external
                         else None,
+                        attachments=attachments if attachments else None,
                     )
 
                     logfire.info(
