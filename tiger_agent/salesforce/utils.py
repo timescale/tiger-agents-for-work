@@ -3,9 +3,11 @@ import base64
 import os
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 import logfire
+import pytz
 from aiosfstream_ng.client import Client
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -20,7 +22,12 @@ from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
     SALESFORCE_DOMAIN,
 )
-from tiger_agent.salesforce.types import CaseData, SalesforceBaseEvent, ServiceRecord
+from tiger_agent.salesforce.types import (
+    CaseData,
+    ChatterFeedItem,
+    SalesforceBaseEvent,
+    ServiceRecord,
+)
 
 RECONNECT_DELAY_SECONDS = 30
 IGNORED_CONTACT_EMAILS = set(
@@ -82,6 +89,63 @@ async def subscribe_to_topic(
         except Exception:
             logfire.exception(
                 "Streaming connection error, reconnecting",
+                extra={"topic_name": topic_name, "delay": RECONNECT_DELAY_SECONDS},
+            )
+
+        await asyncio.sleep(RECONNECT_DELAY_SECONDS)
+
+
+async def subscribe_to_case_comment_topic(
+    topic_name: str,
+    handler: Callable[[str, str], Coroutine[Any, Any, None]],
+):
+    """Subscribe to a PushTopic for new CaseComment events.
+
+    CaseComment is the underlying SObject created when someone posts a
+    Chatter comment on a case. FeedItem and CDC are not supported for
+    Chatter posts, so this is the recommended streaming approach.
+
+    Calls handler(case_id, comment_id) for each new comment.
+    """
+    channel = f"/topic/{topic_name}"
+    while True:
+        try:
+            async with Client(ClientCredentialsAuthenticator()) as streaming_client:
+                await streaming_client.subscribe(channel)
+                logfire.info(
+                    "Subscribed to CaseComment PushTopic",
+                    extra={"topic_name": topic_name},
+                )
+
+                async for message in streaming_client:
+                    data = message.get("data", {})
+                    sobject = data.get("sobject", {})
+
+                    comment_id = sobject.get("Id")
+                    case_id = sobject.get("ParentId")
+                    if not comment_id or not case_id:
+                        continue
+
+                    try:
+                        logfire.info(
+                            "Handling CaseComment event",
+                            extra={"topic": topic_name, "payload": data},
+                        )
+                        await handler(case_id, comment_id)
+                    except Exception:
+                        logfire.exception(
+                            "Error handling new case comment",
+                            comment_id=comment_id,
+                            case_id=case_id,
+                        )
+
+            logfire.warning(
+                "CaseComment streaming client exited unexpectedly, reconnecting",
+                extra={"topic_name": topic_name, "delay": RECONNECT_DELAY_SECONDS},
+            )
+        except Exception:
+            logfire.exception(
+                "CaseComment streaming connection error, reconnecting",
                 extra={"topic_name": topic_name, "delay": RECONNECT_DELAY_SECONDS},
             )
 
@@ -278,6 +342,79 @@ def add_case_email_comment(
                 "Could not attach file to Salesforce email message",
                 extra={"email_message_id": email_message_id, "name": attachment.name},
             )
+
+
+def get_case_chatter_feed(
+    salesforce_client: Salesforce,
+    case_id: str,
+    created_after: str | None = None,
+) -> list[ChatterFeedItem]:
+    """Fetch Chatter feed items for a case via the Chatter REST API.
+
+    Uses the Chatter REST API rather than SOQL since FeedItem visibility
+    rules can prevent SOQL from returning internal posts.
+
+    created_after: ISO 8601 datetime string (e.g. "2024-01-01T00:00:00Z") to
+        filter items created after that time.
+    """
+    try:
+        params: dict = {"pageSize": 100, "sort": "CreatedDateAsc"}
+        if created_after is not None:
+            params["updatedSince"] = created_after
+        result = salesforce_client.restful(
+            f"chatter/feeds/record/{case_id}/feed-elements",
+            params=params,
+        )
+        return [ChatterFeedItem(**element) for element in result.get("elements", [])]
+    except Exception:
+        logfire.exception("Failed to fetch case chatter feed", case_id=case_id)
+        return []
+
+
+def get_all_case_chatter_feed(
+    salesforce_client: Salesforce,
+    updated_since: str | None = None,
+) -> list[ChatterFeedItem]:
+    """Fetch Chatter feed items across all cases via the news feed.
+
+    Uses the authenticated user's news feed which surfaces all case chatter
+    visible to that user. Supports updatedSince for incremental polling.
+
+    updated_since: ISO 8601 datetime string (e.g. "2024-01-01T00:00:00Z").
+    """
+    try:
+        params: dict = {"pageSize": 100}
+        if updated_since is not None:
+            params["updatedSince"] = updated_since
+        result = salesforce_client.restful(
+            "chatter/feeds/news/me/feed-elements",
+            params=params,
+        )
+        return [ChatterFeedItem(**element) for element in result.get("elements", [])]
+    except Exception:
+        logfire.exception("Failed to fetch all case chatter feed")
+        return []
+
+
+def get_recent_feed_items(
+    salesforce_client: Salesforce,
+    created_after: str | None = None,
+) -> list[ChatterFeedItem]:
+    """Fetch recent FeedItems using the SObject REST API, limited to 100."""
+    try:
+        params = {"limit": 100, "order": "CreatedDate ASC"}
+        if created_after is not None:
+            params["where"] = f"CreatedDate > {created_after}"
+        end = datetime.now(pytz.UTC)
+        ids = salesforce_client.FeedItem.updated(end - timedelta(days=2), end)
+        feed_items = [
+            salesforce_client.FeedItem.get(record_id)
+            for record_id in ids.get("ids", [])
+        ]
+        return feed_items
+    except Exception:
+        logfire.exception("Failed to fetch recent feed items")
+        return []
 
 
 def get_project_ids_for_account(
