@@ -20,7 +20,6 @@ from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceFeedItem,
     SalesforceFeedItemEvent,
-    SalesforceNewCaseEvent,
 )
 from tiger_agent.salesforce.utils import (
     should_ignore_new_case,
@@ -92,34 +91,6 @@ class SalesforceEventHandler:
             result = self._salesforce_client.PushTopic.create(topic_config)
             logfire.info("PushTopic created", extra={"id": result["id"]})
 
-    @logfire.instrument("handle_new_case", extract_args=["case"])
-    async def handle_new_case(self, case: CaseData):
-        if not SALESFORCE_CASE_CHANNEL:
-            logfire.warn(
-                "A new case was created, but no Slack channel configured",
-                extra={"case": case.model_dump_json()},
-            )
-            return
-        if case.Status == "Spam":
-            logfire.info("Ignoring case flagged as spam")
-            return
-
-        if should_ignore_new_case(case):
-            logfire.info("Ignoring case")
-            return
-
-        full_case_data = self._salesforce_client.Case.get(case.Id)
-        case = case.model_copy(
-            update={"Description": full_case_data.get("Description")}
-        )
-
-        await insert_event(
-            pool=self._pool,
-            event=SalesforceNewCaseEvent(case=case).model_dump(),
-        )
-
-        await self._trigger.put(True)
-
     async def _run_schedule(self):
         while True:
             schedule.run_pending()
@@ -127,6 +98,13 @@ class SalesforceEventHandler:
 
     @logfire.instrument("handle_updated_case_assignee", extract_args=["case"])
     async def handle_updated_case_assignee(self, case: CaseData):
+        if not SALESFORCE_CASE_CHANNEL:
+            logfire.warn(
+                "A new case was created, but no Slack channel configured",
+                extra={"case": case.model_dump_json()},
+            )
+            return
+
         if not case.Owner.Email:
             # no user assigned yet
             logfire.info("Ignoring event, no user assigned to case")
@@ -134,6 +112,10 @@ class SalesforceEventHandler:
 
         if case.Status != "New":
             logfire.info("Ignoring case event as status is not new")
+            return
+
+        if should_ignore_new_case(case):
+            logfire.info("Ignoring case")
             return
 
         if not await is_case_assignment_new(

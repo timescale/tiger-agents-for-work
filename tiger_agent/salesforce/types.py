@@ -69,14 +69,6 @@ class SalesforceBaseEvent(BaseModel):
     event_ts: str | None = None
 
 
-class SalesforceNewCaseEvent(SalesforceBaseEvent):
-    """Pydantic model for Salesforce new case event."""
-
-    type: str = "salesforce_event"
-    subtype: str = "new_case"
-    case: CaseData
-
-
 # this event represents the initiation of a new Salesforce
 # case via Slack. We want to capture the case details, as well as
 # created the case and from which channel they created it
