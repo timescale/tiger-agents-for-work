@@ -892,6 +892,16 @@ wheels = [
 ]
 
 [[package]]
+name = "html-to-markdown"
+version = "3.2.6"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/05/da5a1518899937ae559e4e4126ac872e5c65f6c7f05d094c4b1a9609e161/html_to_markdown-3.2.6-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:7c3c2365f074d08d08a4f368d0ca5a5887bccae5b6104ac37c66c24d61f3e571", size = 5460630, upload-time = "2026-04-20T09:09:20.336Z" },
+    { url = "https://files.pythonhosted.org/packages/be/bc/92632edc96b188ef8c7e96785c4893276976a6251dc6939512f1b607676b/html_to_markdown-3.2.6-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:f8fcc36e1bbec4da7dc25fe690c23de45f813c1867ca37f34f3276551324e1e8", size = 5961770, upload-time = "2026-04-20T09:09:22.566Z" },
+    { url = "https://files.pythonhosted.org/packages/76/ea/cfe8f60fbfdbdd0ed524caf300cc70e16a66e309ae4cd7cef477e5d8dac1/html_to_markdown-3.2.6-cp313-cp313-win_amd64.whl", hash = "sha256:4b32d8287abc1eefb1aa27d6eebbb8a50b4b2bc33411dec1ef71075bb898e5c2", size = 5768211, upload-time = "2026-04-20T09:09:24.574Z" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -2706,6 +2716,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiosfstream-ng" },
     { name = "click" },
+    { name = "html-to-markdown" },
     { name = "jinja2" },
     { name = "logfire", extra = ["httpx", "psycopg", "system-metrics"] },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -2728,6 +2739,7 @@ dev = [
 requires-dist = [
     { name = "aiosfstream-ng", specifier = ">=0.5.1" },
     { name = "click", specifier = ">=8.3.0" },
+    { name = "html-to-markdown", specifier = ">=3.2.6" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "logfire", extras = ["httpx", "psycopg", "system-metrics"], specifier = ">=4.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.10" },
