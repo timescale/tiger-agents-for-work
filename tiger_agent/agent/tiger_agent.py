@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import logfire
+from html_to_markdown import convert
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, UsageLimits, models
@@ -42,6 +43,7 @@ from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import (
     add_salesforce_case_thread,
     get_salesforce_account_id_for_channel,
+    get_salesforce_case_thread_thread_id,
     usage_limit_reached,
     user_ignored,
 )
@@ -58,6 +60,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
     SalesforceCreateNewCaseEvent,
+    SalesforceFeedItemEvent,
 )
 from tiger_agent.salesforce.utils import create_case, create_case_url
 from tiger_agent.slack.types import (
@@ -306,6 +309,23 @@ class TigerAgent:
             ctx: Agent response context containing event data, user info, and bot info
             extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
+
+    async def handle_new_salesforce_case_feed_item(
+        self, hctx: HarnessContext, event: SalesforceFeedItemEvent
+    ):
+        [channel_id, thread_ts] = await get_salesforce_case_thread_thread_id(
+            hctx.pool, case_id=event.feed_item.ParentId
+        )
+
+        # the body from Salesforce is html, let's convert to markdown
+        markdown_conversion = convert(event.feed_item.Body)
+
+        await post_response(
+            client=hctx.app.client,
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=markdown_conversion.content.strip(),
+        )
 
     async def handle_create_salesforce_case(
         self,
@@ -564,6 +584,10 @@ class TigerAgent:
                 event=event,
                 channel_to_respond=channel_to_respond,
             )
+            return
+
+        if isinstance(event, SalesforceFeedItemEvent):
+            await self.handle_new_salesforce_case_feed_item(hctx=hctx, event=event)
             return
 
         agent_and_ctx, self.bot_info = await create_agent_and_context(

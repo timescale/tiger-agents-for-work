@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from tiger_agent.db.constants import PG_MAX_POOL_SIZE
 from tiger_agent.events.types import Event
+from tiger_agent.salesforce.types import SalesforceBaseEvent, SalesforceFeedItem
 
 logger = logging.getLogger(__name__)
 
@@ -85,40 +86,6 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
         )
         row = await result.fetchone()
         return bool(row[0]) if row and row[0] is not None else False
-
-
-async def get_salesforce_account_id_for_channel(
-    pool: AsyncConnectionPool, channel_id: str
-) -> str | None:
-    async with pool.connection() as con:
-        result = await con.execute(
-            "SELECT salesforce_account_id FROM agent.customer_channel_salesforce_link WHERE channel_id = %s",
-            (channel_id,),
-        )
-        row = await result.fetchone()
-        return row[0] if row else None
-
-
-async def upsert_salesforce_account_id_for_channel(
-    pool: AsyncConnectionPool, channel_id: str, salesforce_account_id: str
-) -> None:
-    async with pool.connection() as con:
-        await con.execute(
-            """INSERT INTO agent.customer_channel_salesforce_link (channel_id, salesforce_account_id)
-               VALUES (%s, %s)
-               ON CONFLICT (channel_id) DO UPDATE SET salesforce_account_id = EXCLUDED.salesforce_account_id""",
-            (channel_id, salesforce_account_id),
-        )
-
-
-async def remove_salesforce_account_id_for_channel(
-    pool: AsyncConnectionPool, channel_id: str
-) -> None:
-    async with pool.connection() as con:
-        await con.execute(
-            "DELETE FROM agent.customer_channel_salesforce_link WHERE channel_id = %s",
-            (channel_id,),
-        )
 
 
 @logfire.instrument("insert_event", extract_args=False)
@@ -280,6 +247,18 @@ async def get_salesforce_case_thread_case_id(
         return row[0] if row else None
 
 
+async def get_salesforce_case_thread_thread_id(
+    pool: AsyncConnectionPool, case_id: str
+) -> tuple[str, str] | None:
+    async with pool.connection() as con:
+        result = await con.execute(
+            "SELECT channel_id, thread_ts FROM agent.salesforce_case_thread WHERE case_id = %s",
+            [case_id],
+        )
+        row = await result.fetchone()
+        return (row[0], row[1]) if row else None
+
+
 async def delete_expired_events(
     pool: AsyncConnectionPool, max_attempts: int = 3, max_age_minutes: int = 60
 ) -> None:
@@ -299,3 +278,168 @@ async def delete_expired_events(
                 "select agent.delete_expired_events(%s, %s::int8 * interval '1m')",
                 (max_attempts, max_age_minutes),
             )
+
+
+@logfire.instrument("is_case_assignment_new", extract_args=False)
+async def is_case_assignment_new(
+    pool: AsyncConnectionPool, case_id: str, owner_id: str
+) -> bool:
+    """
+    Verifies if the Salesforce case assignment is new e.g. if the assigned user (owner) has actually changed.
+    This is done by reading the event and event_hist table for the most recent event for that case
+
+
+    Args:
+        case_id: The ID of the Salesforce case
+        owner_id: The ID of the assignee
+
+    Returns:
+        True if the given owner id is different from the most recently processed/unprocessed
+        Salesforce event
+    """
+    async with (
+        pool.connection() as con,
+        con.cursor(row_factory=dict_row) as cur,
+    ):
+        result = await cur.execute(
+            """select * from agent.event
+                WHERE
+                    event->>'type' = 'salesforce_event'
+                    AND event->>'subtype' = 'new_assignee'
+                    AND event->'case'->>'Id' = %s
+                    order by event_ts desc limit 1;""",
+            (case_id,),
+        )
+        current_row: dict[str, Any] | None = await result.fetchone()
+
+        if current_row:
+            try:
+                event = Event(**current_row)
+
+                # there is an unprocessed new_assignee event
+                # that has the same owner
+                if (
+                    isinstance(event.event, SalesforceBaseEvent)
+                    and event.event.case.OwnerId == owner_id
+                ):
+                    return False
+            except ValidationError as e:
+                logfire.error(
+                    "failed to parse historical event",
+                    exc_info=e,
+                    extra={"row": current_row},
+                )
+
+        result = await cur.execute(
+            """select * from agent.event_hist 
+                WHERE
+                    event->>'type' = 'salesforce_event'
+                    AND event->>'subtype' = 'new_assignee'
+                    AND event->'case'->>'Id' = %s
+                    order by event_ts desc limit 1;""",
+            (case_id,),
+        )
+        processed_row: dict[str, Any] | None = await result.fetchone()
+        if processed_row:
+            try:
+                event = Event(**processed_row)
+
+                # there is an processed new_assignee event
+                # that has the same owner
+                if (
+                    isinstance(event.event, SalesforceBaseEvent)
+                    and event.event.case.OwnerId == owner_id
+                ):
+                    return False
+            except ValidationError as e:
+                logfire.error(
+                    "failed to parse historical event",
+                    exc_info=e,
+                    extra={"row": processed_row},
+                )
+
+        return True
+
+
+async def get_salesforce_account_id_for_channel(
+    pool: AsyncConnectionPool, channel_id: str
+) -> str | None:
+    async with pool.connection() as con:
+        result = await con.execute(
+            "SELECT salesforce_account_id FROM agent.customer_channel_salesforce_link WHERE channel_id = %s",
+            (channel_id,),
+        )
+        row = await result.fetchone()
+        return row[0] if row else None
+
+
+async def upsert_salesforce_account_id_for_channel(
+    pool: AsyncConnectionPool, channel_id: str, salesforce_account_id: str
+) -> None:
+    async with pool.connection() as con:
+        await con.execute(
+            """INSERT INTO agent.customer_channel_salesforce_link (channel_id, salesforce_account_id)
+               VALUES (%s, %s)
+               ON CONFLICT (channel_id) DO UPDATE SET salesforce_account_id = EXCLUDED.salesforce_account_id""",
+            (channel_id, salesforce_account_id),
+        )
+
+
+async def remove_salesforce_account_id_for_channel(
+    pool: AsyncConnectionPool, channel_id: str
+) -> None:
+    async with pool.connection() as con:
+        await con.execute(
+            "DELETE FROM agent.customer_channel_salesforce_link WHERE channel_id = %s",
+            (channel_id,),
+        )
+
+
+async def filter_new_feed_items(
+    pool: AsyncConnectionPool, feed_items: list[SalesforceFeedItem]
+) -> list[SalesforceFeedItem]:
+    """Return only feed items that correlate to a tracked Slack thread and have not already been processed."""
+    if not feed_items:
+        return []
+
+    # first, filter to only feed items whose ParentId has a matching case_id
+    # in the salesforce_case_thread table (i.e. cases we are actively tracking)
+    parent_ids = list({item.ParentId for item in feed_items if item.ParentId})
+    async with pool.connection() as con:
+        result = await con.execute(
+            "SELECT DISTINCT case_id FROM agent.salesforce_case_thread WHERE case_id = ANY(%s)",
+            (parent_ids,),
+        )
+        tracked_case_ids = {row[0] for row in await result.fetchall()}
+
+    feed_items = [item for item in feed_items if item.ParentId in tracked_case_ids]
+    if not feed_items:
+        return []
+
+    items_json = Jsonb(
+        [{"id": item.Id, "created_date": item.CreatedDate} for item in feed_items]
+    )
+
+    def get_already_handled_query(table_name: str) -> str:
+        return f"""
+            SELECT elem->>'id' AS id
+            FROM jsonb_array_elements(%s::jsonb) AS elem
+            WHERE EXISTS (
+                SELECT 1 FROM agent.{table_name}
+                WHERE event_ts = (elem->>'created_date')::timestamptz
+                  AND event->>'type' = 'salesforce_event'
+                  AND event->>'subtype' = 'new_feed_item'
+                  AND event->'feed_item'->>'Id' = elem->>'id'
+            )
+        """
+
+    async with pool.connection() as con:
+        result = await con.execute(get_already_handled_query("event"), [items_json])
+        existing_ids = {row[0] for row in await result.fetchall()}
+
+        result = await con.execute(
+            get_already_handled_query("event_hist"), [items_json]
+        )
+        existing_ids |= {row[0] for row in await result.fetchall()}
+
+    return [item for item in feed_items if item.Id not in existing_ids]

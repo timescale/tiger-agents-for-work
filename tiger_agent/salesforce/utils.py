@@ -2,19 +2,12 @@ import asyncio
 import base64
 import os
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
-from datetime import datetime, timedelta
 from typing import Any
 
 import logfire
-import pytz
 from aiosfstream_ng.client import Client
-from psycopg.rows import dict_row
-from psycopg_pool import AsyncConnectionPool
-from pydantic import ValidationError
 from simple_salesforce.api import Salesforce
 
-from tiger_agent.events.types import Event
 from tiger_agent.salesforce.clients import (
     ClientCredentialsAuthenticator,
 )
@@ -24,8 +17,8 @@ from tiger_agent.salesforce.constants import (
 )
 from tiger_agent.salesforce.types import (
     CaseData,
-    ChatterFeedItem,
-    SalesforceBaseEvent,
+    EmailAttachment,
+    SalesforceFeedItem,
     ServiceRecord,
 )
 
@@ -158,87 +151,6 @@ def should_ignore_new_case(case: CaseData) -> bool:
     return case.ContactEmail in IGNORED_CONTACT_EMAILS
 
 
-@logfire.instrument("is_case_assignment_new", extract_args=False)
-async def is_case_assignment_new(
-    pool: AsyncConnectionPool, case_id: str, owner_id: str
-) -> bool:
-    """
-    Verifies if the Salesforce case assignment is new e.g. if the assigned user (owner) has actually changed.
-    This is done by reading the event and event_hist table for the most recent event for that case
-
-
-    Args:
-        case_id: The ID of the Salesforce case
-        owner_id: The ID of the assignee
-
-    Returns:
-        True if the given owner id is different from the most recently processed/unprocessed
-        Salesforce event
-    """
-    async with (
-        pool.connection() as con,
-        con.cursor(row_factory=dict_row) as cur,
-    ):
-        result = await cur.execute(
-            """select * from agent.event
-                WHERE
-                    event->>'type' = 'salesforce_event'
-                    AND event->>'subtype' = 'new_assignee'
-                    AND event->'case'->>'Id' = %s
-                    order by event_ts desc limit 1;""",
-            (case_id,),
-        )
-        current_row: dict[str, Any] | None = await result.fetchone()
-
-        if current_row:
-            try:
-                event = Event(**current_row)
-
-                # there is an unprocessed new_assignee event
-                # that has the same owner
-                if (
-                    isinstance(event.event, SalesforceBaseEvent)
-                    and event.event.case.OwnerId == owner_id
-                ):
-                    return False
-            except ValidationError as e:
-                logfire.error(
-                    "failed to parse historical event",
-                    exc_info=e,
-                    extra={"row": current_row},
-                )
-
-        result = await cur.execute(
-            """select * from agent.event_hist 
-                WHERE
-                    event->>'type' = 'salesforce_event'
-                    AND event->>'subtype' = 'new_assignee'
-                    AND event->'case'->>'Id' = %s
-                    order by event_ts desc limit 1;""",
-            (case_id,),
-        )
-        processed_row: dict[str, Any] | None = await result.fetchone()
-        if processed_row:
-            try:
-                event = Event(**processed_row)
-
-                # there is an processed new_assignee event
-                # that has the same owner
-                if (
-                    isinstance(event.event, SalesforceBaseEvent)
-                    and event.event.case.OwnerId == owner_id
-                ):
-                    return False
-            except ValidationError as e:
-                logfire.error(
-                    "failed to parse historical event",
-                    exc_info=e,
-                    extra={"row": processed_row},
-                )
-
-        return True
-
-
 def create_case_url(case: CaseData) -> str:
     return f"https://{SALESFORCE_DOMAIN}/lightning/r/Case/{case.Id}/view"
 
@@ -289,13 +201,6 @@ def get_services_for_account(
     ]
 
 
-@dataclass
-class EmailAttachment:
-    name: str
-    body: bytes
-    content_type: str
-
-
 def add_case_email_comment(
     salesforce_client: Salesforce,
     case_id: str,
@@ -344,74 +249,28 @@ def add_case_email_comment(
             )
 
 
-def get_case_chatter_feed(
-    salesforce_client: Salesforce,
-    case_id: str,
-    created_after: str | None = None,
-) -> list[ChatterFeedItem]:
-    """Fetch Chatter feed items for a case via the Chatter REST API.
-
-    Uses the Chatter REST API rather than SOQL since FeedItem visibility
-    rules can prevent SOQL from returning internal posts.
-
-    created_after: ISO 8601 datetime string (e.g. "2024-01-01T00:00:00Z") to
-        filter items created after that time.
-    """
-    try:
-        params: dict = {"pageSize": 100, "sort": "CreatedDateAsc"}
-        if created_after is not None:
-            params["updatedSince"] = created_after
-        result = salesforce_client.restful(
-            f"chatter/feeds/record/{case_id}/feed-elements",
-            params=params,
-        )
-        return [ChatterFeedItem(**element) for element in result.get("elements", [])]
-    except Exception:
-        logfire.exception("Failed to fetch case chatter feed", case_id=case_id)
-        return []
-
-
-def get_all_case_chatter_feed(
-    salesforce_client: Salesforce,
-    updated_since: str | None = None,
-) -> list[ChatterFeedItem]:
-    """Fetch Chatter feed items across all cases via the news feed.
-
-    Uses the authenticated user's news feed which surfaces all case chatter
-    visible to that user. Supports updatedSince for incremental polling.
-
-    updated_since: ISO 8601 datetime string (e.g. "2024-01-01T00:00:00Z").
-    """
-    try:
-        params: dict = {"pageSize": 100}
-        if updated_since is not None:
-            params["updatedSince"] = updated_since
-        result = salesforce_client.restful(
-            "chatter/feeds/news/me/feed-elements",
-            params=params,
-        )
-        return [ChatterFeedItem(**element) for element in result.get("elements", [])]
-    except Exception:
-        logfire.exception("Failed to fetch all case chatter feed")
-        return []
-
-
-def get_recent_feed_items(
+def get_recent_case_feed_items(
     salesforce_client: Salesforce,
     created_after: str | None = None,
-) -> list[ChatterFeedItem]:
-    """Fetch recent FeedItems using the SObject REST API, limited to 100."""
+    types: list[str] | None = None,
+    public_only: bool = False,
+) -> list[SalesforceFeedItem]:
     try:
-        params = {"limit": 100, "order": "CreatedDate ASC"}
+        conditions = ["Parent.Type = 'Case'"]
         if created_after is not None:
-            params["where"] = f"CreatedDate > {created_after}"
-        end = datetime.now(pytz.UTC)
-        ids = salesforce_client.FeedItem.updated(end - timedelta(days=2), end)
-        feed_items = [
-            salesforce_client.FeedItem.get(record_id)
-            for record_id in ids.get("ids", [])
-        ]
-        return feed_items
+            conditions.append(f"CreatedDate > {created_after}")
+        if types:
+            type_list = ", ".join(f"'{t}'" for t in types)
+            conditions.append(f"Type IN ({type_list})")
+        if public_only:
+            conditions.append("Visibility = 'AllUsers'")
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        result = salesforce_client.query(
+            f"SELECT Id, ParentId, Body, Type, CreatedDate, CreatedById, Visibility"
+            f" FROM FeedItem{where}"
+            f" ORDER BY CreatedDate DESC"
+        )
+        return [SalesforceFeedItem(**r) for r in result.get("records", [])]
     except Exception:
         logfire.exception("Failed to fetch recent feed items")
         return []

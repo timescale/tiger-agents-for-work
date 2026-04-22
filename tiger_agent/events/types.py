@@ -11,6 +11,7 @@ from slack_bolt.app.async_app import AsyncApp
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceCreateNewCaseEvent,
+    SalesforceFeedItemEvent,
     SalesforceNewCaseEvent,
 )
 from tiger_agent.slack.types import BotInfo, SlackAppMentionEvent, SlackMessageEvent
@@ -64,6 +65,7 @@ class Event(BaseModel):
         | SalesforceCreateNewCaseEvent
         | SalesforceNewCaseEvent
         | SalesforceAssignmentChangedEvent
+        | SalesforceFeedItemEvent
     )
 
 
