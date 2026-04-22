@@ -42,7 +42,6 @@ class SalesforceCaseFeedItemPoller:
         self._poll_interval_seconds = poll_interval_seconds
         self._last_poll: datetime | None = None
 
-    @logfire.instrument("SalesforceFeedItemPoller._poll")
     async def _poll(self) -> None:
         # TODO: can improve the fallback by doing a query on the last feed item event in the db
         since = self._last_poll or (
