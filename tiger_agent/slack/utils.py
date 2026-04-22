@@ -234,7 +234,11 @@ async def fetch_thread_messages(
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
 async def post_response(
-    client: AsyncWebClient, channel: str, thread_ts: str | None, text: str
+    client: AsyncWebClient,
+    channel: str,
+    thread_ts: str | None,
+    text: str,
+    use_mrkdwn: bool = False,
 ) -> AsyncSlackResponse:
     """Post a response message to Slack with rich formatting.
 
@@ -255,7 +259,9 @@ async def post_response(
         channel=channel,
         thread_ts=thread_ts,
         text=text,
-        blocks=[{"type": "markdown", "text": text}],
+        blocks=[{"type": "markdown", "text": text}]
+        if not use_mrkdwn
+        else [{"type": "section", "fields": [{"type": "mrkdwn", "text": text}]}],
         unfurl_links=False,
         unfurl_media=False,
     )

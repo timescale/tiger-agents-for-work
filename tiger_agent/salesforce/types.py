@@ -95,6 +95,11 @@ class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
     update_link_to_thread: bool = True
 
 
+class SalesforceFeedItemCreatedBy(BaseModel):
+    Name: str | None = None
+    Email: str | None = None
+
+
 class SalesforceFeedItem(BaseModel):
     """Pydantic model for a Salesforce FeedItem SOQL record."""
 
@@ -106,6 +111,7 @@ class SalesforceFeedItem(BaseModel):
     Type: str | None = None
     CreatedDate: str | None = None
     CreatedById: str | None = None
+    CreatedBy: SalesforceFeedItemCreatedBy | None = None
 
 
 # at present, we are using these to synchronize

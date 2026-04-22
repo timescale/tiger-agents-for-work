@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import logfire
-from html_to_markdown import convert
+from htmlslacker import HTMLSlacker
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, UsageLimits, models
@@ -318,13 +318,19 @@ class TigerAgent:
         )
 
         # the body from Salesforce is html, let's convert to markdown
-        markdown_conversion = convert(event.feed_item.Body)
+        markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output()
+
+        body = "\n".join(f"> {line}" for line in markdown_conversion.splitlines())
+        text = (
+            f"_From {event.feed_item.CreatedBy.Name} via Tigerdata Support_\n\n{body}"
+        )
 
         await post_response(
             client=hctx.app.client,
             channel=channel_id,
             thread_ts=thread_ts,
-            text=markdown_conversion.content.strip(),
+            text=text,
+            use_mrkdwn=True,
         )
 
     async def handle_create_salesforce_case(

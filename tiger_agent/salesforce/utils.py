@@ -266,7 +266,8 @@ def get_recent_case_feed_items(
             conditions.append("Visibility = 'AllUsers'")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         result = salesforce_client.query(
-            f"SELECT Id, ParentId, Body, Type, CreatedDate, CreatedById, Visibility"
+            f"SELECT Id, ParentId, Body, Type, CreatedDate, CreatedById,"
+            f" CreatedBy.Name, CreatedBy.Email, Visibility"
             f" FROM FeedItem{where}"
             f" ORDER BY CreatedDate DESC"
         )
