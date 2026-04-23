@@ -7,7 +7,6 @@ import schedule
 from simple_salesforce.api import Salesforce
 
 from tiger_agent.db.utils import insert_event, is_case_assignment_new
-from tiger_agent.events.types import HarnessContext
 from tiger_agent.salesforce.case_feed_item_poller import SalesforceCaseFeedItemPoller
 from tiger_agent.salesforce.constants import (
     CASE_ID_FIELD,
@@ -25,10 +24,11 @@ from tiger_agent.salesforce.utils import (
     should_ignore_new_case,
     subscribe_to_topic,
 )
+from tiger_agent.tasks.types import TaskContext
 
 
-class SalesforceEventHandler:
-    def __init__(self, hctx: HarnessContext):
+class SalesforceListener:
+    def __init__(self, hctx: TaskContext):
         self._salesforce_client: Salesforce | None = hctx.salesforce_client
         self._pool = hctx.pool
         self._trigger = hctx.trigger

@@ -1,86 +1,91 @@
-# Event Harness Architecture
+# Task Harness Architecture
 
-The EventHarness is the core event processing engine of Tiger Agent, providing a robust, scalable, and responsive system for handling Slack app_mention events. It combines the durability of PostgreSQL-backed queuing with the responsiveness of asyncio-based worker coordination.
+The TaskHarness is the core task processing engine of Tiger Agent, providing a robust, scalable, and responsive system for handling Slack app_mention events. It combines the durability of PostgreSQL-backed queuing with the responsiveness of asyncio-based worker coordination.
 
 ## Overview
 
-The EventHarness orchestrates a sophisticated event processing pipeline that receives Slack events, stores them durably in PostgreSQL, and coordinates multiple workers to process events efficiently. It's designed to handle high volumes of concurrent events while maintaining strong reliability guarantees.
+The TaskHarness orchestrates a sophisticated task processing pipeline that receives Slack events, stores them durably in PostgreSQL as tasks, and coordinates multiple workers to process tasks efficiently. It's designed to handle high volumes of concurrent tasks while maintaining strong reliability guarantees.
+
+External events arrive via **listeners** (`SlackListener`, `SalesforceListener`), which normalize them into tasks and enqueue them. The TaskHarness then claims and dispatches those tasks to a `TaskProcessor` (typically `TigerAgent`).
 
 ## Key Features & Benefits
 
 ### **Immediate Responsiveness**
-Events are processed immediately upon arrival rather than waiting for periodic polling cycles. When a Slack mention occurs, processing begins within milliseconds.
+Tasks are processed immediately upon arrival rather than waiting for periodic polling cycles. When a Slack mention occurs, processing begins within milliseconds.
 
 ### **Bounded Concurrency**
-Fixed worker pool prevents resource exhaustion and provides predictable performance characteristics. No matter how many events arrive, the system maintains controlled resource usage.
+Fixed worker pool prevents resource exhaustion and provides predictable performance characteristics. No matter how many tasks arrive, the system maintains controlled resource usage.
 
-### **Atomic Event Processing**
-Database-level event claiming ensures exactly-once processing with no duplicates, even under high concurrency and failure conditions.
+### **Atomic Task Processing**
+Database-level task claiming ensures exactly-once processing with no duplicates, even under high concurrency and failure conditions.
 
 ### **Resilient Retry Logic**
-Failed events are automatically retried with visibility thresholds. Stuck or expired events are cleaned up automatically.
+Failed tasks are automatically retried with visibility thresholds. Stuck or expired tasks are cleaned up automatically.
 
 ### **Horizontal Scalability**
 Multiple harness instances can run simultaneously, with PostgreSQL coordinating work distribution across all instances.
 
 ### **Full Observability**
-Complete instrumentation with Logfire provides detailed tracing of event flow, worker activity, and database operations.
+Complete instrumentation with Logfire provides detailed tracing of task flow, worker activity, and database operations.
 
 ## High-Level Flow
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant TAB as Tiger Agent Slack Bot
+    participant SL as SlackListener
     participant TSDB as TimescaleDB
     participant TAW as Tiger Agent Worker
     participant MCP as MCP Servers
 
-    U->>TAB: app_mention event (@agent-slack-name)
-    TAB->>TSDB: store event
-    TSDB->>TAW: event claimed
+    U->>SL: app_mention event (@agent-slack-name)
+    SL->>TSDB: store task
+    TSDB->>TAW: task claimed
     TAW->>MCP: use relevant tools to gather information
     TAW->>U: respond to user via Slack
-    TAW->>TSDB: delete event
+    TAW->>TSDB: delete task
 ```
 
 ## Architecture Components
 
 ### Core Components
 
-#### **HarnessContext**
-Shared context object providing event processors with:
+#### **TaskContext**
+Shared context object providing task processors with:
 - **Slack AsyncApp**: For making Slack API calls
 - **Database Pool**: For data operations and persistence
 - **TaskGroup**: For spawning concurrent operations
 
-#### **Event Models**
-- **AppMentionEvent**: Pydantic model for Slack event structure
-- **Event**: Database representation with processing metadata
+#### **Task Model**
+- **Task**: Database representation with processing metadata (id, attempts, vt, claimed, event payload)
+
+#### **Listeners**
+- **SlackListener**: Receives Slack events via Socket Mode and enqueues tasks
+- **SalesforceListener**: Receives Salesforce events and enqueues tasks
 
 #### **Worker Coordination**
 - **Multiple Workers**: Configurable pool of concurrent processors
-- **Event Claiming**: Atomic database-level work distribution
-- **Load Balancing**: Random event selection spreads work evenly
+- **Task Claiming**: Atomic database-level work distribution
+- **Load Balancing**: Random task selection spreads work evenly
 
 ## Implementation Mechanisms
 
-### 1. Immediate Event Handling ("Poke" Mechanism)
+### 1. Immediate Task Handling ("Poke" Mechanism)
 
 When Slack events arrive:
 
 ```python
 async def _on_event(self, ack: AsyncAck, event: dict[str, Any]):
-    await self._insert_event(event)      # Store durably
+    await insert_event(event)           # Store durably
     await ack()                         # Acknowledge to Slack
     await self._trigger.put(True)       # Wake exactly one worker
 ```
 
 **Key Behavior**: The asyncio.Queue trigger wakes exactly **one worker**, not all workers. This prevents thundering herd effects while ensuring immediate processing.
 
-### 2. Atomic Event Claiming
+### 2. Atomic Task Claiming
 
-Workers compete for events using PostgreSQL's atomic operations:
+Workers compete for tasks using PostgreSQL's atomic operations:
 
 ```sql
 -- agent.claim_event() function provides:
@@ -91,7 +96,7 @@ SELECT * FROM agent.claim_event(max_attempts, invisibility_interval);
 ```
 
 **Guarantees**:
-- Only one worker can claim each event at a time
+- Only one worker can claim each task at a time
 - Failed claims don't block other workers
 - Automatic retry scheduling via visibility thresholds
 
@@ -107,32 +112,32 @@ while True:
             self._trigger.get(),
             timeout=self._calc_worker_sleep()
         )
-        await worker_run("triggered")  # Immediate processing
+        await worker_run()  # Immediate processing
     except TimeoutError:
-        await worker_run("timeout")    # Periodic cleanup
+        await worker_run()  # Periodic cleanup
 ```
 
 **Benefits**:
-- **Immediate**: Most events processed within milliseconds
-- **Resilient**: Periodic polling catches missed/failed events
+- **Immediate**: Most tasks processed within milliseconds
+- **Resilient**: Periodic polling catches missed/failed tasks
 - **Efficient**: Jittered timeouts prevent worker synchronization
 
-### 4. Batch Event Processing
+### 4. Batch Task Processing
 
-Triggered workers process events in batches for efficiency:
+Triggered workers process tasks in batches for efficiency:
 
 ```python
-async def _process_events(self):
-    for _ in range(20):  # Process up to 20 events per trigger
-        event = await self._claim_event()
-        if not event:
+async def process_tasks(...):
+    for _ in range(20):  # Process up to 20 tasks per trigger
+        task = await claim_event(...)
+        if not task:
             return  # No more work available
-        if not await self._process_event(event):
+        if not await process_task(..., task):
             return  # Failed processing, stop and retry later
 ```
 
 **Advantages**:
-- **Efficient**: Single trigger processes multiple events
+- **Efficient**: Single trigger processes multiple tasks
 - **Controlled**: Bounded batch size prevents runaway processing
 - **Fail-Fast**: Early termination on failures preserves retry opportunities
 
@@ -140,11 +145,11 @@ async def _process_events(self):
 
 The system uses PostgreSQL's `agent.event` table as a durable work queue:
 
-- **Insert**: New events stored with `attempts=0`, `vt=now()`
-- **Claim**: Workers atomically claim events with future visibility threshold
-- **Success**: Completed events moved to `agent.event_hist`
-- **Failure**: Events remain visible for retry after threshold expires
-- **Cleanup**: Expired events automatically moved to history
+- **Insert**: New tasks stored with `attempts=0`, `vt=now()`
+- **Claim**: Workers atomically claim tasks with future visibility threshold
+- **Success**: Completed tasks moved to `agent.event_hist`
+- **Failure**: Tasks remain visible for retry after threshold expires
+- **Cleanup**: Expired tasks automatically moved to history
 
 ### 6. Worker Coordination & Load Balancing
 
@@ -164,27 +169,27 @@ def _calc_worker_sleep(self) -> int:
     return base_sleep + jitter
 ```
 
-#### Random Event Selection
+#### Random Task Selection
 Database function uses `ORDER BY random()` to prevent head-of-line blocking.
 
 ## Operational Characteristics
 
 ### Performance Profile
-- **Latency**: Sub-millisecond event processing initiation
+- **Latency**: Sub-millisecond task processing initiation
 - **Throughput**: Scales linearly with worker count
 - **Resource Usage**: Bounded by worker pool size
 - **Database Load**: Efficient with connection pooling and prepared statements
 
 ### Failure Modes & Recovery
-- **Worker Death**: Events auto-retry after visibility threshold
+- **Worker Death**: Tasks auto-retry after visibility threshold
 - **Database Unavailable**: Events queued in Slack until reconnection
 - **Processing Failures**: Automatic retry with visibility threshold
-- **Poisoned/Expired Events**: Moved to history table after max attempts or max age
+- **Poisoned/Expired Tasks**: Moved to history table after max attempts or max age
 
 ### Configuration Parameters
 - **num_workers**: Concurrency level (default: 5)
-- **max_attempts**: Retry limit per event (default: 3)
-- **max_age_minutes**: Maximum age of an event before expiring (default: 60)
+- **max_attempts**: Retry limit per task (default: 3)
+- **max_age_minutes**: Maximum age of a task before expiring (default: 60)
 - **invisibility_minutes**: Claim duration (default: 10)
 - **worker_sleep_seconds**: Polling interval (default: 60)
 - **worker_min/max_jitter_seconds**: Adds random jitter to worker sleep
@@ -193,10 +198,10 @@ Database function uses `ORDER BY random()` to prevent head-of-line blocking.
 
 All operations are instrumented with Logfire spans providing:
 
-- **Event Flow Tracking**: From ingestion through completion
+- **Task Flow Tracking**: From ingestion through completion
 - **Worker Activity**: Trigger vs timeout reasoning
 - **Database Performance**: Query timing and connection usage
 - **Failure Analysis**: Exception details and retry patterns
-- **Load Distribution**: Worker utilization and event claiming patterns
+- **Load Distribution**: Worker utilization and task claiming patterns
 
-The EventHarness represents a sophisticated balance of immediate responsiveness, operational resilience, and resource efficiency - providing Tiger Agent with enterprise-grade event processing capabilities.
+The TaskHarness represents a sophisticated balance of immediate responsiveness, operational resilience, and resource efficiency - providing Tiger Agent with enterprise-grade task processing capabilities.

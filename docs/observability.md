@@ -182,7 +182,7 @@ To add custom instrumentation in your event processors:
 ```python
 import logfire
 
-async def my_event_processor(ctx: HarnessContext, event: Event):
+async def my_task_processor(ctx: TaskContext, task: Task):
     with logfire.span("custom_operation", custom_field="value"):
         # Your custom logic here
         logfire.info("Custom operation completed", extra={"result": "success"})

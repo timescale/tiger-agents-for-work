@@ -6,7 +6,7 @@ import click
 from dotenv import find_dotenv, load_dotenv
 from psycopg import AsyncConnection
 
-from tiger_agent import EventHarness, TigerAgent
+from tiger_agent import TaskHarness, TigerAgent
 from tiger_agent.migrations import runner
 from tiger_agent.salesforce.types import SalesforceConfig
 from tiger_agent.utils import setup_logging
@@ -127,7 +127,7 @@ def run(
     )
 
     # create a harness for the processor
-    harness = EventHarness(
+    harness = TaskHarness(
         agent,
         worker_sleep_seconds=worker_sleep_seconds,
         worker_min_jitter_seconds=worker_min_jitter_seconds,

@@ -16,8 +16,6 @@ from tiger_agent.db.utils import (
     insert_event,
     insert_handled_event,
 )
-from tiger_agent.events.types import EventProcessor, HarnessContext
-from tiger_agent.events.utils import process_event
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
     SALESFORCE_CASE_SUPPORT_EMAIL,
@@ -56,31 +54,33 @@ from tiger_agent.slack.utils import (
     send_proactive_prompt,
     set_status,
 )
+from tiger_agent.tasks.types import TaskContext, TaskProcessor
+from tiger_agent.tasks.utils import process_task
 
 
-class SlackEventHandler:
-    """Wrapper around Slack utility functions scoped to a HarnessContext.
+class SlackListener:
+    """Wrapper around Slack utility functions scoped to a TaskContext.
 
     Provides convenience methods that delegate to the module-level functions,
     automatically sourcing client, slack_bot_token, and bot_info from the
-    provided HarnessContext so callers don't need to pass them explicitly.
+    provided TaskContext so callers don't need to pass them explicitly.
     Bot info is fetched lazily and cached after the first call.
 
     Args:
-        hctx: HarnessContext providing the Slack app, token, and database pool
+        hctx: TaskContext providing the Slack app, token, and database pool
     """
 
     def __init__(
         self,
-        hctx: HarnessContext,
-        event_processor: EventProcessor,
+        hctx: TaskContext,
+        task_processor: TaskProcessor,
         proactive_prompt_channels: set[str] | None = None,
     ):
         self._hctx = hctx
         self._pool = hctx.pool
         self._app = hctx.app
         self._trigger = hctx.trigger
-        self._event_processor = event_processor
+        self._task_processor = task_processor
         self._proactive_prompt_channels = proactive_prompt_channels
         self._bot_info: BotInfo | None = None
 
@@ -352,7 +352,7 @@ class SlackEventHandler:
             )
             return
 
-        await process_event(self._event_processor, self._hctx, event)
+        await process_task(self._task_processor, self._hctx, event)
 
     async def _handle_agent_feedback_rating(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond

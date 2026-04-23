@@ -12,7 +12,6 @@ from tiger_agent.db.utils import (
     upsert_salesforce_account_id_for_channel,
     user_is_admin,
 )
-from tiger_agent.events.types import HarnessContext
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
 )
@@ -23,6 +22,7 @@ from tiger_agent.slack.utils import (
     parse_slack_user_name,
     send_new_case_button,
 )
+from tiger_agent.tasks.types import TaskContext as HarnessContext
 from tiger_agent.utils import serialize_to_jsonb
 
 """

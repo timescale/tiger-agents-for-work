@@ -2,20 +2,33 @@ __version__ = "0.0.11"
 
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.types import AgentResponseContext, ExtraContextDict
-from tiger_agent.events.harness import EventHarness
-from tiger_agent.events.types import Event, EventProcessor, HarnessContext
 from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.slack.types import SlackAppMentionEvent
+from tiger_agent.tasks.harness import TaskHarness
+from tiger_agent.tasks.types import Task, TaskContext, TaskProcessor
+
+# Backwards-compatible aliases
+EventHarness = TaskHarness
+Event = Task
+HarnessContext = TaskContext
+EventProcessor = TaskProcessor
+
 
 __all__ = [
     "AgentResponseContext",
-    "EventHarness",
     "ExtraContextDict",
     "TigerAgent",
-    "HarnessContext",
-    "Event",
     "SlackAppMentionEvent",
-    "EventProcessor",
     "PromptPackage",
     "__version__",
+    # New names
+    "TaskHarness",
+    "TaskContext",
+    "Task",
+    "TaskProcessor",
+    # Backwards-compatible aliases
+    "EventHarness",
+    "HarnessContext",
+    "Event",
+    "EventProcessor",
 ]
