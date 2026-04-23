@@ -186,7 +186,10 @@ class SlackEventHandler:
                     user_info = await fetch_user_info(
                         self._hctx.app.client, user_id=user
                     )
-                    user_is_external = user_info.is_external
+                    user_is_external = (
+                        user_info.is_external
+                        or user_info.team_id != self._bot_info.team_id
+                    )
                     text_prefix, html_prefix = await self.get_reply_prefix_for_sender(
                         user_info
                     )
