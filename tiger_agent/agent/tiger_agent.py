@@ -318,12 +318,10 @@ class TigerAgent:
         )
 
         # the body from Salesforce is html, let's convert to markdown
-        markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output()
+        markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output().strip()
 
         body = "\n".join(f"> {line}" for line in markdown_conversion.splitlines())
-        text = (
-            f"_From {event.feed_item.CreatedBy.Name} via Tigerdata Support_\n\n{body}"
-        )
+        text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
 
         await post_response(
             client=hctx.app.client,
