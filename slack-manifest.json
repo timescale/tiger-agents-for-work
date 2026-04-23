@@ -38,7 +38,8 @@
         "mpim:read",
         "pins:write",
         "im:read",
-        "files:read"
+        "files:read",
+        "team:read"
       ]
     }
   },
@@ -51,6 +52,7 @@
         "function_executed"
       ]
     },
+    "user_events": ["message.channels"],
     "interactivity": {
       "is_enabled": true
     },

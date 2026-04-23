@@ -131,11 +131,14 @@ class UserInfo(BaseModel):
     profile: UserProfile
     is_restricted: bool = False
     is_ultra_restricted: bool = False
+    is_stranger: bool = False
     is_external: bool = False
 
     @model_validator(mode="after")
     def set_is_external(self) -> "UserInfo":
-        self.is_external = self.is_restricted or self.is_ultra_restricted
+        self.is_external = (
+            self.is_restricted or self.is_ultra_restricted or self.is_stranger
+        )
         return self
 
 
