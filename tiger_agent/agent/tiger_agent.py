@@ -310,6 +310,7 @@ class TigerAgent:
             extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
 
+    @logfire.instrument("handle_new_salesforce_case_feed_item", extract_args=["event"])
     async def handle_new_salesforce_case_feed_item(
         self, hctx: HarnessContext, event: SalesforceFeedItemEvent
     ):
