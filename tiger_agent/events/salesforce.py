@@ -1,14 +1,15 @@
 import asyncio
 from asyncio import TaskGroup
+from datetime import datetime
 
 import logfire
 import schedule
 from simple_salesforce.api import Salesforce
 
-from tiger_agent.db.utils import insert_event
+from tiger_agent.db.utils import insert_event, is_case_assignment_new
 from tiger_agent.events.types import HarnessContext
+from tiger_agent.salesforce.case_feed_item_poller import SalesforceCaseFeedItemPoller
 from tiger_agent.salesforce.constants import (
-    CASE_FIELDS,
     CASE_ID_FIELD,
     CASE_OWNER_ID_FIELD,
     SALESFORCE_CASE_CHANNEL,
@@ -17,10 +18,10 @@ from tiger_agent.salesforce.new_case_poller import SalesforceNewCasePoller
 from tiger_agent.salesforce.types import (
     CaseData,
     SalesforceAssignmentChangedEvent,
-    SalesforceNewCaseEvent,
+    SalesforceFeedItem,
+    SalesforceFeedItemEvent,
 )
 from tiger_agent.salesforce.utils import (
-    is_case_assignment_new,
     should_ignore_new_case,
     subscribe_to_topic,
 )
@@ -32,6 +33,7 @@ class SalesforceEventHandler:
         self._pool = hctx.pool
         self._trigger = hctx.trigger
         self._new_case_poller: SalesforceNewCasePoller | None
+        self._feed_item_poller: SalesforceCaseFeedItemPoller | None
 
     @logfire.instrument("SalesforceEventHandler start")
     async def start(self, tasks: TaskGroup):
@@ -42,14 +44,21 @@ class SalesforceEventHandler:
             handler=self.handle_updated_case_assignee,
         )
 
-        # for now, we are going to use just assignment events
-        # tasks.create_task(self._subscribe_to_new_cases())
+        self._feed_item_poller = SalesforceCaseFeedItemPoller(
+            pool=self._pool,
+            salesforce_client=self._salesforce_client,
+            handler=self.handle_new_feed_item,
+        )
 
         tasks.create_task(self._subscribe_to_case_assignee_changed())
-        self._new_case_poller.start()
         tasks.create_task(self._run_schedule())
 
-        await self._new_case_poller._process_missed_cases()
+        # poller will look for cases that have been created+assigned
+        # that the agent has "missed"
+        self._new_case_poller.start(run_immediate=True)
+
+        # similarly, look for case feed items that the agent missed
+        self._feed_item_poller.start(run_immediate=True)
 
     def _upsert_case_push_topic_definition(
         self,
@@ -82,34 +91,6 @@ class SalesforceEventHandler:
             result = self._salesforce_client.PushTopic.create(topic_config)
             logfire.info("PushTopic created", extra={"id": result["id"]})
 
-    @logfire.instrument("handle_new_case", extract_args=["case"])
-    async def handle_new_case(self, case: CaseData):
-        if not SALESFORCE_CASE_CHANNEL:
-            logfire.warn(
-                "A new case was created, but no Slack channel configured",
-                extra={"case": case.model_dump_json()},
-            )
-            return
-        if case.Status == "Spam":
-            logfire.info("Ignoring case flagged as spam")
-            return
-
-        if should_ignore_new_case(case):
-            logfire.info("Ignoring case")
-            return
-
-        full_case_data = self._salesforce_client.Case.get(case.Id)
-        case = case.model_copy(
-            update={"Description": full_case_data.get("Description")}
-        )
-
-        await insert_event(
-            pool=self._pool,
-            event=SalesforceNewCaseEvent(case=case).model_dump(),
-        )
-
-        await self._trigger.put(True)
-
     async def _run_schedule(self):
         while True:
             schedule.run_pending()
@@ -117,6 +98,13 @@ class SalesforceEventHandler:
 
     @logfire.instrument("handle_updated_case_assignee", extract_args=["case"])
     async def handle_updated_case_assignee(self, case: CaseData):
+        if not SALESFORCE_CASE_CHANNEL:
+            logfire.warn(
+                "A new case was created, but no Slack channel configured",
+                extra={"case": case.model_dump_json()},
+            )
+            return
+
         if not case.Owner.Email:
             # no user assigned yet
             logfire.info("Ignoring event, no user assigned to case")
@@ -124,6 +112,10 @@ class SalesforceEventHandler:
 
         if case.Status != "New":
             logfire.info("Ignoring case event as status is not new")
+            return
+
+        if should_ignore_new_case(case):
+            logfire.info("Ignoring case")
             return
 
         if not await is_case_assignment_new(
@@ -141,22 +133,6 @@ class SalesforceEventHandler:
 
         await self._trigger.put(True)
 
-    async def _subscribe_to_new_cases(self):
-        try:
-            topic_name = "NewCasesTopic"
-            self._upsert_case_push_topic_definition(
-                topic_name=topic_name,
-                fields=CASE_FIELDS,
-                notifyOnCreate=True,
-            )
-            await subscribe_to_topic(
-                salesforce_client=self._salesforce_client,
-                topic_name=topic_name,
-                handler=self.handle_new_case,
-            )
-        except Exception:
-            logfire.exception("Error in subscribe_to_new_cases")
-
     async def _subscribe_to_case_assignee_changed(self):
         try:
             topic_name = "CaseOwnerChangedTopic"
@@ -173,3 +149,19 @@ class SalesforceEventHandler:
             )
         except Exception:
             logfire.exception("Error in subscribe_to_case_assignee_changed")
+
+    @logfire.instrument("handle_new_feed_item", extract_args=False)
+    async def handle_new_feed_item(self, feed_item: SalesforceFeedItem):
+
+        event_ts = None
+        if feed_item.CreatedDate:
+            dt = datetime.fromisoformat(feed_item.CreatedDate)
+            event_ts = str(dt.timestamp())
+
+        await insert_event(
+            pool=self._pool,
+            event=SalesforceFeedItemEvent(
+                feed_item=feed_item, event_ts=event_ts
+            ).model_dump(mode="json"),
+        )
+        await self._trigger.put(True)

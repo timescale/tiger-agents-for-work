@@ -892,6 +892,15 @@ wheels = [
 ]
 
 [[package]]
+name = "html-slacker"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/55/3b/e6fb83106593410b047deedcf13d3f7f34048d467ed58d34158ec1ffc273/html-slacker-0.1.6.tar.gz", hash = "sha256:22dd8847d01e8516e75d8f6af8572356568cd439134b846b00e62dd1e4df4ee1", size = 2490, upload-time = "2019-03-05T17:03:52.568Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/4f/2286db7784550360b0a1d0c0e929ef578d327d53f23dbb89a691b291c564/html_slacker-0.1.6-py3-none-any.whl", hash = "sha256:4458b7c18eb45fda04433364fa065f0107599516fc3cb4ee59de01256821ce7f", size = 3694, upload-time = "2019-03-05T17:03:50.453Z" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -2706,6 +2715,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aiosfstream-ng" },
     { name = "click" },
+    { name = "html-slacker" },
     { name = "jinja2" },
     { name = "logfire", extra = ["httpx", "psycopg", "system-metrics"] },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -2728,6 +2738,7 @@ dev = [
 requires-dist = [
     { name = "aiosfstream-ng", specifier = ">=0.5.1" },
     { name = "click", specifier = ">=8.3.0" },
+    { name = "html-slacker" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "logfire", extras = ["httpx", "psycopg", "system-metrics"], specifier = ">=4.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.10" },

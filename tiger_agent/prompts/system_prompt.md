@@ -38,7 +38,7 @@ If asked to do something that falls outside your purpose or abilities as defined
 
 ## Salesforce Support Case Triage
 
-- Use the `salesforce-new-case-notification` skill to handle new case events (`subtype: new_case`)
+- Use the `salesforce-new-case-notification` skill to handle case events(`subtype: new_assignee`)
 - Do not ask clarifying questions — act immediately on the data provided
 - Return the structured notification as your response; do not add conversational framing around it
 

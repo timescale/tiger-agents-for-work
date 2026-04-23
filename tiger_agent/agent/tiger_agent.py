@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import logfire
+from htmlslacker import HTMLSlacker
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
 from pydantic_ai import Agent, UsageLimits, models
@@ -42,6 +43,7 @@ from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import (
     add_salesforce_case_thread,
     get_salesforce_account_id_for_channel,
+    get_salesforce_case_thread_thread_id,
     usage_limit_reached,
     user_ignored,
 )
@@ -58,6 +60,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
     SalesforceCreateNewCaseEvent,
+    SalesforceFeedItemEvent,
 )
 from tiger_agent.salesforce.utils import create_case, create_case_url
 from tiger_agent.slack.types import (
@@ -306,6 +309,28 @@ class TigerAgent:
             ctx: Agent response context containing event data, user info, and bot info
             extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
+
+    @logfire.instrument("handle_new_salesforce_case_feed_item", extract_args=["event"])
+    async def handle_new_salesforce_case_feed_item(
+        self, hctx: HarnessContext, event: SalesforceFeedItemEvent
+    ):
+        [channel_id, thread_ts] = await get_salesforce_case_thread_thread_id(
+            hctx.pool, case_id=event.feed_item.ParentId
+        )
+
+        # the body from Salesforce is html, let's convert to markdown
+        markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output().strip()
+
+        body = "\n".join(f"> {line}" for line in markdown_conversion.splitlines())
+        text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
+
+        await post_response(
+            client=hctx.app.client,
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=text,
+            use_mrkdwn=True,
+        )
 
     async def handle_create_salesforce_case(
         self,
@@ -564,6 +589,10 @@ class TigerAgent:
                 event=event,
                 channel_to_respond=channel_to_respond,
             )
+            return
+
+        if isinstance(event, SalesforceFeedItemEvent):
+            await self.handle_new_salesforce_case_feed_item(hctx=hctx, event=event)
             return
 
         agent_and_ctx, self.bot_info = await create_agent_and_context(

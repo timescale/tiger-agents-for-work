@@ -10,6 +10,13 @@ from tiger_agent.salesforce.constants import (
 )
 
 
+@dataclass
+class EmailAttachment:
+    name: str
+    body: bytes
+    content_type: str
+
+
 class SalesforceUser(BaseModel):
     Id: str | None = None
     Username: str | None = None
@@ -59,14 +66,7 @@ class SalesforceBaseEvent(BaseModel):
 
     type: str = "salesforce_event"
     subtype: str
-
-
-class SalesforceNewCaseEvent(SalesforceBaseEvent):
-    """Pydantic model for Salesforce new case event."""
-
-    type: str = "salesforce_event"
-    subtype: str = "new_case"
-    case: CaseData
+    event_ts: str | None = None
 
 
 # this event represents the initiation of a new Salesforce
@@ -93,6 +93,36 @@ class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
     subtype: str = "new_assignee"
     case: CaseData
     update_link_to_thread: bool = True
+
+
+class SalesforceFeedItemCreatedBy(BaseModel):
+    Name: str | None = None
+    Email: str | None = None
+
+
+class SalesforceFeedItem(BaseModel):
+    """Pydantic model for a Salesforce FeedItem SOQL record."""
+
+    model_config = {"extra": "allow"}
+
+    Id: str
+    ParentId: str | None = None
+    Body: str | None = None
+    Type: str | None = None
+    CreatedDate: str | None = None
+    CreatedById: str | None = None
+    CreatedBy: SalesforceFeedItemCreatedBy | None = None
+
+
+# at present, we are using these to synchronize
+# comments made on cases with a Slack thread
+# that is linked to the case
+class SalesforceFeedItemEvent(SalesforceBaseEvent):
+    """Pydantic model for a new Salesforce FeedItem (Chatter post) on a case."""
+
+    type: str = "salesforce_event"
+    subtype: str = "new_feed_item"
+    feed_item: SalesforceFeedItem
 
 
 class AgentFeedbackRatingEvent(BaseModel):

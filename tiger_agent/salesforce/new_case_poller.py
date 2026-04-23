@@ -79,10 +79,15 @@ class SalesforceNewCasePoller:
             )
             await self._handler(case)
 
-    def start(self) -> None:
+    def start(self, run_immediate: bool = False) -> None:
         def job():
             asyncio.create_task(self._process_missed_cases())
 
         schedule.every(5).minutes.do(job)
 
         logger.info("Scheduled poll_missed_new_cases every 5 minutes")
+
+        if not run_immediate:
+            return
+
+        job()

@@ -8,7 +8,6 @@ from tiger_agent.mcp.types import MCPDict
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceCreateNewCaseEvent,
-    SalesforceNewCaseEvent,
 )
 from tiger_agent.slack.types import (
     BotInfo,
@@ -38,7 +37,6 @@ class AgentResponseContext(BaseModel):
     mention: (
         SlackAppMentionEvent
         | SlackMessageEvent
-        | SalesforceNewCaseEvent
         | SalesforceAssignmentChangedEvent
         | SalesforceCreateNewCaseEvent
     )
