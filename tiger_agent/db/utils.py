@@ -238,13 +238,14 @@ async def add_salesforce_case_thread(
 async def get_salesforce_case_thread_case_id(
     pool: AsyncConnectionPool, thread_ts: str, channel_id: str
 ) -> str | None:
-    async with pool.connection() as con:
-        result = await con.execute(
-            "SELECT case_id FROM agent.salesforce_case_thread WHERE channel_id = %s AND thread_ts = %s",
-            (channel_id, thread_ts),
-        )
-        row = await result.fetchone()
-        return row[0] if row else None
+    with logfire.suppress_instrumentation():
+        async with pool.connection() as con:
+            result = await con.execute(
+                "SELECT case_id FROM agent.salesforce_case_thread WHERE channel_id = %s AND thread_ts = %s",
+                (channel_id, thread_ts),
+            )
+            row = await result.fetchone()
+            return row[0] if row else None
 
 
 async def get_salesforce_case_thread_thread_id(

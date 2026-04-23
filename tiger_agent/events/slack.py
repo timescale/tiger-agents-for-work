@@ -169,103 +169,96 @@ class SlackEventHandler:
             await self._on_slack_event(ack, event)
             return
 
-        salesforce_case_id_for_slack_thread = await get_salesforce_case_thread_case_id(
-            self._hctx.pool, thread_ts=thread_ts, channel_id=channel
-        )
-        if salesforce_case_id_for_slack_thread:
-            if not self._hctx.salesforce_client:
-                logfire.error(
-                    "Cannot sync new Slack message to Salesforce case",
-                    salesforce_case_id_for_slack_thread=salesforce_case_id_for_slack_thread,
+        # if the message is in a thread that is correlated to a Salesforce case
+        # and Salesforce is configured
+        if (
+            thread_ts
+            and self._hctx.salesforce_client
+            and (
+                salesforce_case_id_for_slack_thread
+                := await get_salesforce_case_thread_case_id(
+                    self._hctx.pool, thread_ts=thread_ts, channel_id=channel
                 )
-            else:
-                text = event.get("text", "")
-                if not text:
-                    logfire.info("No text in Slack message, not syncing to Salesforce")
-                else:
-                    user_info = await fetch_user_info(
-                        self._hctx.app.client, user_id=user
-                    )
-                    user_is_external = (
-                        user_info.is_external
-                        or user_info.team_id != self._bot_info.team_id
-                    )
-                    text_prefix, html_prefix = await self.get_reply_prefix_for_sender(
-                        user_info
-                    )
-
-                    attachments: list[EmailAttachment] = []
-
-                    for file in files:
-                        type = file.get("mimetype")
-                        url = file.get("url_private_download")
-                        name = file.get("name")
-
-                        file_content = await download_private_file(
-                            url_private_download=url,
-                            slack_bot_token=self._hctx.slack_bot_token,
-                        )
-                        if isinstance(file_content, BinaryContent):
-                            attachments.append(
-                                EmailAttachment(
-                                    name=name,
-                                    body=file_content.data,
-                                    content_type=type,
-                                )
-                            )
-
-                    # for internal users, we will set the
-                    # from address and the display name (real name from Slack) + an envvar for internal user suffix
-                    # but for external users, we just display the email address
-
-                    add_case_email_comment(
-                        self._hctx.salesforce_client,
-                        case_id=salesforce_case_id_for_slack_thread,
-                        body=f"{text_prefix}\n{text}",
-                        html_body=f"<p>{html_prefix}</p><p>{text}</p>",
-                        from_address=user_info.profile.email,
-                        to_address=SALESFORCE_CASE_SUPPORT_EMAIL
-                        if user_is_external
-                        else None,
-                        subject=SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
-                        from_name=f"{user_info.real_name} ({SALESFORCE_INTERNAL_FROM_NAME_SUFFIX})"
-                        if not user_is_external
-                        else None,
-                        attachments=attachments if attachments else None,
-                    )
-
-                    logfire.info(
-                        "Synced Slack message to Salesforce",
-                        case_id=salesforce_case_id_for_slack_thread,
-                        comment_body=text,
-                        user_id=user,
-                        user_name=user_info.real_name,
-                        user_is_external=user_is_external,
-                    )
-        elif (
-            not self._proactive_prompt_channels
-            or channel not in self._proactive_prompt_channels
-            or re.search(
-                rf"<@{re.escape(self._bot_info.user_id)}>", event.get("text", "")
             )
         ):
-            return
+            if not (text := event.get("text", "")):
+                logfire.info("No text in Slack message, not syncing to Salesforce")
+                return
 
-        # if the channel is one that the agent should proactively respond to and the agent was not @mentioned
-        user = event.get("user")
+            user_info = await fetch_user_info(self._hctx.app.client, user_id=user)
+            user_is_external = (
+                user_info.is_external or user_info.team_id != self._bot_info.team_id
+            )
+            text_prefix, html_prefix = await self.get_reply_prefix_for_sender(user_info)
 
-        # only offer proactive prompts on top level messages
-        if thread_ts is not None:
-            return
+            attachments: list[EmailAttachment] = []
 
-        event_hist_id = await insert_handled_event(pool=self._pool, event=event)
+            for file in files:
+                type = file.get("mimetype")
+                url = file.get("url_private_download")
+                name = file.get("name")
 
-        await send_proactive_prompt(
-            client=self._hctx.app.client,
-            channel=channel,
-            user=user,
-            event_hist_id=event_hist_id,
-        )
+                file_content = await download_private_file(
+                    url_private_download=url,
+                    slack_bot_token=self._hctx.slack_bot_token,
+                )
+                if isinstance(file_content, BinaryContent):
+                    attachments.append(
+                        EmailAttachment(
+                            name=name,
+                            body=file_content.data,
+                            content_type=type,
+                        )
+                    )
+
+            # for internal users, we will set the
+            # from address and the display name (real name from Slack) + an envvar for internal user suffix
+            # but for external users, we just display the email address
+
+            add_case_email_comment(
+                self._hctx.salesforce_client,
+                case_id=salesforce_case_id_for_slack_thread,
+                body=f"{text_prefix}\n{text}",
+                html_body=f"<p>{html_prefix}</p><p>{text}</p>",
+                from_address=user_info.profile.email,
+                to_address=SALESFORCE_CASE_SUPPORT_EMAIL if user_is_external else None,
+                subject=SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
+                from_name=f"{user_info.real_name} ({SALESFORCE_INTERNAL_FROM_NAME_SUFFIX})"
+                if not user_is_external
+                else None,
+                attachments=attachments if attachments else None,
+            )
+
+            logfire.info(
+                "Synced Slack message to Salesforce",
+                case_id=salesforce_case_id_for_slack_thread,
+                comment_body=text,
+                user_id=user,
+                user_name=user_info.real_name,
+                user_is_external=user_is_external,
+            )
+
+        # if proactive prompting is enabled for channel and agent is not mention
+        # then offer a proactive prompt
+        elif (
+            self._proactive_prompt_channels
+            and channel in self._proactive_prompt_channels
+            and not re.search(
+                rf"<@{re.escape(self._bot_info.user_id)}>", event.get("text", "")
+            )
+            and not thread_ts
+        ):
+            # if the channel is one that the agent should proactively respond to and the agent was not @mentioned
+            user = event.get("user")
+
+            event_hist_id = await insert_handled_event(pool=self._pool, event=event)
+
+            await send_proactive_prompt(
+                client=self._hctx.app.client,
+                channel=channel,
+                user=user,
+                event_hist_id=event_hist_id,
+            )
 
     async def _handle_new_salesforce_case_workflow_form_submit(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
