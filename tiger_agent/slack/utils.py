@@ -47,6 +47,7 @@ from tiger_agent.slack.constants import (
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
+    SLACK_BOT_TOKEN,
 )
 from tiger_agent.slack.types import (
     BotInfo,
@@ -350,7 +351,6 @@ async def fetch_channel_info(
 
 async def download_slack_hosted_file(
     file: SlackFile,
-    slack_bot_token: str,
 ) -> BinaryContent | str | None:
     """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
     if not file_type_supported(file.mimetype):
@@ -358,12 +358,11 @@ async def download_slack_hosted_file(
 
     return await download_private_file(
         url_private_download=file.url_private_download,
-        slack_bot_token=slack_bot_token,
     )
 
 
 async def download_private_file(
-    url_private_download: str, slack_bot_token: str = os.getenv("SLACK_BOT_TOKEN")
+    url_private_download: str,
 ) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
@@ -385,14 +384,14 @@ async def download_private_file(
         if url_private_download is None:
             raise ValueError("No private url provided")
 
-        if not slack_bot_token:
+        if not SLACK_BOT_TOKEN:
             raise ValueError("Cannot fetch file without a token")
 
         async with httpx.AsyncClient() as client:
             # Download file using bot token for authentication
             resp = await client.get(
                 url=url_private_download,
-                headers={"Authorization": f"Bearer {slack_bot_token}"},
+                headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
             )
             resp.raise_for_status()
 

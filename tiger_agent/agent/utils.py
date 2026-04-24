@@ -25,7 +25,8 @@ from tiger_agent.slack.utils import (
     fetch_thread_messages,
     fetch_user_info,
 )
-from tiger_agent.tasks.types import Task, TaskContext
+from tiger_agent.tasks.types import Task
+from tiger_agent.types import Context
 from tiger_agent.utils import wrap_mcp_servers_with_exception_handling
 
 
@@ -38,7 +39,7 @@ class AgentAndContext:
 
 
 async def create_agent_and_context(
-    hctx: TaskContext,
+    ctx: Context,
     task: Task,
     model: Model | KnownModelName | str | None,
     bot_info: BotInfo | None,
@@ -60,14 +61,14 @@ async def create_agent_and_context(
     event = task.event
 
     if not bot_info:
-        bot_info = await fetch_bot_info(hctx.app.client)
+        bot_info = await fetch_bot_info(ctx.app.client)
 
     all_mcp_servers = mcp_loader()
     augment_mcp_servers(all_mcp_servers)
 
     mcp_servers = await filter_mcp_servers(
         mcp_servers=all_mcp_servers,
-        client=hctx.app.client,
+        client=ctx.app.client,
         channel_id=channel_to_respond,
     )
 
@@ -77,11 +78,10 @@ async def create_agent_and_context(
         task=task,
         mention=event,
         bot=bot_info,
-        user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
+        user=await fetch_user_info(client=ctx.app.client, user_id=event.user)
         if not isinstance(event, SalesforceBaseEvent)
         else None,
         mcp_servers=mcp_servers,
-        slack_bot_token=hctx.slack_bot_token,
     )
 
     extra_ctx: ExtraContextDict = {}
@@ -89,7 +89,7 @@ async def create_agent_and_context(
 
     if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and bot_info:
         thread_messages = await fetch_thread_messages(
-            client=hctx.app.client,
+            client=ctx.app.client,
             channel=event.channel,
             thread_ts=event.thread_ts,
         )
@@ -105,9 +105,7 @@ async def create_agent_and_context(
     async def _download_slack_hosted_file(
         file: SlackFile,
     ) -> BinaryContent | str | None:
-        return await download_slack_hosted_file(
-            file=file, slack_bot_token=hctx.slack_bot_token
-        )
+        return await download_slack_hosted_file(file=file)
 
     agent = Agent(
         model=model,

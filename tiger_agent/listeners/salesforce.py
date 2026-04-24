@@ -4,9 +4,9 @@ from datetime import datetime
 
 import logfire
 import schedule
-from simple_salesforce.api import Salesforce
 
 from tiger_agent.db.utils import insert_event, is_case_assignment_new
+from tiger_agent.listeners import Listener
 from tiger_agent.salesforce.case_feed_item_poller import SalesforceCaseFeedItemPoller
 from tiger_agent.salesforce.constants import (
     CASE_ID_FIELD,
@@ -24,14 +24,15 @@ from tiger_agent.salesforce.utils import (
     should_ignore_new_case,
     subscribe_to_topic,
 )
-from tiger_agent.tasks.types import TaskContext
+from tiger_agent.types import Context
 
 
-class SalesforceListener:
-    def __init__(self, hctx: TaskContext):
-        self._salesforce_client: Salesforce | None = hctx.salesforce_client
-        self._pool = hctx.pool
-        self._trigger = hctx.trigger
+class SalesforceListener(Listener):
+    def __init__(self, ctx: Context):
+        assert ctx.salesforce_client is not None, "salesforce_client is required"
+        self._salesforce_client = ctx.salesforce_client
+        self._pool = ctx.pool
+        self._trigger = ctx.trigger
         self._new_case_poller: SalesforceNewCasePoller | None
         self._feed_item_poller: SalesforceCaseFeedItemPoller | None
 

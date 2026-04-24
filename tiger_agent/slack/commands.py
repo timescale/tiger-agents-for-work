@@ -22,7 +22,7 @@ from tiger_agent.slack.utils import (
     parse_slack_user_name,
     send_new_case_button,
 )
-from tiger_agent.tasks.types import TaskContext as HarnessContext
+from tiger_agent.types import Context
 from tiger_agent.utils import serialize_to_jsonb
 
 """
@@ -75,7 +75,7 @@ Commands can validate argument counts and return appropriate error messages.
 class CommandContext:
     """Shared context provided to the command handlers."""
 
-    hctx: HarnessContext
+    ctx: Context
     command: SlackCommand
     bot_info: BotInfo
 
@@ -159,7 +159,7 @@ async def handle_admins_add_command(ctx: CommandContext, args: list[str]) -> str
     if username is None or user_id is None:
         return "Argument needs to be a Slack username"
     async with (
-        ctx.hctx.pool.connection() as con,
+        ctx.ctx.pool.connection() as con,
         con.transaction() as _,
         con.cursor() as cur,
     ):
@@ -174,7 +174,7 @@ async def handle_admins_remove_command(ctx: CommandContext, args: list[str]) -> 
     if username is None or user_id is None:
         return "Argument needs to be a Slack username"
     async with (
-        ctx.hctx.pool.connection() as con,
+        ctx.ctx.pool.connection() as con,
         con.transaction() as _,
         con.cursor() as cur,
     ):
@@ -189,7 +189,7 @@ async def handle_ignored_add_command(ctx: CommandContext, args: list[str]) -> st
     if username is None or user_id is None:
         return "Argument needs to be a Slack username"
     async with (
-        ctx.hctx.pool.connection() as con,
+        ctx.ctx.pool.connection() as con,
         con.transaction() as _,
         con.cursor() as cur,
     ):
@@ -204,7 +204,7 @@ async def handle_ignored_remove_command(ctx: CommandContext, args: list[str]) ->
     if username is None or user_id is None:
         return "Argument needs to be a Slack username"
     async with (
-        ctx.hctx.pool.connection() as con,
+        ctx.ctx.pool.connection() as con,
         con.transaction() as _,
         con.cursor() as cur,
     ):
@@ -216,7 +216,7 @@ async def handle_ignored_remove_command(ctx: CommandContext, args: list[str]) ->
 
 async def handle_ignore_list_command(ctx: CommandContext, _: list[str]) -> str:
     async with (
-        ctx.hctx.pool.connection() as con,
+        ctx.ctx.pool.connection() as con,
         con.cursor() as cur,
     ):
         await cur.execute("select * from agent.ignored_users")
@@ -235,7 +235,7 @@ async def handle_ignore_list_command(ctx: CommandContext, _: list[str]) -> str:
 
 async def handle_admins_list_command(ctx: CommandContext, _: list[str]) -> str:
     async with (
-        ctx.hctx.pool.connection() as con,
+        ctx.ctx.pool.connection() as con,
         con.cursor() as cur,
     ):
         await cur.execute("select * from agent.admin_users")
@@ -257,14 +257,14 @@ async def handle_salesforce_add_customer_channel_command(
 ) -> str:
     [channel_id, salesforce_account_id] = args
     await upsert_salesforce_account_id_for_channel(
-        ctx.hctx.pool,
+        ctx.ctx.pool,
         channel_id=channel_id,
         salesforce_account_id=salesforce_account_id,
     )
     bot_name = ctx.bot_info.name if ctx.bot_info else "Support Bot"
     bot_user_id = ctx.bot_info.user_id if ctx.bot_info else None
     bot_mention = f"<@{bot_user_id}>" if bot_user_id else bot_name
-    await ctx.hctx.app.client.chat_postMessage(
+    await ctx.ctx.app.client.chat_postMessage(
         channel=channel_id,
         text=(
             f"Hi there! I'm {bot_name}. I'm here to help — you can get assistance by "
@@ -272,9 +272,9 @@ async def handle_salesforce_add_customer_channel_command(
             "clicking the button below. That button will be pinned to this channel for easy access."
         ),
     )
-    ts = await send_new_case_button(ctx.hctx.app.client, channel=channel_id)
+    ts = await send_new_case_button(ctx.ctx.app.client, channel=channel_id)
     if ts:
-        await ctx.hctx.app.client.pins_add(channel=channel_id, timestamp=ts)
+        await ctx.ctx.app.client.pins_add(channel=channel_id, timestamp=ts)
 
     return f"Assigned channel {channel_id} to Salesforce account id {salesforce_account_id}"
 
@@ -284,7 +284,7 @@ async def handle_salesforce_remove_customer_channel_command(
 ) -> str:
     [channel_id] = args
     await remove_salesforce_account_id_for_channel(
-        ctx.hctx.pool,
+        ctx.ctx.pool,
         channel_id=channel_id,
     )
 
@@ -295,7 +295,7 @@ async def handle_salesforce_create_notification_command(
     ctx: CommandContext, args: list[str]
 ) -> str:
     _case_id = args[0]
-    salesforce_client = ctx.hctx.salesforce_client
+    salesforce_client = ctx.ctx.salesforce_client
     if not salesforce_client:
         return "Salesforce not configured"
 
@@ -309,14 +309,14 @@ async def handle_salesforce_create_notification_command(
 
     logfire.info("Manually added request to generate Salesforce Slack notification")
     await insert_event(
-        pool=ctx.hctx.pool,
+        pool=ctx.ctx.pool,
         event=SalesforceAssignmentChangedEvent(
             case=case,
             update_link_to_thread=False,  # we do not want to update the link on the case
         ).model_dump(),
     )
 
-    await ctx.hctx.trigger.put(True)
+    await ctx.ctx.trigger.put(True)
 
     return f"The Slack message will be sent to channel <#{SALESFORCE_CASE_CHANNEL}>"
 
@@ -330,7 +330,7 @@ async def handle_delete_agent_message_command(
         raise Exception("Not a valid Slack url")
 
     try:
-        await ctx.hctx.app.client.chat_delete(
+        await ctx.ctx.app.client.chat_delete(
             channel=url_parts.channel_id, ts=url_parts.ts, as_user=True
         )
     except Exception:
@@ -425,11 +425,9 @@ def _build_command_handlers() -> CommandGroup:
     return _slash_commands
 
 
-async def handle_command(
-    command: SlackCommand, hctx: HarnessContext, bot_info: BotInfo
-) -> str:
-    if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
+async def handle_command(command: SlackCommand, ctx: Context, bot_info: BotInfo) -> str:
+    if not await user_is_admin(pool=ctx.pool, user_id=command.user_id):
         return "Slash commands can only be used by admins."
-    ctx = CommandContext(hctx=hctx, command=command, bot_info=bot_info)
+    ctx = CommandContext(ctx=ctx, command=command, bot_info=bot_info)
     handlers = _build_command_handlers()
     return await handlers(command.text, ctx)

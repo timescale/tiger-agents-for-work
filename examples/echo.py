@@ -5,7 +5,8 @@ import logfire
 from dotenv import find_dotenv, load_dotenv
 
 from tiger_agent import EventHarness
-from tiger_agent.tasks.types import Task as Event, TaskContext as HarnessContext
+from tiger_agent.tasks.types import Task as Event
+from tiger_agent.types import Context
 from tiger_agent.utils import setup_logging
 
 load_dotenv(dotenv_path=find_dotenv(usecwd=True))
@@ -14,7 +15,7 @@ setup_logging(service_name=NAME)
 
 
 # our slackbot will just echo messages back
-async def echo(ctx: HarnessContext, event: Event):
+async def echo(ctx: Context, event: Event):
     channel = event.event["channel"]
     ts = event.event["ts"]
     text = event.event["text"]

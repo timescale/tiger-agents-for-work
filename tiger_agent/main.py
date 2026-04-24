@@ -1,14 +1,21 @@
 import asyncio
+import os
+from asyncio import Queue
 from datetime import timedelta
 from pathlib import Path
 
 import click
 from dotenv import find_dotenv, load_dotenv
 from psycopg import AsyncConnection
+from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent import TaskHarness, TigerAgent
+from tiger_agent.db.utils import create_default_pool
+from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.migrations import runner
+from tiger_agent.salesforce.clients import get_salesforce_api_client
 from tiger_agent.salesforce.types import SalesforceConfig
+from tiger_agent.types import Context
 from tiger_agent.utils import setup_logging
 
 
@@ -117,6 +124,25 @@ def run(
     load_dotenv(dotenv_path=env if env else find_dotenv(usecwd=True))
     setup_logging()
 
+    slack_bot_token = os.environ["SLACK_BOT_TOKEN"]
+
+    salesforce_config = SalesforceConfig()
+    salesforce_client = (
+        get_salesforce_api_client() if salesforce_config.is_valid() else None
+    )
+
+    pool = create_default_pool(num_workers)
+    app = AsyncApp(token=slack_bot_token, ignoring_self_events_enabled=False)
+    trigger = Queue()
+
+    ctx = Context(
+        app=app,
+        pool=pool,
+        trigger=trigger,
+        salesforce_client=salesforce_client,
+        proactive_prompt_channels=proactive_prompt_channels,
+    )
+
     # build our agent
     agent = TigerAgent(
         model=model,
@@ -126,9 +152,14 @@ def run(
         rate_limit_interval=timedelta(minutes=rate_limit_interval),
     )
 
-    # create a harness for the processor
-    harness = TaskHarness(
+    # the listener harness handles external events, for instance Slack mentions or new Salesforce cases
+    listener_harness = ListenerHarness(ctx=ctx, task_processor=agent)
+
+    # the task harness handles tasks that are a result of external events
+    # these tasks are stored in the agent.event table
+    task_harness = TaskHarness(
         agent,
+        ctx=ctx,
         worker_sleep_seconds=worker_sleep_seconds,
         worker_min_jitter_seconds=worker_min_jitter_seconds,
         worker_max_jitter_seconds=worker_max_jitter_seconds,
@@ -136,12 +167,15 @@ def run(
         max_age_minutes=max_age_minutes,
         invisibility_minutes=invisibility_minutes,
         num_workers=num_workers,
-        salesforce_config=SalesforceConfig(),
-        proactive_prompt_channels=proactive_prompt_channels,
     )
 
-    # run the harness
-    asyncio.run(harness.run())
+    async def _run():
+        await pool.open(wait=True)
+        async with asyncio.TaskGroup() as tasks:
+            await task_harness.run(tasks)
+            await listener_harness.start(tasks)
+
+    asyncio.run(_run())
 
 
 @cli.command()

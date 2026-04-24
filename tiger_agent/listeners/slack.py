@@ -16,6 +16,7 @@ from tiger_agent.db.utils import (
     insert_event,
     insert_handled_event,
 )
+from tiger_agent.listeners import Listener
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
     SALESFORCE_CASE_SUPPORT_EMAIL,
@@ -40,6 +41,7 @@ from tiger_agent.slack.constants import (
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
+    SLACK_APP_TOKEN,
 )
 from tiger_agent.slack.types import BotInfo, SlackCommand, UserInfo
 from tiger_agent.slack.utils import (
@@ -54,39 +56,40 @@ from tiger_agent.slack.utils import (
     send_proactive_prompt,
     set_status,
 )
-from tiger_agent.tasks.types import TaskContext, TaskProcessor
+from tiger_agent.tasks.types import Context, TaskProcessor
 from tiger_agent.tasks.utils import process_task
 
 
-class SlackListener:
-    """Wrapper around Slack utility functions scoped to a TaskContext.
-
-    Provides convenience methods that delegate to the module-level functions,
-    automatically sourcing client, slack_bot_token, and bot_info from the
-    provided TaskContext so callers don't need to pass them explicitly.
-    Bot info is fetched lazily and cached after the first call.
+class SlackListener(Listener):
+    """Listens for Slack events and enqueues tasks for processing.
 
     Args:
-        hctx: TaskContext providing the Slack app, token, and database pool
+        ctx: Shared context providing app, pool, trigger, and optional salesforce client
+        task_processor: Callback to process tasks triggered by interactive actions
+        slack_app_token: Slack app-level token for Socket Mode
+        proactive_prompt_channels: Optional set of channel IDs for proactive prompting
     """
 
     def __init__(
         self,
-        hctx: TaskContext,
+        ctx: Context,
         task_processor: TaskProcessor,
-        proactive_prompt_channels: set[str] | None = None,
     ):
-        self._hctx = hctx
-        self._pool = hctx.pool
-        self._app = hctx.app
-        self._trigger = hctx.trigger
+        self._ctx = ctx
+        self._pool = ctx.pool
+        self._app = ctx.app
+        self._trigger = ctx.trigger
         self._task_processor = task_processor
-        self._proactive_prompt_channels = proactive_prompt_channels
+        self._proactive_prompt_channels = (
+            set(ctx.proactive_prompt_channels)
+            if ctx.proactive_prompt_channels
+            else None
+        )
         self._bot_info: BotInfo | None = None
 
     async def start(self, tasks: TaskGroup):
         self._bot_info = await fetch_bot_info(self._app.client)
-        self._hctx.bot_info = self._bot_info
+        self._ctx.bot_info = self._bot_info
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(AGENT_FEEDBACK_RATING)(self._handle_agent_feedback_rating)
@@ -103,9 +106,7 @@ class SlackListener:
         self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
         self._app.event("app_mention")(self._on_slack_event)
 
-        handler = AsyncSocketModeHandler(
-            self._app, app_token=self._hctx.slack_app_token
-        )
+        handler = AsyncSocketModeHandler(self._app, app_token=SLACK_APP_TOKEN)
         tasks.create_task(handler.start_async())
 
     async def _on_slack_event(self, ack: AsyncAck, event: dict[str, Any]):
@@ -125,7 +126,7 @@ class SlackListener:
         slack_command = SlackCommand(**command)
         await ack()
         response = await handle_command(
-            command=slack_command, hctx=self._hctx, bot_info=self._bot_info
+            command=slack_command, ctx=self._ctx, bot_info=self._bot_info
         )
         await respond(text=response, response_type="ephemeral", delete_original=True)
 
@@ -173,11 +174,11 @@ class SlackListener:
         # and Salesforce is configured
         if (
             thread_ts
-            and self._hctx.salesforce_client
+            and self._ctx.salesforce_client
             and (
                 salesforce_case_id_for_slack_thread
                 := await get_salesforce_case_thread_case_id(
-                    self._hctx.pool, thread_ts=thread_ts, channel_id=channel
+                    self._pool, thread_ts=thread_ts, channel_id=channel
                 )
             )
         ):
@@ -185,7 +186,7 @@ class SlackListener:
                 logfire.info("No text in Slack message, not syncing to Salesforce")
                 return
 
-            user_info = await fetch_user_info(self._hctx.app.client, user_id=user)
+            user_info = await fetch_user_info(self._app.client, user_id=user)
             user_is_external = (
                 user_info.is_external or user_info.team_id != self._bot_info.team_id
             )
@@ -200,7 +201,6 @@ class SlackListener:
 
                 file_content = await download_private_file(
                     url_private_download=url,
-                    slack_bot_token=self._hctx.slack_bot_token,
                 )
                 if isinstance(file_content, BinaryContent):
                     attachments.append(
@@ -211,12 +211,8 @@ class SlackListener:
                         )
                     )
 
-            # for internal users, we will set the
-            # from address and the display name (real name from Slack) + an envvar for internal user suffix
-            # but for external users, we just display the email address
-
             add_case_email_comment(
-                self._hctx.salesforce_client,
+                self._ctx.salesforce_client,
                 case_id=salesforce_case_id_for_slack_thread,
                 body=f"{text_prefix}\n{text}",
                 html_body=f"<p>{html_prefix}</p><p>{text}</p>",
@@ -238,7 +234,7 @@ class SlackListener:
                 user_is_external=user_is_external,
             )
 
-        # if proactive prompting is enabled for channel and agent is not mention
+        # if proactive prompting is enabled for channel and agent is not mentioned
         # then offer a proactive prompt
         elif (
             self._proactive_prompt_channels
@@ -248,13 +244,12 @@ class SlackListener:
             )
             and not thread_ts
         ):
-            # if the channel is one that the agent should proactively respond to and the agent was not @mentioned
             user = event.get("user")
 
             event_hist_id = await insert_handled_event(pool=self._pool, event=event)
 
             await send_proactive_prompt(
-                client=self._hctx.app.client,
+                client=self._app.client,
                 channel=channel,
                 user=user,
                 event_hist_id=event_hist_id,
@@ -319,15 +314,15 @@ class SlackListener:
         if not channel or not user:
             return
         salesforce_account_id_for_channel = await get_salesforce_account_id_for_channel(
-            self._hctx.pool, channel_id=channel
+            self._pool, channel_id=channel
         )
         if not salesforce_account_id_for_channel:
             return
         services_and_projects = get_services_for_account(
-            self._hctx.salesforce_client, salesforce_account_id_for_channel
+            self._ctx.salesforce_client, salesforce_account_id_for_channel
         )
         await send_new_salesforce_case_workflow_form(
-            client=self._hctx.app.client,
+            client=self._app.client,
             channel=channel,
             user=user,
             services=services_and_projects,
@@ -336,7 +331,6 @@ class SlackListener:
     async def _handle_proactive_prompt(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
     ):
-        # todo: would be nice to not have this wrapper closure, but limiting refactor effort for now
         event_hist_id = await handle_proactive_prompt(
             ack=ack, body=body, respond=respond, bot_info=self._bot_info
         )
@@ -352,7 +346,7 @@ class SlackListener:
             )
             return
 
-        await process_task(self._task_processor, self._hctx, event)
+        await process_task(self._task_processor, self._ctx, event)
 
     async def _handle_agent_feedback_rating(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
@@ -397,7 +391,7 @@ class SlackListener:
         )
 
         await insert_handled_event(
-            pool=self._hctx.pool,
+            pool=self._pool,
             event=AgentFeedbackRatingEvent(
                 message_ts=agent_message_ts,
                 channel=channel,
