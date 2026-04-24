@@ -52,6 +52,7 @@ from tiger_agent.slack.utils import (
     handle_new_salesforce_case_workflow_form_cancel,
     handle_new_salesforce_case_workflow_form_submit,
     handle_proactive_prompt,
+    post_response,
     send_new_salesforce_case_workflow_form,
     send_proactive_prompt,
     set_status,
@@ -388,6 +389,12 @@ class SlackEventHandler:
             delete_original=True,
         )
 
+        await post_response(
+            client=self._hctx.app.client,
+            channel=channel,
+            thread_ts=agent_message_ts,
+            text=f"Feedback received ({rating}/5). Thank you for your response!",
+        )
         logfire.info(
             "Agent feedback rating received",
             agent_message_ts=agent_message_ts,
