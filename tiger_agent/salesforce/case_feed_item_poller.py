@@ -84,7 +84,5 @@ class SalesforceCaseFeedItemPoller:
             self._poll_interval_seconds,
         )
 
-        if not run_immediate:
-            return
-
-        job()
+        if run_immediate:
+            job()

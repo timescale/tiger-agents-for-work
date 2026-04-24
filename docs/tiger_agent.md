@@ -1,6 +1,6 @@
 # TigerAgent - AI-Powered Slack Bot
 
-The TigerAgent is an intelligent Slack bot that processes app_mention events using advanced AI capabilities. It serves as the primary EventProcessor for the EventHarness system, combining Pydantic-AI, MCP server integration, dynamic prompt templating, and rich Slack interactions to create a sophisticated conversational AI experience.
+The TigerAgent is an intelligent Slack bot that processes app_mention events using advanced AI capabilities. It serves as the primary TaskProcessor for the TaskHarness system, combining Pydantic-AI, MCP server integration, dynamic prompt templating, and rich Slack interactions to create a sophisticated conversational AI experience.
 
 ## Overview
 
@@ -68,7 +68,7 @@ Each event processing cycle builds comprehensive context:
 
 ### Success Path
 
-1. **Event Reception**: EventHarness delivers Slack app_mention event
+1. **Event Reception**: TaskHarness delivers Slack app_mention event
 2. **Visual Feedback**: Adds `:spinthinking:` reaction to indicate processing
 3. **Context Building**: Fetches user info, bot info, and builds template context
 4. **Prompt Generation**: Renders system and user prompts from Jinja2 templates
@@ -81,7 +81,7 @@ Each event processing cycle builds comprehensive context:
 1. **Exception Capture**: Any processing failure is caught and logged
 2. **Visual Feedback**: Removes `:spinthinking:` and adds `:x:` reaction
 3. **User Communication**: Posts explanatory message to user
-4. **Retry Logic**: Re-raises exception for EventHarness retry handling
+4. **Retry Logic**: Re-raises exception for TaskHarness retry handling
 5. **Adaptive Messaging**: Error message adapts based on retry count
 
 **Error Message Patterns**:
@@ -148,7 +148,7 @@ See [Prompt Templates](prompt_templates.md) for detailed configuration and custo
 #### Basic Usage
 
 ```python
-from tiger_agent import TigerAgent, EventHarness
+from tiger_agent import TigerAgent, TaskHarness, Task, HarnessContext
 
 # Create agent with default configuration
 agent = TigerAgent(
@@ -157,8 +157,8 @@ agent = TigerAgent(
     mcp_config_path=Path("./mcp_config.json")
 )
 
-# Use with EventHarness
-harness = EventHarness(event_processor=agent)
+# Use with TaskHarness
+harness = TaskHarness(task_processor=agent)
 await harness.run()
 ```
 
@@ -203,9 +203,9 @@ class MyAgent(TigerAgent):
             max_attempts
         )
 
-    async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
+    async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
         client = hctx.app.client
-        mention = event.event
+        mention = task.event
         # get the bot info if we haven't already
         if not self.bot_info:
             self.bot_info = await fetch_bot_info(client)
@@ -249,7 +249,7 @@ For simpler customizations, you can also override specific aspects:
 
 ```python
 class CustomTigerAgent(TigerAgent):
-    async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
+    async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
         # Add custom pre-processing
         if self._should_use_custom_logic(event):
             return await self._custom_response_logic(hctx, event)
@@ -258,12 +258,12 @@ class CustomTigerAgent(TigerAgent):
         response = await super().generate_response(hctx, event)
         return self._post_process_response(response, event)
 
-    def _should_use_custom_logic(self, event: Event) -> bool:
+    def _should_use_custom_logic(self, task: Task) -> bool:
         # Custom routing logic
-        mention = event.event
+        mention = task.event
         return "urgent" in mention.text.lower()
 
-    async def _custom_response_logic(self, hctx: HarnessContext, event: Event) -> str:
+    async def _custom_response_logic(self, hctx: HarnessContext, task: Task) -> str:
         # Specialized handling for urgent requests
         return "Urgent request detected. Escalating to human support."
 ```
@@ -272,8 +272,8 @@ class CustomTigerAgent(TigerAgent):
 
 ##### **Request Routing**
 ```python
-async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
-    mention = event.event
+async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
+    mention = task.event
 
     if "@channel" in mention.text:
         return await self._handle_broadcast_request(hctx, event)
@@ -285,7 +285,7 @@ async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
 
 ##### **Response Filtering**
 ```python
-async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
+async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
     response = await super().generate_response(hctx, event)
 
     # Apply content filtering
@@ -297,7 +297,7 @@ async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
 
 ##### **Context Enhancement**
 ```python
-async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
+async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
     # Add custom context before generating response
     async with hctx.pool.connection() as conn:
         custom_data = await self._fetch_custom_context(conn, event)
@@ -315,27 +315,27 @@ async def generate_response(self, hctx: HarnessContext, event: Event) -> str:
         self.make_system_prompt = original_method
 ```
 
-#### Implementing EventProcessor
+#### Implementing TaskProcessor
 
-For even more customizability, you can implement an EventProcessor directly to control every aspect of the interaction. This can be a simple function which is passed to the EventHarness:
+For even more customizability, you can implement a TaskProcessor directly to control every aspect of the interaction. This can be a simple function which is passed to the TaskHarness:
 
 ```python
 import asyncio
-from tiger_agent import EventHarness
+from tiger_agent import TaskHarness
 
 # our slackbot will just echo messages back
-async def echo(ctx: HarnessContext, event: Event):
-    channel = event.event["channel"]
-    ts = event.event["ts"]
-    text = event.event["text"]
-    await ctx.app.client.chat_postMessage(
+async def echo(hctx: HarnessContext, task: Task):
+    channel = task.event["channel"]
+    ts = task.event["ts"]
+    text = task.event["text"]
+    await hctx.app.client.chat_postMessage(
         channel=channel, thread_ts=ts, text=f"echo: {text}"
     )
 
 
 async def main() -> None:
     # create the agent harness
-    harness = EventHarness(echo)
+    harness = TaskHarness(echo)
     # run the harness
     await harness.run()
 
@@ -344,31 +344,31 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-Alternatively, you can create a class that implements EventProcessor. This is handy if you need state:
+Alternatively, you can create a class that implements TaskProcessor. This is handy if you need state:
 
 ```python
 import asyncio
-from tiger_agent import EventHarness
+from tiger_agent import TaskHarness
 
-class MyEventProcessor:
+class MyTaskProcessor:
     def __init__(self):
         pass
 
-    # the __call__ method implements EventProcessor
-    async def __call__(self, ctx: HarnessContext, event: Event):
+    # the __call__ method implements TaskProcessor
+    async def __call__(self, hctx: HarnessContext, task: Task):
         # echo back the message
-        channel = event.event["channel"]
-        ts = event.event["ts"]
-        text = event.event["text"]
-        await ctx.app.client.chat_postMessage(
+        channel = task.event["channel"]
+        ts = task.event["ts"]
+        text = task.event["text"]
+        await hctx.app.client.chat_postMessage(
             channel=channel, thread_ts=ts, text=f"echo: {text}"
         )
 
 async def main() -> None:
     # create an instance of our custom event processor
-    event_processor = MyEventProcessor()
-    # create the agent harness
-    harness = EventHarness(event_processor)
+    task_processor = MyTaskProcessor()
+    # create the task harness
+    harness = TaskHarness(task_processor)
     # run the harness
     await harness.run()
 

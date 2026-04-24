@@ -56,7 +56,7 @@ User info unavailable.
 
 channel: {{ mention.channel }}
 ts: {{ mention.ts }}
-event_ts: {{ event.event_ts }}
+event_ts: {{ task.event_ts }}
 
 {% if thread_history %}
 

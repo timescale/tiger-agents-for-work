@@ -10,8 +10,8 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic import ValidationError
 
 from tiger_agent.db.constants import PG_MAX_POOL_SIZE
-from tiger_agent.events.types import Event
 from tiger_agent.salesforce.types import SalesforceBaseEvent, SalesforceFeedItem
+from tiger_agent.tasks.types import Task as Event
 
 logger = logging.getLogger(__name__)
 

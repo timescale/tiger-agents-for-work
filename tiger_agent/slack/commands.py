@@ -12,7 +12,6 @@ from tiger_agent.db.utils import (
     upsert_salesforce_account_id_for_channel,
     user_is_admin,
 )
-from tiger_agent.events.types import HarnessContext
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
 )
@@ -23,6 +22,7 @@ from tiger_agent.slack.utils import (
     parse_slack_user_name,
     send_new_case_button,
 )
+from tiger_agent.types import HarnessContext
 from tiger_agent.utils import serialize_to_jsonb
 
 """
@@ -425,9 +425,7 @@ def _build_command_handlers() -> CommandGroup:
     return _slash_commands
 
 
-async def handle_command(
-    command: SlackCommand, hctx: HarnessContext, bot_info: BotInfo
-) -> str:
+async def handle_command(command: SlackCommand, hctx: HarnessContext, bot_info: BotInfo) -> str:
     if not await user_is_admin(pool=hctx.pool, user_id=command.user_id):
         return "Slash commands can only be used by admins."
     ctx = CommandContext(hctx=hctx, command=command, bot_info=bot_info)

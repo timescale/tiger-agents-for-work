@@ -87,7 +87,5 @@ class SalesforceNewCasePoller:
 
         logger.info("Scheduled poll_missed_new_cases every 5 minutes")
 
-        if not run_immediate:
-            return
-
-        job()
+        if run_immediate:
+            job()

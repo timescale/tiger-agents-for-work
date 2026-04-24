@@ -47,7 +47,6 @@ from tiger_agent.db.utils import (
     usage_limit_reached,
     user_ignored,
 )
-from tiger_agent.events.types import Event, HarnessContext
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader
 from tiger_agent.prompts.types import PromptPackage
@@ -77,6 +76,7 @@ from tiger_agent.slack.utils import (
     set_status,
     stream_response_to_mention,
 )
+from tiger_agent.tasks.types import HarnessContext, Task
 from tiger_agent.utils import file_type_supported
 
 logger = logging.getLogger(__name__)
@@ -278,7 +278,6 @@ class TigerAgent:
         user_contents: list[UserContent] = [
             await download_private_file(
                 url_private_download=file.url_private_download,
-                slack_bot_token=ctx.slack_bot_token,
             )
             for file in ctx.mention.files
             if file_type_supported(file.mimetype)
@@ -573,9 +572,9 @@ class TigerAgent:
 
     @logfire.instrument("generate_response", extract_args=False)
     async def create_and_send_response(
-        self, hctx: HarnessContext, stream_event: Event
+        self, hctx: HarnessContext, task: Task
     ) -> SlackMessage | None:
-        event = stream_event.event
+        event = task.event
         channel_to_respond = (
             event.channel
             if not isinstance(event, SalesforceBaseEvent)
@@ -597,7 +596,7 @@ class TigerAgent:
 
         agent_and_ctx, self.bot_info = await create_agent_and_context(
             hctx=hctx,
-            stream_event=stream_event,
+            task=task,
             model=self.model,
             bot_info=self.bot_info,
             channel_to_respond=channel_to_respond,
@@ -632,11 +631,11 @@ class TigerAgent:
             channel_to_respond=channel_to_respond,
         )
 
-    async def __call__(self, hctx: HarnessContext, event: Event) -> None:
-        """Processes various events.
+    async def __call__(self, hctx: HarnessContext, task: Task) -> None:
+        """Processes various tasks.
 
-        This method implements the complete EventProcessor interface for the
-        EventHarness system. It provides rich Slack interaction patterns:
+        This method implements the complete TaskProcessor interface for the
+        TaskHarness system. It provides rich Slack interaction patterns:
 
         Success Flow:
         1. Generate AI response using MCP tools with real-time streaming
@@ -648,48 +647,44 @@ class TigerAgent:
         1. Clear any active status messages
         2. Add :x: reaction to indicate failure
         3. Post user-friendly error message
-        4. Re-raise exception for EventHarness retry logic
+        4. Re-raise exception for TaskHarness retry logic
 
         The error message adapts based on retry attempts:
         - During retries: "I will try again."
         - Final failure: "I give up. Sorry."
 
         Args:
-            hctx: Harness context providing Slack app and database access
-            event: The Slack event to process
+            ctx: Task context providing Slack app and database access
+            task: The task to process
 
         Raises:
-            Exception: Re-raises any processing exceptions for EventHarness retry handling
+            Exception: Re-raises any processing exceptions for TaskHarness retry handling
         """
-        event_to_handle = event.event
+        payload = task.event
         try:
-            if not isinstance(
-                event_to_handle, SalesforceBaseEvent
-            ) and await user_ignored(pool=hctx.pool, user_id=event_to_handle.user):
-                logfire.info("Ignore user", user_id=event_to_handle.user)
+            if not isinstance(payload, SalesforceBaseEvent) and await user_ignored(
+                pool=hctx.pool, user_id=payload.user
+            ):
+                logfire.info("Ignore user", user_id=payload.user)
                 return
 
-            message = await self.create_and_send_response(hctx, event)
+            message = await self.create_and_send_response(hctx, task)
 
             if message:
                 logfire.info("Reponse sent", extra={"message": message})
 
         except Exception as e:
             logger.exception("response failed", exc_info=e)
-            if isinstance(event_to_handle, SalesforceBaseEvent):
+            if isinstance(payload, SalesforceBaseEvent):
                 return
 
-            await add_reaction(
-                hctx.app.client, event_to_handle.channel, event_to_handle.ts, "x"
-            )
+            await add_reaction(hctx.app.client, payload.channel, payload.ts, "x")
             await post_response(
                 client=hctx.app.client,
-                channel=event_to_handle.channel,
-                thread_ts=event_to_handle.thread_ts
-                if event_to_handle.thread_ts
-                else event_to_handle.ts,
+                channel=payload.channel,
+                thread_ts=payload.thread_ts if payload.thread_ts else payload.ts,
                 text="I experienced an issue trying to respond. I will try again."
-                if event.attempts < self.max_attempts
+                if task.attempts < self.max_attempts
                 else " I give up. Sorry.",
             )
             raise e

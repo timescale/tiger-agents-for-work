@@ -12,7 +12,6 @@ from tiger_agent.agent.types import (
     AgentSalesforceResponse,
     ExtraContextDict,
 )
-from tiger_agent.events.types import Event, HarnessContext
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.prompts.utils import format_thread_history
@@ -26,6 +25,8 @@ from tiger_agent.slack.utils import (
     fetch_thread_messages,
     fetch_user_info,
 )
+from tiger_agent.tasks.types import Task
+from tiger_agent.types import HarnessContext
 from tiger_agent.utils import wrap_mcp_servers_with_exception_handling
 
 
@@ -39,7 +40,7 @@ class AgentAndContext:
 
 async def create_agent_and_context(
     hctx: HarnessContext,
-    stream_event: Event,
+    task: Task,
     model: Model | KnownModelName | str | None,
     bot_info: BotInfo | None,
     channel_to_respond: str,
@@ -57,7 +58,7 @@ async def create_agent_and_context(
         Coroutine[Any, Any, str | Sequence[UserContent]],
     ],
 ) -> tuple[AgentAndContext, BotInfo]:
-    event = stream_event.event
+    event = task.event
 
     if not bot_info:
         bot_info = await fetch_bot_info(hctx.app.client)
@@ -74,14 +75,13 @@ async def create_agent_and_context(
     wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
 
     ctx = AgentResponseContext(
-        event=stream_event,
+        task=task,
         mention=event,
         bot=bot_info,
         user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
         if not isinstance(event, SalesforceBaseEvent)
         else None,
         mcp_servers=mcp_servers,
-        slack_bot_token=hctx.slack_bot_token,
     )
 
     extra_ctx: ExtraContextDict = {}
@@ -105,9 +105,7 @@ async def create_agent_and_context(
     async def _download_slack_hosted_file(
         file: SlackFile,
     ) -> BinaryContent | str | None:
-        return await download_slack_hosted_file(
-            file=file, slack_bot_token=hctx.slack_bot_token
-        )
+        return await download_slack_hosted_file(file=file)
 
     agent = Agent(
         model=model,

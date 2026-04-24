@@ -112,7 +112,7 @@ You can give your Tiger Agent custom superpowers by configuring one or more MCP 
 
 Tiger Agent supports overriding prompts and/or supplementing prompts by supplying a path to a directory containing prompts with the `--prompts` CLI argument. If you wish to override the default prompt, provide a `system_prompt.md` or `user_prompt.md` markdown file. However, if you want to supplment the default prompts, supply markdown files that have follow the regex pattern of `^system_prompt.*\.md$` or `^user_prompt.*\.md$`. Prompts will be sorted alphabetically when added to the agent.
 
-For heavy customization, you can subclass the TigerAgent class or implement an EventProcessor from scratch. This strategy, also, supports overriding and/or supplementing the base prompts. Consider this example:
+For heavy customization, you can subclass the TigerAgent class or implement a TaskProcessor from scratch. This strategy, also, supports overriding and/or supplementing the base prompts. Consider this example:
 
 ```python
 class MyCoolAgent(TigerAgent):
