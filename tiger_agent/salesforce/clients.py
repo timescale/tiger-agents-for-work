@@ -1,3 +1,4 @@
+import logfire
 from aiohttp import ClientSession
 from aiosfstream_ng.auth import AuthenticatorBase
 from simple_salesforce.api import Salesforce
@@ -25,7 +26,15 @@ class ClientCredentialsAuthenticator(AuthenticatorBase):
             return resp.status, await resp.json()
 
 
-def get_salesforce_api_client() -> Salesforce:
+def get_salesforce_api_client() -> Salesforce | None:
+    if (
+        not SALESFORCE_DOMAIN
+        or not SALESFORCE_CLIENT_ID
+        or not SALESFORCE_CLIENT_SECRET
+    ):
+        logfire.info("Salesforce is not configured")
+        return None
+
     """Return an authenticated simple-salesforce client."""
     domain = SALESFORCE_DOMAIN.removesuffix(".salesforce.com")
     return Salesforce(

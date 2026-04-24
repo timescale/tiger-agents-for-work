@@ -614,7 +614,7 @@ class TigerAgent:
 
         if isinstance(event, SalesforceBaseEvent):
             return await self.handle_salesforce_event(
-                ctx=ctx,
+                hctx=hctx,
                 event=event,
                 agent=agent,
                 user_prompt=user_prompt,
@@ -623,7 +623,7 @@ class TigerAgent:
             )
 
         return await self.handle_slack_event(
-            ctx=ctx,
+            hctx=hctx,
             event=event,
             agent=agent,
             user_prompt=user_prompt,

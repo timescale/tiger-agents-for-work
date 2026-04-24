@@ -14,7 +14,6 @@ from tiger_agent.db.utils import create_default_pool
 from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.migrations import runner
 from tiger_agent.salesforce.clients import get_salesforce_api_client
-from tiger_agent.salesforce.types import SalesforceConfig
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import setup_logging
 
@@ -125,21 +124,11 @@ def run(
     setup_logging()
 
     slack_bot_token = os.environ["SLACK_BOT_TOKEN"]
-
-    salesforce_config = SalesforceConfig()
-    salesforce_client = (
-        get_salesforce_api_client() if salesforce_config.is_valid() else None
-    )
-
-    pool = create_default_pool(num_workers)
-    app = AsyncApp(token=slack_bot_token, ignoring_self_events_enabled=False)
-    trigger = Queue()
-
     hctx = HarnessContext(
-        app=app,
-        pool=pool,
-        trigger=trigger,
-        salesforce_client=salesforce_client,
+        app=AsyncApp(token=slack_bot_token, ignoring_self_events_enabled=False),
+        pool=create_default_pool(num_workers),
+        trigger=Queue(),
+        salesforce_client=get_salesforce_api_client(),
         proactive_prompt_channels=proactive_prompt_channels,
     )
 
@@ -170,7 +159,7 @@ def run(
     )
 
     async def _run():
-        await pool.open(wait=True)
+        await hctx.pool.open(wait=True)
         async with asyncio.TaskGroup() as tasks:
             await task_harness.run(tasks)
             await listener_harness.start(tasks)
