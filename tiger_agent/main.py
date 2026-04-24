@@ -15,7 +15,7 @@ from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.migrations import runner
 from tiger_agent.salesforce.clients import get_salesforce_api_client
 from tiger_agent.salesforce.types import SalesforceConfig
-from tiger_agent.types import Context
+from tiger_agent.types import HarnessContext
 from tiger_agent.utils import setup_logging
 
 
@@ -135,7 +135,7 @@ def run(
     app = AsyncApp(token=slack_bot_token, ignoring_self_events_enabled=False)
     trigger = Queue()
 
-    ctx = Context(
+    hctx = HarnessContext(
         app=app,
         pool=pool,
         trigger=trigger,
@@ -153,13 +153,13 @@ def run(
     )
 
     # the listener harness handles external events, for instance Slack mentions or new Salesforce cases
-    listener_harness = ListenerHarness(ctx=ctx, task_processor=agent)
+    listener_harness = ListenerHarness(hctx=hctx, task_processor=agent)
 
     # the task harness handles tasks that are a result of external events
     # these tasks are stored in the agent.event table
     task_harness = TaskHarness(
         agent,
-        ctx=ctx,
+        hctx=hctx,
         worker_sleep_seconds=worker_sleep_seconds,
         worker_min_jitter_seconds=worker_min_jitter_seconds,
         worker_max_jitter_seconds=worker_max_jitter_seconds,

@@ -77,7 +77,7 @@ docker run -d --name tiger-agent \
 - `tiger_agent/tasks/harness.py`: TaskHarness orchestrator and database work queue logic
 - `tiger_agent/listeners/slack.py`: SlackListener — receives Slack events and enqueues tasks
 - `tiger_agent/listeners/salesforce.py`: SalesforceListener — receives Salesforce events and enqueues tasks
-- `tiger_agent/tasks/types.py`: Task, TaskContext, TaskProcessor types
+- `tiger_agent/tasks/types.py`: Task, HarnessContext, TaskProcessor types
 - `tiger_agent/slack/`: Slack API integration utilities (posting, reactions, user info)
 - `tiger_agent/main.py`: CLI entry point with Click commands
 - `tiger_agent/migrations/`: Database schema and migration system

@@ -9,7 +9,7 @@ from tiger_agent.salesforce.types import (
     SalesforceFeedItemEvent,
 )
 from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
-from tiger_agent.types import Context
+from tiger_agent.types import HarnessContext
 
 
 class Task(BaseModel):
@@ -42,4 +42,4 @@ class Task(BaseModel):
 
 
 # Type alias for task processing callback
-TaskProcessor = Callable[[Context, Task], Awaitable[None]]
+TaskProcessor = Callable[[HarnessContext, Task], Awaitable[None]]

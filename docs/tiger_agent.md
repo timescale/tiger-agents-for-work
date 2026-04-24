@@ -148,7 +148,7 @@ See [Prompt Templates](prompt_templates.md) for detailed configuration and custo
 #### Basic Usage
 
 ```python
-from tiger_agent import TigerAgent, TaskHarness, Task, TaskContext
+from tiger_agent import TigerAgent, TaskHarness, Task, HarnessContext
 
 # Create agent with default configuration
 agent = TigerAgent(
@@ -203,7 +203,7 @@ class MyAgent(TigerAgent):
             max_attempts
         )
 
-    async def generate_response(self, hctx: TaskContext, task: Task) -> str:
+    async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
         client = hctx.app.client
         mention = task.event
         # get the bot info if we haven't already
@@ -249,7 +249,7 @@ For simpler customizations, you can also override specific aspects:
 
 ```python
 class CustomTigerAgent(TigerAgent):
-    async def generate_response(self, hctx: TaskContext, task: Task) -> str:
+    async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
         # Add custom pre-processing
         if self._should_use_custom_logic(event):
             return await self._custom_response_logic(hctx, event)
@@ -263,7 +263,7 @@ class CustomTigerAgent(TigerAgent):
         mention = task.event
         return "urgent" in mention.text.lower()
 
-    async def _custom_response_logic(self, hctx: TaskContext, task: Task) -> str:
+    async def _custom_response_logic(self, hctx: HarnessContext, task: Task) -> str:
         # Specialized handling for urgent requests
         return "Urgent request detected. Escalating to human support."
 ```
@@ -272,7 +272,7 @@ class CustomTigerAgent(TigerAgent):
 
 ##### **Request Routing**
 ```python
-async def generate_response(self, hctx: TaskContext, task: Task) -> str:
+async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
     mention = task.event
 
     if "@channel" in mention.text:
@@ -285,7 +285,7 @@ async def generate_response(self, hctx: TaskContext, task: Task) -> str:
 
 ##### **Response Filtering**
 ```python
-async def generate_response(self, hctx: TaskContext, task: Task) -> str:
+async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
     response = await super().generate_response(hctx, event)
 
     # Apply content filtering
@@ -297,7 +297,7 @@ async def generate_response(self, hctx: TaskContext, task: Task) -> str:
 
 ##### **Context Enhancement**
 ```python
-async def generate_response(self, hctx: TaskContext, task: Task) -> str:
+async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
     # Add custom context before generating response
     async with hctx.pool.connection() as conn:
         custom_data = await self._fetch_custom_context(conn, event)
@@ -324,11 +324,11 @@ import asyncio
 from tiger_agent import TaskHarness
 
 # our slackbot will just echo messages back
-async def echo(ctx: TaskContext, task: Task):
+async def echo(hctx: HarnessContext, task: Task):
     channel = task.event["channel"]
     ts = task.event["ts"]
     text = task.event["text"]
-    await ctx.app.client.chat_postMessage(
+    await hctx.app.client.chat_postMessage(
         channel=channel, thread_ts=ts, text=f"echo: {text}"
     )
 
@@ -355,12 +355,12 @@ class MyTaskProcessor:
         pass
 
     # the __call__ method implements TaskProcessor
-    async def __call__(self, ctx: TaskContext, task: Task):
+    async def __call__(self, hctx: HarnessContext, task: Task):
         # echo back the message
         channel = task.event["channel"]
         ts = task.event["ts"]
         text = task.event["text"]
-        await ctx.app.client.chat_postMessage(
+        await hctx.app.client.chat_postMessage(
             channel=channel, thread_ts=ts, text=f"echo: {text}"
         )
 

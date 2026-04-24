@@ -8,7 +8,7 @@ with atomic task claiming, retry logic, and automatic cleanup.
 
 Key Components:
 - TaskHarness: Main orchestrator for task processing
-- Context: Shared resources (Slack app, database pool, trigger) for listeners and processors
+- HarnessContext: Shared resources (Slack app, database pool, trigger) for listeners and processors
 - Task: Data model for work queue items
 - Database integration with agent.event table as work queue
 """
@@ -20,7 +20,7 @@ from asyncio import QueueShutDown, TaskGroup
 
 from tiger_agent.db.utils import delete_expired_events
 from tiger_agent.migrations import runner
-from tiger_agent.tasks.types import Context, TaskProcessor
+from tiger_agent.tasks.types import HarnessContext, TaskProcessor
 from tiger_agent.tasks.utils import process_tasks
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class TaskHarness:
     resource usage and prevents overwhelming downstream systems.
 
     **Immediate Task Handling**: When tasks arrive, exactly one worker is immediately "poked" via an
-    asyncio.Queue trigger on the Context, ensuring tasks are processed without delay rather than
+    asyncio.Queue trigger on the HarnessContext, ensuring tasks are processed without delay rather than
     waiting for the next polling cycle.
 
     **Atomic Task Claiming**: Multiple workers compete for tasks using agent.claim_event(),
@@ -67,7 +67,7 @@ class TaskHarness:
     def __init__(
         self,
         task_processor: TaskProcessor,
-        ctx: Context,
+        hctx: HarnessContext,
         worker_sleep_seconds: int = 60,
         worker_min_jitter_seconds: int = -15,
         worker_max_jitter_seconds: int = 15,
@@ -77,7 +77,7 @@ class TaskHarness:
         num_workers: int = 5,
     ):
         self._task_processor = task_processor
-        self._ctx = ctx
+        self._hctx = hctx
         self._worker_sleep_seconds = worker_sleep_seconds
         self._worker_min_jitter_seconds = worker_min_jitter_seconds
         self._worker_max_jitter_seconds = worker_max_jitter_seconds
@@ -118,12 +118,12 @@ class TaskHarness:
         async def worker_run():
             await process_tasks(
                 self._task_processor,
-                self._ctx,
+                self._hctx,
                 self._max_attempts,
                 self._invisibility_minutes,
             )
             await delete_expired_events(
-                pool=self._ctx.pool,
+                pool=self._hctx.pool,
                 max_attempts=self._max_attempts,
                 max_age_minutes=self._max_age_minutes,
             )
@@ -142,7 +142,7 @@ class TaskHarness:
         while True:
             try:
                 await asyncio.wait_for(
-                    self._ctx.trigger.get(), timeout=self._calc_worker_sleep()
+                    self._hctx.trigger.get(), timeout=self._calc_worker_sleep()
                 )
                 await worker_run()
             except TimeoutError:
@@ -181,7 +181,7 @@ class TaskHarness:
         Args:
             tasks: The asyncio TaskGroup to create worker tasks in
         """
-        async with self._ctx.pool.connection() as con:
+        async with self._hctx.pool.connection() as con:
             await runner.migrate_db(con)
 
         logger.info(f"creating {self._num_workers} workers")

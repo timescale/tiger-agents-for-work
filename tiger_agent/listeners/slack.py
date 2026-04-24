@@ -56,7 +56,7 @@ from tiger_agent.slack.utils import (
     send_proactive_prompt,
     set_status,
 )
-from tiger_agent.tasks.types import Context, TaskProcessor
+from tiger_agent.tasks.types import HarnessContext, TaskProcessor
 from tiger_agent.tasks.utils import process_task
 
 
@@ -72,24 +72,24 @@ class SlackListener(Listener):
 
     def __init__(
         self,
-        ctx: Context,
+        hctx: HarnessContext,
         task_processor: TaskProcessor,
     ):
-        self._ctx = ctx
-        self._pool = ctx.pool
-        self._app = ctx.app
-        self._trigger = ctx.trigger
+        self._hctx = hctx
+        self._pool = hctx.pool
+        self._app = hctx.app
+        self._trigger = hctx.trigger
         self._task_processor = task_processor
         self._proactive_prompt_channels = (
-            set(ctx.proactive_prompt_channels)
-            if ctx.proactive_prompt_channels
+            set(hctx.proactive_prompt_channels)
+            if hctx.proactive_prompt_channels
             else None
         )
         self._bot_info: BotInfo | None = None
 
     async def start(self, tasks: TaskGroup):
         self._bot_info = await fetch_bot_info(self._app.client)
-        self._ctx.bot_info = self._bot_info
+        self._hctx.bot_info = self._bot_info
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(AGENT_FEEDBACK_RATING)(self._handle_agent_feedback_rating)
@@ -126,7 +126,7 @@ class SlackListener(Listener):
         slack_command = SlackCommand(**command)
         await ack()
         response = await handle_command(
-            command=slack_command, ctx=self._ctx, bot_info=self._bot_info
+            command=slack_command, hctx=self._hctx, bot_info=self._bot_info
         )
         await respond(text=response, response_type="ephemeral", delete_original=True)
 
@@ -174,7 +174,7 @@ class SlackListener(Listener):
         # and Salesforce is configured
         if (
             thread_ts
-            and self._ctx.salesforce_client
+            and self._hctx.salesforce_client
             and (
                 salesforce_case_id_for_slack_thread
                 := await get_salesforce_case_thread_case_id(
@@ -212,7 +212,7 @@ class SlackListener(Listener):
                     )
 
             add_case_email_comment(
-                self._ctx.salesforce_client,
+                self._hctx.salesforce_client,
                 case_id=salesforce_case_id_for_slack_thread,
                 body=f"{text_prefix}\n{text}",
                 html_body=f"<p>{html_prefix}</p><p>{text}</p>",
@@ -319,7 +319,7 @@ class SlackListener(Listener):
         if not salesforce_account_id_for_channel:
             return
         services_and_projects = get_services_for_account(
-            self._ctx.salesforce_client, salesforce_account_id_for_channel
+            self._hctx.salesforce_client, salesforce_account_id_for_channel
         )
         await send_new_salesforce_case_workflow_form(
             client=self._app.client,
@@ -346,7 +346,7 @@ class SlackListener(Listener):
             )
             return
 
-        await process_task(self._task_processor, self._ctx, event)
+        await process_task(self._task_processor, self._hctx, event)
 
     async def _handle_agent_feedback_rating(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond

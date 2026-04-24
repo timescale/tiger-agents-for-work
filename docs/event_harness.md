@@ -50,7 +50,7 @@ sequenceDiagram
 
 ### Core Components
 
-#### **TaskContext**
+#### **HarnessContext**
 Shared context object providing task processors with:
 - **Slack AsyncApp**: For making Slack API calls
 - **Database Pool**: For data operations and persistence

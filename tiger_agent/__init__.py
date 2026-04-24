@@ -6,13 +6,11 @@ from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.slack.types import SlackAppMentionEvent
 from tiger_agent.tasks.harness import TaskHarness
 from tiger_agent.tasks.types import Task, TaskProcessor
-from tiger_agent.types import Context
+from tiger_agent.types import HarnessContext
 
 # Backwards-compatible aliases
 EventHarness = TaskHarness
 Event = Task
-HarnessContext = Context
-TaskContext = Context
 EventProcessor = TaskProcessor
 
 
@@ -25,13 +23,11 @@ __all__ = [
     "__version__",
     # New names
     "TaskHarness",
-    "Context",
+    "HarnessContext",
     "Task",
     "TaskProcessor",
     # Backwards-compatible aliases
     "EventHarness",
-    "HarnessContext",
-    "TaskContext",
     "Event",
     "EventProcessor",
 ]

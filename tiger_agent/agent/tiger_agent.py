@@ -76,7 +76,7 @@ from tiger_agent.slack.utils import (
     set_status,
     stream_response_to_mention,
 )
-from tiger_agent.tasks.types import Context, Task
+from tiger_agent.tasks.types import HarnessContext, Task
 from tiger_agent.utils import file_type_supported
 
 logger = logging.getLogger(__name__)
@@ -311,10 +311,10 @@ class TigerAgent:
 
     @logfire.instrument("handle_new_salesforce_case_feed_item", extract_args=["event"])
     async def handle_new_salesforce_case_feed_item(
-        self, ctx: Context, event: SalesforceFeedItemEvent
+        self, hctx: HarnessContext, event: SalesforceFeedItemEvent
     ):
         [channel_id, thread_ts] = await get_salesforce_case_thread_thread_id(
-            ctx.pool, case_id=event.feed_item.ParentId
+            hctx.pool, case_id=event.feed_item.ParentId
         )
 
         # the body from Salesforce is html, let's convert to markdown
@@ -324,7 +324,7 @@ class TigerAgent:
         text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
 
         await post_response(
-            client=ctx.app.client,
+            client=hctx.app.client,
             channel=channel_id,
             thread_ts=thread_ts,
             text=text,
@@ -333,12 +333,12 @@ class TigerAgent:
 
     async def handle_create_salesforce_case(
         self,
-        ctx: Context,
+        hctx: HarnessContext,
         event: SalesforceCreateNewCaseEvent,
         channel_to_respond: str,
     ) -> None:
         account_id_for_channel = await get_salesforce_account_id_for_channel(
-            pool=ctx.pool, channel_id=channel_to_respond
+            pool=hctx.pool, channel_id=channel_to_respond
         )
 
         if not account_id_for_channel:
@@ -350,7 +350,7 @@ class TigerAgent:
             return
 
         new_case = create_case(
-            salesforce_client=ctx.salesforce_client,
+            salesforce_client=hctx.salesforce_client,
             subject=event.subject,
             description=event.description,
             severity=event.severity,
@@ -360,7 +360,7 @@ class TigerAgent:
             origin="Slack",
         )
         response = await post_response(
-            client=ctx.app.client,
+            client=hctx.app.client,
             channel=channel_to_respond,
             thread_ts=None,
             text=f"*Support Case Created*\nCase Number: {new_case.CaseNumber}\nSubject: {new_case.Subject} \nDescription: {new_case.Description}",
@@ -377,7 +377,7 @@ class TigerAgent:
         # and the Salesforce case so that we can sync the messages
         # in the thread with the Salesforce case comments
         await add_salesforce_case_thread(
-            ctx.pool,
+            hctx.pool,
             thread_ts=new_case_thread_ts,
             channel_id=channel_to_respond,
             case_id=new_case.Id,
@@ -389,13 +389,13 @@ class TigerAgent:
             )
             return
 
-        result = await ctx.app.client.chat_getPermalink(
+        result = await hctx.app.client.chat_getPermalink(
             channel=channel_to_respond,
             message_ts=new_case_thread_ts,
         )
         permalink = result.data.get("permalink")
 
-        ctx.salesforce_client.Case.update(
+        hctx.salesforce_client.Case.update(
             new_case.Id,
             {SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD: permalink},
             headers={"Sforce-Auto-Assign": "false"},
@@ -408,7 +408,7 @@ class TigerAgent:
 
     async def handle_salesforce_event(
         self,
-        ctx: Context,
+        hctx: HarnessContext,
         event: SalesforceBaseEvent,
         agent: Agent,
         user_prompt: str | list,
@@ -431,7 +431,7 @@ class TigerAgent:
                 return
 
         original_message = await post_response(
-            client=ctx.app.client,
+            client=hctx.app.client,
             channel=channel_to_respond,
             thread_ts=None,
             text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to <@{response.output.case_owner_slack_user_id}>' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
@@ -447,7 +447,7 @@ class TigerAgent:
 
         # this is the detailed message
         await post_response(
-            client=ctx.app.client,
+            client=hctx.app.client,
             channel=channel_to_respond,
             thread_ts=message_to_link_to.ts,
             text=response.output.message,
@@ -455,13 +455,13 @@ class TigerAgent:
 
         if message_to_link_to and SALESFORCE_SLACK_THREAD_FIELD:
             if event.update_link_to_thread:
-                result = await ctx.app.client.chat_getPermalink(
+                result = await hctx.app.client.chat_getPermalink(
                     channel=message_to_link_to.channel_id,
                     message_ts=message_to_link_to.ts,
                 )
                 permalink = result.data.get("permalink")
 
-                ctx.salesforce_client.Case.update(
+                hctx.salesforce_client.Case.update(
                     event.case.Id,
                     {SALESFORCE_SLACK_THREAD_FIELD: permalink},
                     headers={"Sforce-Auto-Assign": "false"},
@@ -479,14 +479,14 @@ class TigerAgent:
                     await send_feedback_rating_prompt(client, message)
 
                 asyncio.create_task(
-                    _delayed_feedback(ctx.app.client, message_to_link_to)
+                    _delayed_feedback(hctx.app.client, message_to_link_to)
                 )
 
         return message_to_link_to
 
     async def handle_slack_event(
         self,
-        ctx: Context,
+        hctx: HarnessContext,
         event: SlackAppMentionEvent | SlackMessageEvent,
         agent: Agent,
         user_prompt: str | list,
@@ -494,7 +494,7 @@ class TigerAgent:
         channel_to_respond: str,
     ) -> SlackMessage | None:
         if await usage_limit_reached(
-            pool=ctx.pool,
+            pool=hctx.pool,
             user_id=event.user,
             interval=self.rate_limit_interval,
             allowed_requests=self.rate_limit_allowed_requests,
@@ -507,7 +507,7 @@ class TigerAgent:
             )
 
             await post_response(
-                client=ctx.app.client,
+                client=hctx.app.client,
                 channel=channel_to_respond,
                 thread_ts=event.thread_ts or event.ts,
                 text="I cannot process your request at this time due to usage limits. Please ask me again later.",
@@ -517,7 +517,7 @@ class TigerAgent:
 
         response_message: SlackMessage | None = None
         await set_status(
-            client=ctx.app.client,
+            client=hctx.app.client,
             channel_id=event.channel,
             thread_ts=event.thread_ts or event.ts,
             is_busy=True,
@@ -532,7 +532,7 @@ class TigerAgent:
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
             slack_stream = await stream_response_to_mention(
-                client=ctx.app.client,
+                client=hctx.app.client,
                 slack_stream=slack_stream,
                 stream_event=stream_event,
                 channel_id=event.channel,
@@ -555,14 +555,14 @@ class TigerAgent:
 
         # clear the status widget
         await set_status(
-            client=ctx.app.client,
+            client=hctx.app.client,
             channel_id=event.channel,
             thread_ts=event.thread_ts or event.ts,
             is_busy=False,
         )
 
         await add_reaction(
-            ctx.app.client,
+            hctx.app.client,
             event.channel,
             event.ts,
             "white_check_mark",
@@ -572,7 +572,7 @@ class TigerAgent:
 
     @logfire.instrument("generate_response", extract_args=False)
     async def create_and_send_response(
-        self, ctx: Context, task: Task
+        self, hctx: HarnessContext, task: Task
     ) -> SlackMessage | None:
         event = task.event
         channel_to_respond = (
@@ -584,18 +584,18 @@ class TigerAgent:
 
         if isinstance(event, SalesforceCreateNewCaseEvent):
             await self.handle_create_salesforce_case(
-                ctx=ctx,
+                hctx=hctx,
                 event=event,
                 channel_to_respond=channel_to_respond,
             )
             return
 
         if isinstance(event, SalesforceFeedItemEvent):
-            await self.handle_new_salesforce_case_feed_item(ctx=ctx, event=event)
+            await self.handle_new_salesforce_case_feed_item(hctx=hctx, event=event)
             return
 
         agent_and_ctx, self.bot_info = await create_agent_and_context(
-            ctx=ctx,
+            hctx=hctx,
             task=task,
             model=self.model,
             bot_info=self.bot_info,
@@ -631,7 +631,7 @@ class TigerAgent:
             channel_to_respond=channel_to_respond,
         )
 
-    async def __call__(self, ctx: Context, task: Task) -> None:
+    async def __call__(self, hctx: HarnessContext, task: Task) -> None:
         """Processes various tasks.
 
         This method implements the complete TaskProcessor interface for the
@@ -663,12 +663,12 @@ class TigerAgent:
         payload = task.event
         try:
             if not isinstance(payload, SalesforceBaseEvent) and await user_ignored(
-                pool=ctx.pool, user_id=payload.user
+                pool=hctx.pool, user_id=payload.user
             ):
                 logfire.info("Ignore user", user_id=payload.user)
                 return
 
-            message = await self.create_and_send_response(ctx, task)
+            message = await self.create_and_send_response(hctx, task)
 
             if message:
                 logfire.info("Reponse sent", extra={"message": message})
@@ -678,9 +678,9 @@ class TigerAgent:
             if isinstance(payload, SalesforceBaseEvent):
                 return
 
-            await add_reaction(ctx.app.client, payload.channel, payload.ts, "x")
+            await add_reaction(hctx.app.client, payload.channel, payload.ts, "x")
             await post_response(
-                client=ctx.app.client,
+                client=hctx.app.client,
                 channel=payload.channel,
                 thread_ts=payload.thread_ts if payload.thread_ts else payload.ts,
                 text="I experienced an issue trying to respond. I will try again."

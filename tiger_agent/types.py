@@ -9,7 +9,7 @@ from tiger_agent.slack.types import BotInfo
 
 
 @dataclass
-class Context:
+class HarnessContext:
     """Shared context provided to listeners and task processors.
 
     Attributes:
@@ -26,7 +26,3 @@ class Context:
     salesforce_client: Salesforce | None = None
     bot_info: BotInfo | None = None
     proactive_prompt_channels: list[str] | None = None
-
-
-# Backwards-compatible alias
-HarnessContext = Context

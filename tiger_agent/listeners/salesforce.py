@@ -24,15 +24,15 @@ from tiger_agent.salesforce.utils import (
     should_ignore_new_case,
     subscribe_to_topic,
 )
-from tiger_agent.types import Context
+from tiger_agent.types import HarnessContext
 
 
 class SalesforceListener(Listener):
-    def __init__(self, ctx: Context):
-        assert ctx.salesforce_client is not None, "salesforce_client is required"
-        self._salesforce_client = ctx.salesforce_client
-        self._pool = ctx.pool
-        self._trigger = ctx.trigger
+    def __init__(self, hctx: HarnessContext):
+        assert hctx.salesforce_client is not None, "salesforce_client is required"
+        self._salesforce_client = hctx.salesforce_client
+        self._pool = hctx.pool
+        self._trigger = hctx.trigger
         self._new_case_poller: SalesforceNewCasePoller | None
         self._feed_item_poller: SalesforceCaseFeedItemPoller | None
 
