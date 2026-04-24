@@ -412,13 +412,13 @@ class TigerAgent:
         event: SalesforceBaseEvent,
         agent: Agent,
         user_prompt: str | list,
-        agent_ctx: AgentResponseContext,
+        ctx: AgentResponseContext,
         channel_to_respond: str,
     ) -> SlackMessage | None:
 
         response = await agent.run(
             user_prompt=user_prompt,
-            deps=agent_ctx,
+            deps=ctx,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         )
 
@@ -490,7 +490,7 @@ class TigerAgent:
         event: SlackAppMentionEvent | SlackMessageEvent,
         agent: Agent,
         user_prompt: str | list,
-        agent_ctx: AgentResponseContext,
+        ctx: AgentResponseContext,
         channel_to_respond: str,
     ) -> SlackMessage | None:
         if await usage_limit_reached(
@@ -528,7 +528,7 @@ class TigerAgent:
         # that that will return before tool calls are made: https://github.com/pydantic/pydantic-ai/issues/3574
         async for stream_event in agent.run_stream_events(
             user_prompt=user_prompt,
-            deps=agent_ctx,
+            deps=ctx,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
         ):
             slack_stream = await stream_response_to_mention(
@@ -608,9 +608,9 @@ class TigerAgent:
         )
         agent = agent_and_ctx.agent
         user_prompt = agent_and_ctx.user_prompt
-        agent_ctx = agent_and_ctx.ctx
+        ctx = agent_and_ctx.ctx
         channel_to_respond = agent_and_ctx.channel_to_respond
-        event = agent_ctx.mention
+        event = ctx.mention
 
         if isinstance(event, SalesforceBaseEvent):
             return await self.handle_salesforce_event(
@@ -618,7 +618,7 @@ class TigerAgent:
                 event=event,
                 agent=agent,
                 user_prompt=user_prompt,
-                agent_ctx=agent_ctx,
+                ctx=ctx,
                 channel_to_respond=channel_to_respond,
             )
 
@@ -627,7 +627,7 @@ class TigerAgent:
             event=event,
             agent=agent,
             user_prompt=user_prompt,
-            agent_ctx=agent_ctx,
+            ctx=ctx,
             channel_to_respond=channel_to_respond,
         )
 
