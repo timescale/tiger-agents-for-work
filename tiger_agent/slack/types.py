@@ -221,9 +221,10 @@ class SlackBaseEvent(BaseModel):
     ts: str
     thread_ts: str | None = None
     team: str | None = None
+    bot_id: str | None = None
     text: str
     type: str
-    user: str
+    user: str | None = None
     blocks: list[dict[str, Any]] | None = None
     channel: str
     event_ts: str
