@@ -30,11 +30,11 @@ from tiger_agent.db.utils import (
 )
 from tiger_agent.listeners.salesforce import SalesforceListener
 from tiger_agent.listeners.slack import SlackListener
-from tiger_agent.tasks.types import TaskContext, TaskProcessor
-from tiger_agent.tasks.utils import process_tasks
 from tiger_agent.migrations import runner
 from tiger_agent.salesforce.clients import get_salesforce_api_client
 from tiger_agent.salesforce.types import SalesforceConfig
+from tiger_agent.tasks.types import TaskContext, TaskProcessor
+from tiger_agent.tasks.utils import process_tasks
 
 logger = logging.getLogger(__name__)
 
