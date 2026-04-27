@@ -6,7 +6,8 @@ from tiger_agent.app import TigerApp
 from tiger_agent.prompts.types import PromptPackage
 from tiger_agent.slack.types import SlackAppMentionEvent
 from tiger_agent.tasks.harness import TaskHarness
-from tiger_agent.tasks.types import Task, TaskProcessor
+from tiger_agent.tasks.handlers import TaskHandler, TaskProcessor
+from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import get_harness_ctx
 
@@ -26,9 +27,10 @@ __all__ = [
     # New names
     "TigerApp",
     "TaskHarness",
+    "TaskHandler",
+    "TaskProcessor",
     "HarnessContext",
     "Task",
-    "TaskProcessor",
     # Backwards-compatible aliases
     "EventHarness",
     "Event",

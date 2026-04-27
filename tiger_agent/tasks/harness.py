@@ -20,8 +20,9 @@ from asyncio import QueueShutDown, TaskGroup
 
 from tiger_agent.db.utils import delete_expired_events
 from tiger_agent.migrations import runner
-from tiger_agent.tasks.types import HarnessContext, TaskProcessor
+from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.utils import process_tasks
+from tiger_agent.types import HarnessContext
 
 logger = logging.getLogger(__name__)
 

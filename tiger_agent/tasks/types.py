@@ -1,4 +1,3 @@
-from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -9,7 +8,6 @@ from tiger_agent.salesforce.types import (
     SalesforceFeedItemEvent,
 )
 from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
-from tiger_agent.types import HarnessContext
 
 
 class Task(BaseModel):
@@ -39,7 +37,3 @@ class Task(BaseModel):
         | SalesforceAssignmentChangedEvent
         | SalesforceFeedItemEvent
     )
-
-
-# Type alias for task processing callback
-TaskProcessor = Callable[[HarnessContext, Task], Awaitable[None]]
