@@ -39,6 +39,7 @@
         "pins:write",
         "im:read",
         "files:read",
+        "files:write",
         "team:read"
       ]
     }
