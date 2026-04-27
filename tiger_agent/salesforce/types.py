@@ -4,10 +4,15 @@ from pydantic import BaseModel
 
 
 @dataclass
-class EmailAttachment:
+class FileAttachment:
     name: str
     body: bytes
     content_type: str
+
+
+@dataclass
+class EmailAttachment(FileAttachment):
+    pass
 
 
 class SalesforceUser(BaseModel):

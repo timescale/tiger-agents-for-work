@@ -61,7 +61,12 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
 )
-from tiger_agent.salesforce.utils import create_case, create_case_url
+from tiger_agent.salesforce.utils import (
+    create_case,
+    create_case_url,
+    download_feed_attachment,
+    get_feed_attachment_ids,
+)
 from tiger_agent.slack.types import (
     BotInfo,
     SlackAppMentionEvent,
@@ -323,12 +328,18 @@ class TigerAgent:
         body = "\n".join(f"> {line}" for line in markdown_conversion.splitlines())
         text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
 
+        attachment_ids = get_feed_attachment_ids(hctx.salesforce_client, event.feed_item.Id)
+        image_attachments = [
+            download_feed_attachment(hctx.salesforce_client, aid) for aid in attachment_ids
+        ]
+
         await post_response(
             client=hctx.app.client,
             channel=channel_id,
             thread_ts=thread_ts,
             text=text,
             use_mrkdwn=True,
+            image_attachments=image_attachments,
         )
 
     async def handle_create_salesforce_case(
