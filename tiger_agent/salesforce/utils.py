@@ -18,6 +18,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import (
     CaseData,
     EmailAttachment,
+    FileAttachment,
     SalesforceFeedItem,
     ServiceRecord,
 )
@@ -275,6 +276,73 @@ def get_recent_case_feed_items(
     except Exception:
         logfire.exception("Failed to fetch recent feed items")
         return []
+
+
+def get_feed_attachment_ids(
+    salesforce_client: Salesforce,
+    feed_item_id: str,
+) -> list[str]:
+    """Return the Ids of all FeedAttachments for a given FeedItem."""
+    result = salesforce_client.query(
+        f"SELECT Id FROM FeedAttachment WHERE FeedEntityId = '{feed_item_id}'"
+    )
+    return [r["Id"] for r in result.get("records", [])]
+
+
+def download_feed_attachment(
+    salesforce_client: Salesforce,
+    feed_attachment_id: str,
+) -> FileAttachment:
+    """Download the body of a Salesforce FeedAttachment by its Id.
+
+    FeedAttachment records link a ContentDocument to a FeedItem. The binary
+    content is fetched from the ContentVersion REST endpoint.
+    """
+    attachment = salesforce_client.FeedAttachment.get(feed_attachment_id)
+    record_id = attachment.get("RecordId")
+    if not record_id:
+        raise ValueError(f"FeedAttachment {feed_attachment_id} has no RecordId")
+    attachment_type = attachment.get("Type", "")
+
+    version = salesforce_client.query(
+        f"SELECT Id, Title, FileExtension, VersionData"
+        f" FROM ContentVersion"
+        f" WHERE ContentDocumentId = '{record_id}'"
+        f" AND IsLatest = true"
+        f" LIMIT 1"
+    )
+    records = version.get("records", [])
+    if not records:
+        raise ValueError(f"No ContentVersion found for ContentDocument {record_id}")
+
+    cv = records[0]
+    url = f"https://{salesforce_client.sf_instance}{cv['VersionData']}"
+    response = salesforce_client.session.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {salesforce_client.session_id}",
+            "Accept": "*/*",
+        },
+    )
+    response.raise_for_status()
+
+    name = cv.get("Title") or feed_attachment_id
+    extension = cv.get("FileExtension")
+    if extension:
+        name = f"{name}.{extension}"
+
+    _ATTACHMENT_TYPE_TO_MIME = {
+        "InlineImage": "image/png",
+        "File": "application/octet-stream",
+        "Link": "text/uri-list",
+    }
+    content_type = _ATTACHMENT_TYPE_TO_MIME.get(attachment_type, "application/octet-stream")
+
+    return FileAttachment(
+        name=name,
+        body=response.content,
+        content_type=content_type,
+    )
 
 
 def get_project_ids_for_account(

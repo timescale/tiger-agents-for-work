@@ -39,7 +39,7 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
-from tiger_agent.salesforce.types import ServiceRecord
+from tiger_agent.salesforce.types import FileAttachment, ServiceRecord
 from tiger_agent.slack.constants import (
     AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
@@ -240,6 +240,7 @@ async def post_response(
     thread_ts: str | None,
     text: str,
     use_mrkdwn: bool = False,
+    image_attachments: list[FileAttachment] | None = None,
 ) -> AsyncSlackResponse:
     """Post a response message to Slack with rich formatting.
 
@@ -252,11 +253,12 @@ async def post_response(
         channel: Slack channel ID to post in
         thread_ts: Thread timestamp to reply to (or message ts to start thread)
         text: Message content with markdown formatting support
+        image_attachments: Optional image files to upload and attach as image blocks
 
     Raises:
         SlackApiError: If message posting fails (not caught, allows caller to handle)
     """
-    return await client.chat_postMessage(
+    response = await client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
         text=text,
@@ -266,6 +268,18 @@ async def post_response(
         unfurl_links=False,
         unfurl_media=False,
     )
+
+    for attachment in image_attachments or []:
+        if not attachment.content_type.startswith("image/"):
+            continue
+        await client.files_upload_v2(
+            channel=channel,
+            thread_ts=thread_ts,
+            filename=attachment.name,
+            content=attachment.body,
+        )
+
+    return response
 
 
 @logfire.instrument("fetch_team_info", extract_args=["team_id"])
