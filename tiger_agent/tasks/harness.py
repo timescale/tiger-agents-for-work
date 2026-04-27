@@ -68,26 +68,12 @@ class TaskHarness:
         self,
         task_processor: TaskProcessor,
         hctx: HarnessContext,
-        worker_sleep_seconds: int = 60,
-        worker_min_jitter_seconds: int = -15,
-        worker_max_jitter_seconds: int = 15,
-        max_attempts: int = 3,
-        max_age_minutes: int = 60,
-        invisibility_minutes: int = 10,
-        num_workers: int = 5,
     ):
         self._task_processor = task_processor
         self._hctx = hctx
-        self._worker_sleep_seconds = worker_sleep_seconds
-        self._worker_min_jitter_seconds = worker_min_jitter_seconds
-        self._worker_max_jitter_seconds = worker_max_jitter_seconds
-        self._max_attempts = max_attempts
-        self._max_age_minutes = max_age_minutes
-        self._num_workers = num_workers
-        self._invisibility_minutes = invisibility_minutes
-        assert worker_sleep_seconds > 0
-        assert worker_sleep_seconds - worker_min_jitter_seconds > 0
-        assert worker_max_jitter_seconds > worker_min_jitter_seconds
+        assert hctx.worker_sleep_seconds > 0
+        assert hctx.worker_sleep_seconds - hctx.worker_min_jitter_seconds > 0
+        assert hctx.worker_max_jitter_seconds > hctx.worker_min_jitter_seconds
 
     def _calc_worker_sleep(self) -> int:
         """Calculate sleep duration for worker with random jitter.
@@ -99,9 +85,9 @@ class TaskHarness:
             int: Sleep duration in seconds with jitter applied
         """
         jitter = random.randint(
-            self._worker_min_jitter_seconds, self._worker_max_jitter_seconds
+            self._hctx.worker_min_jitter_seconds, self._hctx.worker_max_jitter_seconds
         )
-        return self._worker_sleep_seconds + jitter
+        return self._hctx.worker_sleep_seconds + jitter
 
     async def _worker(self, worker_id: int, initial_sleep_seconds: int):
         """Main worker loop for processing tasks.
@@ -119,13 +105,13 @@ class TaskHarness:
             await process_tasks(
                 self._task_processor,
                 self._hctx,
-                self._max_attempts,
-                self._invisibility_minutes,
+                self._hctx.max_attempts,
+                self._hctx.invisibility_minutes,
             )
             await delete_expired_events(
                 pool=self._hctx.pool,
-                max_attempts=self._max_attempts,
-                max_age_minutes=self._max_age_minutes,
+                max_attempts=self._hctx.max_attempts,
+                max_age_minutes=self._hctx.max_age_minutes,
             )
 
         if initial_sleep_seconds > 0:
@@ -164,7 +150,7 @@ class TaskHarness:
         """
         initial_sleeps: list[int] = [0]  # first worker starts immediately
         initial_sleeps.extend(
-            random.sample(range(1, self._worker_sleep_seconds), num_workers - 1)
+            random.sample(range(1, self._hctx.worker_sleep_seconds), num_workers - 1)
         )
         return [
             (worker_id, initial_sleep)
@@ -184,7 +170,7 @@ class TaskHarness:
         async with self._hctx.pool.connection() as con:
             await runner.migrate_db(con)
 
-        logger.info(f"creating {self._num_workers} workers")
-        for worker_id, initial_sleep in self._worker_args(self._num_workers):
+        logger.info(f"creating {self._hctx.num_workers} workers")
+        for worker_id, initial_sleep in self._worker_args(self._hctx.num_workers):
             logger.info("creating worker", extra={"worker_id": worker_id})
             tasks.create_task(self._worker(worker_id, initial_sleep))

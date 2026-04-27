@@ -14,6 +14,7 @@ production (with full Logfire observability) environments.
 
 import logging
 import os
+from asyncio import Queue
 from logging.config import dictConfig
 from typing import Any
 
@@ -25,10 +26,14 @@ from pydantic_ai.mcp import (
     CallToolFunc,
     ProcessToolCallback,
 )
+from slack_bolt.async_app import AsyncApp
 
 from tiger_agent import __version__
 from tiger_agent.agent.types import AgentResponseContext
+from tiger_agent.db.utils import create_default_pool
 from tiger_agent.mcp.types import MCPDict
+from tiger_agent.salesforce.clients import get_salesforce_api_client
+from tiger_agent.types import HarnessContext
 
 
 def setup_logging(service_name: str = "tiger-agent") -> None:
@@ -163,3 +168,32 @@ def serialize_to_jsonb(model: BaseModel) -> Jsonb:
 
 def file_type_supported(mimetype: str) -> bool:
     return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
+
+
+def get_harness_ctx(
+    num_workers: int = 5,
+    proactive_prompt_channels: list[str] | None = None,
+    worker_sleep_seconds: int = 60,
+    worker_min_jitter_seconds: int = -15,
+    worker_max_jitter_seconds: int = 15,
+    max_attempts: int = 3,
+    max_age_minutes: int = 60,
+    invisibility_minutes: int = 10,
+) -> HarnessContext:
+
+    return HarnessContext(
+        app=AsyncApp(
+            token=os.environ["SLACK_BOT_TOKEN"], ignoring_self_events_enabled=False
+        ),
+        pool=create_default_pool(num_workers),
+        trigger=Queue(),
+        salesforce_client=get_salesforce_api_client(),
+        proactive_prompt_channels=proactive_prompt_channels,
+        num_workers=num_workers,
+        worker_sleep_seconds=worker_sleep_seconds,
+        worker_min_jitter_seconds=worker_min_jitter_seconds,
+        worker_max_jitter_seconds=worker_max_jitter_seconds,
+        max_attempts=max_attempts,
+        max_age_minutes=max_age_minutes,
+        invisibility_minutes=invisibility_minutes,
+    )
