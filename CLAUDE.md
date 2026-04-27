@@ -10,9 +10,9 @@ Tiger Agent is a production-ready Python library for building AI-powered Slack b
 
 The system is built around three main components:
 
-1. **EventHarness** (`tiger_agent/harness.py`): PostgreSQL-backed work queue system that manages Slack `app_mention` events with atomic claiming, retry logic, and bounded concurrency across multiple worker instances
-2. **TigerAgent** (`tiger_agent/agent.py`): AI-powered event processor using Pydantic-AI agents with MCP (Model Context Protocol) server integrations and Jinja2 template-based prompt generation
-3. **Database Layer** (`tiger_agent/migrations/`): TimescaleDB schema with agent.event table as durable work queue and atomic database functions for event processing
+1. **TaskHarness** (`tiger_agent/tasks/harness.py`): PostgreSQL-backed work queue system that manages Slack `app_mention` events with atomic claiming, retry logic, and bounded concurrency across multiple worker instances
+2. **TigerAgent** (`tiger_agent/agent/tiger_agent.py`): AI-powered task processor using Pydantic-AI agents with MCP (Model Context Protocol) server integrations and Jinja2 template-based prompt generation
+3. **Database Layer** (`tiger_agent/migrations/`): TimescaleDB schema with agent.event table as durable work queue and atomic database functions for task processing
 
 ### Key Integration Points
 
@@ -73,25 +73,28 @@ docker run -d --name tiger-agent \
 
 ### Core Modules
 
-- `tiger_agent/agent.py`: Main TigerAgent class implementing EventProcessor interface
-- `tiger_agent/harness.py`: EventHarness orchestrator and database work queue logic
-- `tiger_agent/slack.py`: Slack API integration utilities (posting, reactions, user info)
+- `tiger_agent/agent/tiger_agent.py`: Main TigerAgent class implementing TaskProcessor interface
+- `tiger_agent/tasks/harness.py`: TaskHarness orchestrator and database work queue logic
+- `tiger_agent/listeners/slack.py`: SlackListener — receives Slack events and enqueues tasks
+- `tiger_agent/listeners/salesforce.py`: SalesforceListener — receives Salesforce events and enqueues tasks
+- `tiger_agent/tasks/types.py`: Task, HarnessContext, TaskProcessor types
+- `tiger_agent/slack/`: Slack API integration utilities (posting, reactions, user info)
 - `tiger_agent/main.py`: CLI entry point with Click commands
 - `tiger_agent/migrations/`: Database schema and migration system
 
 ### Data Flow
 
-1. Slack events → EventHarness via Socket Mode
-2. Events stored in `agent.event` table with status tracking
-3. Worker pool claims events atomically via database functions
-4. TigerAgent processes events: template rendering → Pydantic-AI → MCP tools → Slack response
-5. Event status updated (completed/failed) with full tracing
+1. Slack/Salesforce events → listeners (SlackListener, SalesforceListener)
+2. Tasks stored in `agent.event` table with status tracking
+3. Worker pool claims tasks atomically via database functions
+4. TigerAgent processes tasks: template rendering → Pydantic-AI → MCP tools → Slack response
+5. Task status updated (completed/failed) with full tracing
 
 ### Customization Patterns
 
 - **Prompt Templates**: Modify Jinja2 templates in `/prompts/` for different contexts
 - **MCP Integration**: Add servers to `mcp_config.json` for new capabilities (Slack search, docs, memory, etc.)
 - **Subclassing**: Extend TigerAgent class for specialized processing logic
-- **Custom EventProcessor**: Implement EventProcessor interface from scratch for non-AI use cases
+- **Custom TaskProcessor**: Implement TaskProcessor interface from scratch for non-AI use cases
 
 The system emphasizes durability, observability, and horizontal scaling while maintaining simplicity for basic AI bot use cases.

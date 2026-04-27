@@ -26,51 +26,58 @@ from pathlib import Path
 from typing import Any
 
 import logfire
+from htmlslacker import HTMLSlacker
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
-from pydantic_ai import Agent, BinaryContent, Tool, UsageLimits, models
-from pydantic_ai.messages import (
-    UserContent,
-)
-from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai import Agent, UsageLimits, models
+from pydantic_ai.messages import UserContent
 from slack_sdk.web.async_client import (
     AsyncChatStream,
 )
 
 from tiger_agent.agent.types import (
     AgentResponseContext,
-    AgentSalesforceResponse,
     ExtraContextDict,
 )
-from tiger_agent.db.utils import usage_limit_reached, user_ignored
-from tiger_agent.events.types import Event, HarnessContext
+from tiger_agent.agent.utils import create_agent_and_context
+from tiger_agent.db.utils import (
+    add_salesforce_case_thread,
+    get_salesforce_account_id_for_channel,
+    get_salesforce_case_thread_thread_id,
+    usage_limit_reached,
+    user_ignored,
+)
 from tiger_agent.mcp.types import MCPDict
-from tiger_agent.mcp.utils import MCPLoader, filter_mcp_servers
+from tiger_agent.mcp.utils import MCPLoader
 from tiger_agent.prompts.types import PromptPackage
-from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_ENABLE_SPAM_FILTERING,
+    SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD,
     SALESFORCE_SLACK_THREAD_FIELD,
 )
-from tiger_agent.salesforce.types import SalesforceBaseEvent
-from tiger_agent.salesforce.utils import create_case_url
-from tiger_agent.slack.types import BotInfo, SlackFile, SlackMessage
+from tiger_agent.salesforce.types import (
+    SalesforceBaseEvent,
+    SalesforceCreateNewCaseEvent,
+    SalesforceFeedItemEvent,
+)
+from tiger_agent.salesforce.utils import create_case, create_case_url
+from tiger_agent.slack.types import (
+    BotInfo,
+    SlackAppMentionEvent,
+    SlackMessage,
+    SlackMessageEvent,
+)
 from tiger_agent.slack.utils import (
     add_reaction,
     download_private_file,
-    download_slack_hosted_file,
-    fetch_bot_info,
-    fetch_thread_messages,
-    fetch_user_info,
     post_response,
+    send_feedback_rating_prompt,
     set_status,
     stream_response_to_mention,
 )
-from tiger_agent.utils import (
-    file_type_supported,
-    wrap_mcp_servers_with_exception_handling,
-)
+from tiger_agent.tasks.types import HarnessContext, Task
+from tiger_agent.utils import file_type_supported
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +278,6 @@ class TigerAgent:
         user_contents: list[UserContent] = [
             await download_private_file(
                 url_private_download=file.url_private_download,
-                slack_bot_token=ctx.slack_bot_token,
             )
             for file in ctx.mention.files
             if file_type_supported(file.mimetype)
@@ -303,142 +309,190 @@ class TigerAgent:
             extra_ctx: Dictionary of BaseModel objects keyed by name for template access
         """
 
-    @logfire.instrument("generate_response", extract_args=False)
-    async def create_and_send_response(
-        self, hctx: HarnessContext, stream_event: Event
-    ) -> SlackMessage | None:
-        event = stream_event.event
-
-        if not self.bot_info:
-            self.bot_info = await fetch_bot_info(hctx.app.client)
-
-        all_mcp_servers = self.mcp_loader()
-        self.augment_mcp_servers(all_mcp_servers)
-
-        channel_to_respond = (
-            event.channel
-            if not isinstance(event, SalesforceBaseEvent)
-            else SALESFORCE_CASE_CHANNEL
+    @logfire.instrument("handle_new_salesforce_case_feed_item", extract_args=["event"])
+    async def handle_new_salesforce_case_feed_item(
+        self, hctx: HarnessContext, event: SalesforceFeedItemEvent
+    ):
+        [channel_id, thread_ts] = await get_salesforce_case_thread_thread_id(
+            hctx.pool, case_id=event.feed_item.ParentId
         )
 
-        mcp_servers = await filter_mcp_servers(
-            mcp_servers=all_mcp_servers,
+        # the body from Salesforce is html, let's convert to markdown
+        markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output().strip()
+
+        body = "\n".join(f"> {line}" for line in markdown_conversion.splitlines())
+        text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
+
+        await post_response(
             client=hctx.app.client,
-            channel_id=channel_to_respond,
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text=text,
+            use_mrkdwn=True,
         )
 
-        wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
-
-        ctx = AgentResponseContext(
-            event=stream_event,
-            mention=event,
-            bot=self.bot_info,
-            user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
-            if not isinstance(event, SalesforceBaseEvent)
-            else None,
-            mcp_servers=mcp_servers,
-            slack_bot_token=hctx.slack_bot_token,
+    async def handle_create_salesforce_case(
+        self,
+        hctx: HarnessContext,
+        event: SalesforceCreateNewCaseEvent,
+        channel_to_respond: str,
+    ) -> None:
+        account_id_for_channel = await get_salesforce_account_id_for_channel(
+            pool=hctx.pool, channel_id=channel_to_respond
         )
 
-        extra_ctx = {}
-        await self.augment_context(ctx=ctx, extra_ctx=extra_ctx)
-
-        if (
-            not isinstance(event, SalesforceBaseEvent)
-            and event.thread_ts
-            and self.bot_info
-        ):
-            thread_messages = await fetch_thread_messages(
-                client=hctx.app.client,
-                channel=event.channel,
-                thread_ts=event.thread_ts,
-            )
-            extra_ctx["thread_history"] = format_thread_history(
-                thread_messages, self.bot_info, [event.ts]
-            )
-
-        system_prompt = await self.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
-        user_prompt = await self.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
-
-        toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
-
-        # need to create this closure here so we can pass it in
-        # as a tool to Pydantic agent
-        async def _download_slack_hosted_file(
-            file: SlackFile,
-        ) -> BinaryContent | str | None:
-            return await download_slack_hosted_file(
-                file=file, slack_bot_token=hctx.slack_bot_token
-            )
-
-        agent = Agent(
-            model=self.model,
-            deps_type=dict[str, Any],
-            system_prompt=system_prompt,
-            output_type=AgentSalesforceResponse
-            if isinstance(event, SalesforceBaseEvent)
-            else str,
-            tools=[
-                Tool(
-                    _download_slack_hosted_file,
-                    takes_ctx=False,
-                    name="download_slack_hosted_file",
-                    description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
-                )
-            ],
-            toolsets=toolsets,
-            model_settings={
-                "extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}
-            }
-            if (isinstance(self.model, str) and self.model.startswith("anthropic:"))
-            or isinstance(self.model, AnthropicModel)
-            else None,
-        )
-
-        # when creating a thread for a new Salesforce case
-        # we post a short description as a new top level message
-        # then post the details response as a threaded message
-        # within the OP, but only if the case is not deemed as spam
-        if isinstance(event, SalesforceBaseEvent):
-            response = await agent.run(
-                user_prompt=user_prompt,
-                deps=ctx,
-                usage_limits=UsageLimits(output_tokens_limit=9_000),
-            )
-
-            if response.output.is_spam:
-                logfire.info(
-                    "Salesforce case identified as spam",
-                    extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
-                )
-                if SALESFORCE_ENABLE_SPAM_FILTERING:
-                    return
-
-            original_message = await post_response(
-                client=hctx.app.client,
+        if not account_id_for_channel:
+            logfire.warn(
+                "Skipping Salesforce case creation. No Salesforce account associated with the channel.",
                 channel=channel_to_respond,
-                thread_ts=None,
-                text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to <@{response.output.case_owner_slack_user_id}>' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
+                user=event.user,
+            )
+            return
+
+        new_case = create_case(
+            salesforce_client=hctx.salesforce_client,
+            subject=event.subject,
+            description=event.description,
+            severity=event.severity,
+            account_id=account_id_for_channel,
+            project_id=event.project_id,
+            service_id=event.service_id,
+            origin="Slack",
+        )
+        response = await post_response(
+            client=hctx.app.client,
+            channel=channel_to_respond,
+            thread_ts=None,
+            text=f"*Support Case Created*\nCase Number: {new_case.CaseNumber}\nSubject: {new_case.Subject} \nDescription: {new_case.Description}",
+        )
+
+        new_case_thread_ts = response.data.get("ts", None)
+
+        if not new_case_thread_ts:
+            raise Exception(
+                "Could not create a thread for the customer-created Salesforce case"
             )
 
-            message_to_link_to = SlackMessage(
-                channel_id=channel_to_respond,
-                ts=original_message.data.get("ts"),
-                text=response.output.message,
-                thread_ts=None,
-            )
+        # this stores the relationship betwixt the Slack thread
+        # and the Salesforce case so that we can sync the messages
+        # in the thread with the Salesforce case comments
+        await add_salesforce_case_thread(
+            hctx.pool,
+            thread_ts=new_case_thread_ts,
+            channel_id=channel_to_respond,
+            case_id=new_case.Id,
+        )
 
-            if not response.output.is_spam:
-                # this is the detailed message
-                await post_response(
-                    client=hctx.app.client,
-                    channel=channel_to_respond,
-                    thread_ts=message_to_link_to.ts,
-                    text=response.output.message,
+        if not SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD:
+            logfire.error(
+                "SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD not specified, skipping"
+            )
+            return
+
+        result = await hctx.app.client.chat_getPermalink(
+            channel=channel_to_respond,
+            message_ts=new_case_thread_ts,
+        )
+        permalink = result.data.get("permalink")
+
+        hctx.salesforce_client.Case.update(
+            new_case.Id,
+            {SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD: permalink},
+            headers={"Sforce-Auto-Assign": "false"},
+        )
+
+        logfire.info(
+            "Updated Salesforce case to include the customer thread link",
+            extra={"permalink": permalink},
+        )
+
+    async def handle_salesforce_event(
+        self,
+        hctx: HarnessContext,
+        event: SalesforceBaseEvent,
+        agent: Agent,
+        user_prompt: str | list,
+        ctx: AgentResponseContext,
+        channel_to_respond: str,
+    ) -> SlackMessage | None:
+
+        response = await agent.run(
+            user_prompt=user_prompt,
+            deps=ctx,
+            usage_limits=UsageLimits(output_tokens_limit=9_000),
+        )
+
+        if response.output.is_spam:
+            logfire.info(
+                "Salesforce case identified as spam",
+                extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
+            )
+            if SALESFORCE_ENABLE_SPAM_FILTERING:
+                return
+
+        original_message = await post_response(
+            client=hctx.app.client,
+            channel=channel_to_respond,
+            thread_ts=None,
+            text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to <@{response.output.case_owner_slack_user_id}>' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
+        )
+
+        message_to_link_to = SlackMessage(
+            channel_id=channel_to_respond,
+            ts=original_message.data.get("ts"),
+            text=response.output.message,
+            thread_ts=None,
+            to_user_id=response.output.case_owner_slack_user_id,
+        )
+
+        # this is the detailed message
+        await post_response(
+            client=hctx.app.client,
+            channel=channel_to_respond,
+            thread_ts=message_to_link_to.ts,
+            text=response.output.message,
+        )
+
+        if message_to_link_to and SALESFORCE_SLACK_THREAD_FIELD:
+            if event.update_link_to_thread:
+                result = await hctx.app.client.chat_getPermalink(
+                    channel=message_to_link_to.channel_id,
+                    message_ts=message_to_link_to.ts,
+                )
+                permalink = result.data.get("permalink")
+
+                hctx.salesforce_client.Case.update(
+                    event.case.Id,
+                    {SALESFORCE_SLACK_THREAD_FIELD: permalink},
+                    headers={"Sforce-Auto-Assign": "false"},
                 )
 
-            return message_to_link_to
+                logfire.info(
+                    "Updated Salesforce case to include the thread link",
+                    extra={"permalink": permalink},
+                )
 
+            if message_to_link_to.to_user_id:
+
+                async def _delayed_feedback(client, message):
+                    await asyncio.sleep(10)
+                    await send_feedback_rating_prompt(client, message)
+
+                asyncio.create_task(
+                    _delayed_feedback(hctx.app.client, message_to_link_to)
+                )
+
+        return message_to_link_to
+
+    async def handle_slack_event(
+        self,
+        hctx: HarnessContext,
+        event: SlackAppMentionEvent | SlackMessageEvent,
+        agent: Agent,
+        user_prompt: str | list,
+        ctx: AgentResponseContext,
+        channel_to_respond: str,
+    ) -> SlackMessage | None:
         if await usage_limit_reached(
             pool=hctx.pool,
             user_id=event.user,
@@ -495,6 +549,7 @@ class TigerAgent:
                 ts=rest.data.get("ts"),
                 channel_id=rest.data.get("channel"),
                 thread_ts=None,
+                to_user_id=event.user,
             )
             logfire.info("ended", extra={"res": rest})
 
@@ -506,13 +561,81 @@ class TigerAgent:
             is_busy=False,
         )
 
+        await add_reaction(
+            hctx.app.client,
+            event.channel,
+            event.ts,
+            "white_check_mark",
+        )
+
         return response_message
 
-    async def __call__(self, hctx: HarnessContext, event: Event) -> None:
-        """Processes various events.
+    @logfire.instrument("generate_response", extract_args=False)
+    async def create_and_send_response(
+        self, hctx: HarnessContext, task: Task
+    ) -> SlackMessage | None:
+        event = task.event
+        channel_to_respond = (
+            event.channel
+            if not isinstance(event, SalesforceBaseEvent)
+            or isinstance(event, SalesforceCreateNewCaseEvent)
+            else SALESFORCE_CASE_CHANNEL
+        )
 
-        This method implements the complete EventProcessor interface for the
-        EventHarness system. It provides rich Slack interaction patterns:
+        if isinstance(event, SalesforceCreateNewCaseEvent):
+            await self.handle_create_salesforce_case(
+                hctx=hctx,
+                event=event,
+                channel_to_respond=channel_to_respond,
+            )
+            return
+
+        if isinstance(event, SalesforceFeedItemEvent):
+            await self.handle_new_salesforce_case_feed_item(hctx=hctx, event=event)
+            return
+
+        agent_and_ctx, self.bot_info = await create_agent_and_context(
+            hctx=hctx,
+            task=task,
+            model=self.model,
+            bot_info=self.bot_info,
+            channel_to_respond=channel_to_respond,
+            mcp_loader=self.mcp_loader,
+            augment_mcp_servers=self.augment_mcp_servers,
+            augment_context=self.augment_context,
+            make_system_prompt=self.make_system_prompt,
+            make_user_prompt=self.make_user_prompt,
+        )
+        agent = agent_and_ctx.agent
+        user_prompt = agent_and_ctx.user_prompt
+        ctx = agent_and_ctx.ctx
+        channel_to_respond = agent_and_ctx.channel_to_respond
+        event = ctx.mention
+
+        if isinstance(event, SalesforceBaseEvent):
+            return await self.handle_salesforce_event(
+                hctx=hctx,
+                event=event,
+                agent=agent,
+                user_prompt=user_prompt,
+                ctx=ctx,
+                channel_to_respond=channel_to_respond,
+            )
+
+        return await self.handle_slack_event(
+            hctx=hctx,
+            event=event,
+            agent=agent,
+            user_prompt=user_prompt,
+            ctx=ctx,
+            channel_to_respond=channel_to_respond,
+        )
+
+    async def __call__(self, hctx: HarnessContext, task: Task) -> None:
+        """Processes various tasks.
+
+        This method implements the complete TaskProcessor interface for the
+        TaskHarness system. It provides rich Slack interaction patterns:
 
         Success Flow:
         1. Generate AI response using MCP tools with real-time streaming
@@ -524,76 +647,44 @@ class TigerAgent:
         1. Clear any active status messages
         2. Add :x: reaction to indicate failure
         3. Post user-friendly error message
-        4. Re-raise exception for EventHarness retry logic
+        4. Re-raise exception for TaskHarness retry logic
 
         The error message adapts based on retry attempts:
         - During retries: "I will try again."
         - Final failure: "I give up. Sorry."
 
         Args:
-            hctx: Harness context providing Slack app and database access
-            event: The Slack event to process
+            ctx: Task context providing Slack app and database access
+            task: The task to process
 
         Raises:
-            Exception: Re-raises any processing exceptions for EventHarness retry handling
+            Exception: Re-raises any processing exceptions for TaskHarness retry handling
         """
-        event_to_handle = event.event
+        payload = task.event
         try:
-            if not isinstance(
-                event_to_handle, SalesforceBaseEvent
-            ) and await user_ignored(pool=hctx.pool, user_id=event_to_handle.user):
-                logfire.info("Ignore user", user_id=event_to_handle.user)
+            if not isinstance(payload, SalesforceBaseEvent) and await user_ignored(
+                pool=hctx.pool, user_id=payload.user
+            ):
+                logfire.info("Ignore user", user_id=payload.user)
                 return
 
-            message = await self.create_and_send_response(hctx, event)
+            message = await self.create_and_send_response(hctx, task)
 
             if message:
                 logfire.info("Reponse sent", extra={"message": message})
 
-            if not isinstance(event_to_handle, SalesforceBaseEvent):
-                await add_reaction(
-                    hctx.app.client,
-                    event_to_handle.channel,
-                    event_to_handle.ts,
-                    "white_check_mark",
-                )
-            else:
-                if (
-                    message
-                    and SALESFORCE_SLACK_THREAD_FIELD
-                    and event_to_handle.update_link_to_thread
-                ):
-                    result = await hctx.app.client.chat_getPermalink(
-                        channel=message.channel_id, message_ts=message.ts
-                    )
-                    permalink = result.data.get("permalink")
-
-                    hctx.salesforce_client.Case.update(
-                        event_to_handle.case.Id,
-                        {SALESFORCE_SLACK_THREAD_FIELD: permalink},
-                        headers={"Sforce-Auto-Assign": "false"},
-                    )
-
-                    logfire.info(
-                        "Updated Salesforce case to include the thread link",
-                        extra={"permalink": permalink},
-                    )
         except Exception as e:
             logger.exception("response failed", exc_info=e)
-            if isinstance(event_to_handle, SalesforceBaseEvent):
+            if isinstance(payload, SalesforceBaseEvent):
                 return
 
-            await add_reaction(
-                hctx.app.client, event_to_handle.channel, event_to_handle.ts, "x"
-            )
+            await add_reaction(hctx.app.client, payload.channel, payload.ts, "x")
             await post_response(
                 client=hctx.app.client,
-                channel=event_to_handle.channel,
-                thread_ts=event_to_handle.thread_ts
-                if event_to_handle.thread_ts
-                else event_to_handle.ts,
+                channel=payload.channel,
+                thread_ts=payload.thread_ts if payload.thread_ts else payload.ts,
                 text="I experienced an issue trying to respond. I will try again."
-                if event.attempts < self.max_attempts
+                if task.attempts < self.max_attempts
                 else " I give up. Sorry.",
             )
             raise e

@@ -73,7 +73,7 @@ Templates have access to a comprehensive context object with the following varia
 
 | Variable     | Description                                    |
 | ------------ | ---------------------------------------------- |
-| `event`      | Complete Event object with processing metadata |
+| `task`       | Complete Task object with processing metadata  |
 | `mention`    | AppMentionEvent with Slack message details     |
 | `bot`        | Bot information (name, team, capabilities)     |
 | `user`       | User profile (real_name, timezone, etc.)       |
@@ -81,9 +81,9 @@ Templates have access to a comprehensive context object with the following varia
 
 ### Detailed Variable Reference
 
-#### `event`
+#### `task`
 
-Event (see [tiger_agent/harness.py](/tiger_agent/harness.py)):
+Task (see [tiger_agent/tasks/types.py](/tiger_agent/tasks/types.py)):
 
 - Processing metadata
 - Event timing information
@@ -92,7 +92,7 @@ Event (see [tiger_agent/harness.py](/tiger_agent/harness.py)):
 
 #### `mention`
 
-AppMentionEvent (see [tiger_agent/harness.py](/tiger_agent/harness.py)):
+AppMentionEvent (see [tiger_agent/slack/types.py](/tiger_agent/slack/types.py)):
 
 - `text`: The message content
 - `channel`: Channel ID where the message was sent

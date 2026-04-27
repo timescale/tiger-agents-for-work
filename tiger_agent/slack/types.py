@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class ChannelInfo(BaseModel):
@@ -129,6 +129,28 @@ class UserInfo(BaseModel):
     tz_label: str | None = None
     tz_offset: int | None = None
     profile: UserProfile
+    is_restricted: bool = False
+    is_ultra_restricted: bool = False
+    is_stranger: bool = False
+    is_external: bool = False
+
+    @model_validator(mode="after")
+    def set_is_external(self) -> "UserInfo":
+        self.is_external = (
+            self.is_restricted or self.is_ultra_restricted or self.is_stranger
+        )
+        return self
+
+
+class TeamInfo(BaseModel):
+    model_config = {"extra": "allow"}
+
+    id: str
+    name: str
+    domain: str | None = None
+    email_domain: str | None = None
+    enterprise_id: str | None = None
+    enterprise_name: str | None = None
 
 
 @dataclass
@@ -141,6 +163,7 @@ class SlackUrlParts:
 @dataclass
 class SlackMessage(SlackUrlParts):
     text: str
+    to_user_id: str | None = None
 
 
 class SlackCommand(BaseModel):
@@ -198,9 +221,10 @@ class SlackBaseEvent(BaseModel):
     ts: str
     thread_ts: str | None = None
     team: str | None = None
+    bot_id: str | None = None
     text: str
     type: str
-    user: str
+    user: str | None = None
     blocks: list[dict[str, Any]] | None = None
     channel: str
     event_ts: str

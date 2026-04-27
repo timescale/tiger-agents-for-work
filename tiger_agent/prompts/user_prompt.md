@@ -16,6 +16,7 @@ A new Salesforce support case has been received.
 - Contact Email: {{ mention.case.ContactEmail }}
 - Created Date: {{ mention.case.CreatedDate }}
 - Created By ID: {{ mention.case.CreatedById }}
+- Customer Thread: {{ mention.case.Customer_Slack_Thread__c }}
 
 {% if mention.case.Owner %}
 
@@ -55,7 +56,7 @@ User info unavailable.
 
 channel: {{ mention.channel }}
 ts: {{ mention.ts }}
-event_ts: {{ event.event_ts }}
+event_ts: {{ task.event_ts }}
 
 {% if thread_history %}
 

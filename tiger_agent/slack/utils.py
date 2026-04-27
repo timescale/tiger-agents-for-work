@@ -39,16 +39,24 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
+from tiger_agent.salesforce.types import ServiceRecord
 from tiger_agent.slack.constants import (
+    AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
+    SLACK_BOT_TOKEN,
 )
 from tiger_agent.slack.types import (
     BotInfo,
     ChannelInfo,
     SlackFile,
+    SlackMessage,
     SlackMessageEvent,
     SlackUrlParts,
+    TeamInfo,
     UserInfo,
 )
 from tiger_agent.utils import file_type_supported
@@ -227,7 +235,11 @@ async def fetch_thread_messages(
 
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
 async def post_response(
-    client: AsyncWebClient, channel: str, thread_ts: str | None, text: str
+    client: AsyncWebClient,
+    channel: str,
+    thread_ts: str | None,
+    text: str,
+    use_mrkdwn: bool = False,
 ) -> AsyncSlackResponse:
     """Post a response message to Slack with rich formatting.
 
@@ -248,10 +260,24 @@ async def post_response(
         channel=channel,
         thread_ts=thread_ts,
         text=text,
-        blocks=[{"type": "markdown", "text": text}],
+        blocks=[{"type": "markdown", "text": text}]
+        if not use_mrkdwn
+        else [{"type": "section", "fields": [{"type": "mrkdwn", "text": text}]}],
         unfurl_links=False,
         unfurl_media=False,
     )
+
+
+@logfire.instrument("fetch_team_info", extract_args=["team_id"])
+async def fetch_team_info(client: AsyncWebClient, team_id: str) -> TeamInfo | None:
+    try:
+        resp = await client.team_info(team=team_id)
+        assert isinstance(resp.data, dict)
+        assert resp.data["ok"]
+        return TeamInfo(**(resp.data["team"]))
+    except Exception:
+        logfire.exception("Failed to fetch team info", team_id=team_id)
+        return None
 
 
 @logfire.instrument("fetch_bot_info", extract_args=False)
@@ -325,7 +351,6 @@ async def fetch_channel_info(
 
 async def download_slack_hosted_file(
     file: SlackFile,
-    slack_bot_token: str,
 ) -> BinaryContent | str | None:
     """This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported."""
     if not file_type_supported(file.mimetype):
@@ -333,12 +358,11 @@ async def download_slack_hosted_file(
 
     return await download_private_file(
         url_private_download=file.url_private_download,
-        slack_bot_token=slack_bot_token,
     )
 
 
 async def download_private_file(
-    url_private_download: str, slack_bot_token: str = os.getenv("SLACK_BOT_TOKEN")
+    url_private_download: str,
 ) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
@@ -360,14 +384,14 @@ async def download_private_file(
         if url_private_download is None:
             raise ValueError("No private url provided")
 
-        if not slack_bot_token:
+        if not SLACK_BOT_TOKEN:
             raise ValueError("Cannot fetch file without a token")
 
         async with httpx.AsyncClient() as client:
             # Download file using bot token for authentication
             resp = await client.get(
                 url=url_private_download,
-                headers={"Authorization": f"Bearer {slack_bot_token}"},
+                headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
             )
             resp.raise_for_status()
 
@@ -629,6 +653,79 @@ async def send_proactive_prompt(
     )
 
 
+async def send_feedback_rating_prompt(
+    client: AsyncWebClient, agent_message: SlackMessage
+):
+    agent_message_ts = agent_message.ts
+    channel = agent_message.channel_id
+    user = agent_message.to_user_id
+
+    def get_encoded_value(rating: int) -> str:
+        return f"{agent_message_ts}|{channel}|{user}|{rating}"
+
+    await client.chat_postEphemeral(
+        channel=channel,
+        user=user,
+        thread_ts=agent_message_ts,
+        text=f"Hey <@{user}>, how would you rate the helpfulness of my response? ",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"Hey <@{user}>, how would you rate the helpfulness of my response?",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "radio_buttons",
+                        "action_id": AGENT_FEEDBACK_RATING,
+                        "options": [
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "1 - Not helpful at all",
+                                },
+                                "value": get_encoded_value(1),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "2 - Slightly helpful",
+                                },
+                                "value": get_encoded_value(2),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "3 - Somewhat helpful",
+                                },
+                                "value": get_encoded_value(3),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "4 - Mostly helpful",
+                                },
+                                "value": get_encoded_value(4),
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "5 - Very helpful",
+                                },
+                                "value": get_encoded_value(5),
+                            },
+                        ],
+                    }
+                ],
+            },
+        ],
+    )
+
+
 async def handle_proactive_prompt(
     ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond, bot_info: BotInfo
 ) -> int | None:
@@ -679,3 +776,226 @@ async def handle_proactive_prompt(
             event=body,
         )
         return
+
+
+async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | None:
+    resp = await client.chat_postMessage(
+        channel=channel,
+        text="Open a new support case",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Need help? Click the button below to open a new support case.",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Open Support Case"},
+                    }
+                ],
+            },
+        ],
+    )
+    assert isinstance(resp.data, dict)
+    return resp.data.get("ts")
+
+
+async def send_new_salesforce_case_workflow_form(
+    client: AsyncWebClient,
+    channel: str,
+    user: str,
+    services: list[ServiceRecord] | None,
+):
+    """Send an ephemeral message with a form to collect new Salesforce case details.
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        channel: Slack channel ID to post the form in
+        user: Slack user ID to send the ephemeral message to
+        services: List of project/services id associated with account
+    """
+
+    service_options = []
+    if services:
+        # let's get a unique set of projects with the service+project items
+        # so that the user can just select a project, rather than
+        # tying support case to a specific service within a project
+        seen_projects: set[str] = set()
+        for s in services:
+            if s.project_id and s.project_id not in seen_projects:
+                seen_projects.add(s.project_id)
+                service_options.append(
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"Project: {s.project_id}",
+                        },
+                        "value": s.project_id,
+                    }
+                )
+        # then create options for each service within each project
+        for s in services:
+            label = f"Project: {s.project_id}, Service: {s.service_id}"
+            value = f"{s.project_id}|{s.service_id}"
+            service_options.append(
+                {
+                    "text": {"type": "plain_text", "text": label},
+                    "value": value,
+                }
+            )
+
+    service_block = (
+        {
+            "type": "input",
+            "block_id": "service_block",
+            "label": {"type": "plain_text", "text": "Service"},
+            "element": {
+                "type": "static_select",
+                "action_id": "service_select",
+                "placeholder": {"type": "plain_text", "text": "Select a service"},
+                "options": service_options,
+            },
+        }
+        if service_options
+        else None
+    )
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*New Support Case*\nPlease fill out the details below.",
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "subject_block",
+            "label": {"type": "plain_text", "text": "Title"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "subject_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Brief summary of the case",
+                },
+                "max_length": 200,
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "description_block",
+            "label": {"type": "plain_text", "text": "Description"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "description_input",
+                "multiline": True,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Detailed description of the issue",
+                },
+            },
+        },
+        *([service_block] if service_block else []),
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Submit"},
+                },
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+                    "text": {"type": "plain_text", "text": "Cancel"},
+                },
+            ],
+        },
+    ]
+
+    await client.chat_postEphemeral(
+        channel=channel,
+        user=user,
+        text="New Support Case",
+        blocks=blocks,
+    )
+
+
+async def handle_new_salesforce_case_workflow_form_submit(
+    ack: AsyncAck,
+    body: dict[str, Any],
+    respond: AsyncRespond,
+) -> dict[str, Any] | None:
+    """Handle submission of the new Salesforce case workflow form.
+
+    Extracts form field values from the block actions body and returns them.
+    Deletes the form after submission.
+
+    Args:
+        ack: Slack ack function
+        body: Full action body from Slack
+        respond: Slack respond function for deleting the ephemeral message
+
+    Returns:
+        Dict with title and description if valid; None if fields are missing.
+    """
+    await ack()
+
+    await respond(text="", replace_original=True, delete_original=True)
+
+    state_values = (body.get("state") or {}).get("values") or {}
+
+    subject = (
+        state_values.get("subject_block", {}).get("subject_input", {}).get("value")
+    )
+    description = (
+        state_values.get("description_block", {})
+        .get("description_input", {})
+        .get("value")
+    )
+    service_value = (
+        state_values.get("service_block", {})
+        .get("service_select", {})
+        .get("selected_option", {})
+        or {}
+    ).get("value")
+
+    if not subject or not description:
+        logfire.error(
+            "New Salesforce case form submission missing required fields",
+            title=subject,
+            description=description,
+        )
+        return None
+
+    logfire.info(
+        "New Salesforce case workflow form submitted",
+        subject=subject,
+    )
+
+    return {"subject": subject, "description": description, "service": service_value}
+
+
+async def handle_new_salesforce_case_workflow_form_cancel(
+    ack: AsyncAck,
+    respond: AsyncRespond,
+):
+    """Handle cancellation of the new Salesforce case workflow form.
+
+    Dismisses the ephemeral form message without taking any action.
+
+    Args:
+        ack: Slack ack function
+        respond: Slack respond function for deleting the ephemeral message
+    """
+    await ack()
+    await respond(text="", replace_original=True, delete_original=True)
