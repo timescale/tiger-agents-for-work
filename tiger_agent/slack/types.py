@@ -242,3 +242,22 @@ class SlackMessageEvent(SlackBaseEvent):
 
     type: str = "message"
     subtype: str | None = None
+
+
+class SlackSalesforceCaseThreadMessageEvent(BaseModel):
+    """Event representing a Slack message posted in a thread linked to a Salesforce case.
+
+    Created by the listener when a non-bot message is posted in a thread that is
+    correlated to a Salesforce case. The handler syncs the message to Salesforce
+    as an email comment.
+    """
+
+    model_config = {"extra": "allow"}
+
+    type: str = "slack_salesforce_case_thread_message"
+    user: str
+    channel: str
+    thread_ts: str
+    text: str
+    salesforce_case_id: str
+    files: list[dict[str, Any]] = []
