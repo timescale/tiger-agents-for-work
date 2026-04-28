@@ -1,10 +1,11 @@
-from collections.abc import Callable, Coroutine, Sequence
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent, BinaryContent, Tool
 from pydantic_ai.messages import UserContent
-from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.models.anthropic import AnthropicModel
 
 from tiger_agent.agent.types import (
@@ -12,13 +13,12 @@ from tiger_agent.agent.types import (
     AgentSalesforceResponse,
     ExtraContextDict,
 )
-from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
 )
-from tiger_agent.slack.types import BotInfo, SlackFile
+from tiger_agent.slack.types import SlackFile
 from tiger_agent.slack.utils import (
     download_slack_hosted_file,
     fetch_bot_info,
@@ -28,6 +28,9 @@ from tiger_agent.slack.utils import (
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import wrap_mcp_servers_with_exception_handling
+
+if TYPE_CHECKING:
+    from tiger_agent.agent.tiger_agent import TigerAgent
 
 
 @dataclass
@@ -41,30 +44,16 @@ class AgentAndContext:
 async def create_agent_and_context(
     hctx: HarnessContext,
     task: Task,
-    model: Model | KnownModelName | str | None,
-    bot_info: BotInfo | None,
+    agent: TigerAgent,
     channel_to_respond: str,
-    mcp_loader: Callable[[], MCPDict],
-    augment_mcp_servers: Callable[[MCPDict], None],
-    augment_context: Callable[
-        [AgentResponseContext, ExtraContextDict], Coroutine[Any, Any, None]
-    ],
-    make_system_prompt: Callable[
-        [AgentResponseContext, ExtraContextDict],
-        Coroutine[Any, Any, str | Sequence[str]],
-    ],
-    make_user_prompt: Callable[
-        [AgentResponseContext, ExtraContextDict],
-        Coroutine[Any, Any, str | Sequence[UserContent]],
-    ],
-) -> tuple[AgentAndContext, BotInfo]:
+) -> AgentAndContext:
     event = task.event
 
-    if not bot_info:
-        bot_info = await fetch_bot_info(hctx.app.client)
+    if not hctx.bot_info:
+        hctx.bot_info = await fetch_bot_info(hctx.app.client)
 
-    all_mcp_servers = mcp_loader()
-    augment_mcp_servers(all_mcp_servers)
+    all_mcp_servers = agent.mcp_loader()
+    agent.augment_mcp_servers(all_mcp_servers)
 
     mcp_servers = await filter_mcp_servers(
         mcp_servers=all_mcp_servers,
@@ -77,7 +66,7 @@ async def create_agent_and_context(
     ctx = AgentResponseContext(
         task=task,
         mention=event,
-        bot=bot_info,
+        bot=hctx.bot_info,
         user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
         if not isinstance(event, SalesforceBaseEvent)
         else None,
@@ -85,20 +74,20 @@ async def create_agent_and_context(
     )
 
     extra_ctx: ExtraContextDict = {}
-    await augment_context(ctx=ctx, extra_ctx=extra_ctx)
+    await agent.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
-    if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and bot_info:
+    if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and hctx.bot_info:
         thread_messages = await fetch_thread_messages(
             client=hctx.app.client,
             channel=event.channel,
             thread_ts=event.thread_ts,
         )
         extra_ctx["thread_history"] = format_thread_history(
-            thread_messages, bot_info, [event.ts]
+            thread_messages, hctx.bot_info, [event.ts]
         )
 
-    system_prompt = await make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
-    user_prompt = await make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
+    system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
+    user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
 
     toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
 
@@ -107,8 +96,8 @@ async def create_agent_and_context(
     ) -> BinaryContent | str | None:
         return await download_slack_hosted_file(file=file)
 
-    agent = Agent(
-        model=model,
+    pydantic_agent = Agent(
+        model=agent.model,
         deps_type=dict[str, Any],
         system_prompt=system_prompt,
         output_type=AgentSalesforceResponse
@@ -124,14 +113,14 @@ async def create_agent_and_context(
         ],
         toolsets=toolsets,
         model_settings={"extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}}
-        if (isinstance(model, str) and model.startswith("anthropic:"))
-        or isinstance(model, AnthropicModel)
+        if (isinstance(agent.model, str) and agent.model.startswith("anthropic:"))
+        or isinstance(agent.model, AnthropicModel)
         else None,
     )
 
     return AgentAndContext(
-        agent=agent,
+        agent=pydantic_agent,
         user_prompt=user_prompt,
         ctx=ctx,
         channel_to_respond=channel_to_respond,
-    ), bot_info
+    )

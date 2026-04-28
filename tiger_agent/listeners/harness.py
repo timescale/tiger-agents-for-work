@@ -3,7 +3,7 @@ from asyncio import TaskGroup
 from tiger_agent.listeners import Listener
 from tiger_agent.listeners.salesforce import SalesforceListener
 from tiger_agent.listeners.slack import SlackListener
-from tiger_agent.tasks.types import TaskProcessor
+from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.types import HarnessContext
 
 

@@ -3,7 +3,8 @@ import logging
 import logfire
 
 from tiger_agent.db.utils import claim_event, delete_event
-from tiger_agent.tasks.types import Task, TaskProcessor
+from tiger_agent.tasks.handlers import TaskProcessor
+from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
 logger = logging.getLogger(__name__)

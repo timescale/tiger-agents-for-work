@@ -2,10 +2,22 @@ import asyncio
 from datetime import timedelta
 from pathlib import Path
 
+from tiger_agent.tasks.handlers import (
+    SalesforceAssignmentChangedHandler,
+    SalesforceCreateCaseHandler,
+    SalesforceFeedItemHandler,
+    SlackTaskHandler,
+)
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
+from tiger_agent.salesforce.types import (
+    SalesforceAssignmentChangedEvent,
+    SalesforceCreateNewCaseEvent,
+    SalesforceFeedItemEvent,
+)
+from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
+from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.harness import TaskHarness
-from tiger_agent.tasks.types import TaskProcessor
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import get_harness_ctx
 
@@ -13,9 +25,9 @@ from tiger_agent.utils import get_harness_ctx
 class TigerApp:
     """Top-level entry point for running a Tiger Agent application.
 
-    Combines a TaskProcessor (e.g. TigerAgent), a ListenerHarness, and a
-    TaskHarness into a single object. Accepts either a ready-made
-    HarnessContext or the individual parameters needed to build one.
+    Combines a TigerAgent, TaskProcessor, ListenerHarness, and TaskHarness into
+    a single object. Accepts either a ready-made HarnessContext or the individual
+    parameters needed to build one.
 
     Simple usage with defaults:
 
@@ -38,7 +50,7 @@ class TigerApp:
 
     def __init__(
         self,
-        agent: TaskProcessor | None = None,
+        agent: TigerAgent | None = None,
         hctx: HarnessContext | None = None,
         # TigerAgent constructor args — only used when agent is not provided
         model: str = "anthropic:claude-sonnet-4-5-20250929",
@@ -77,9 +89,15 @@ class TigerApp:
                 rate_limit_interval=rate_limit_interval,
             )
 
+        processor = TaskProcessor(hctx=hctx, agent=agent)
+        processor.register([SlackAppMentionEvent, SlackMessageEvent], SlackTaskHandler(hctx=hctx, agent=agent))
+        processor.register(SalesforceAssignmentChangedEvent, SalesforceAssignmentChangedHandler(hctx=hctx, agent=agent))
+        processor.register(SalesforceCreateNewCaseEvent, SalesforceCreateCaseHandler(hctx=hctx))
+        processor.register(SalesforceFeedItemEvent, SalesforceFeedItemHandler(hctx=hctx))
+
         self._hctx = hctx
-        self._listener_harness = ListenerHarness(hctx=hctx, task_processor=agent)
-        self._task_harness = TaskHarness(agent, hctx=hctx)
+        self._listener_harness = ListenerHarness(hctx=hctx, task_processor=processor)
+        self._task_harness = TaskHarness(processor, hctx=hctx)
 
     async def run(self) -> None:
         await self._hctx.pool.open(wait=True)

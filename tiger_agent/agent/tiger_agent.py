@@ -1,20 +1,9 @@
 """Tiger Agent - AI-powered Slack bot using Pydantic-AI with MCP server integration.
 
-This module provides the TigerAgent class, which serves as an EventProcessor for the
-EventHarness system. It integrates multiple technologies to create an intelligent
-Slack bot:
-
-- **Pydantic-AI**: For LLM interaction and structured responses
-- **MCP Servers**: For extending capabilities with external tools and data sources
-- **Jinja2 Templates**: For dynamic prompt generation based on context
-- **Slack Integration**: For rich interaction patterns with reactions and threading
-
-The TigerAgent processes Slack app_mention events by:
-1. Loading context (user info, bot info, event details)
-2. Rendering system and user prompts from Jinja2 templates
-3. Creating a Pydantic-AI agent with MCP server toolsets
-4. Generating AI responses with access to external tools
-5. Posting responses to Slack with appropriate visual feedback
+TigerAgent handles prompt generation and context augmentation for LLM-based task
+handlers. It is designed to be subclassed for custom prompt and context behaviour.
+Actual task dispatching is handled by TaskProcessor and the TaskHandler subclasses
+in tiger_agent.tasks.handlers.
 """
 
 import asyncio
@@ -26,62 +15,21 @@ from pathlib import Path
 from typing import Any
 
 import logfire
-from htmlslacker import HTMLSlacker
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
 from pydantic import BaseModel
-from pydantic_ai import Agent, UsageLimits, models
+from pydantic_ai import models
 from pydantic_ai.messages import UserContent
-from slack_sdk.web.async_client import (
-    AsyncChatStream,
-)
 
 from tiger_agent.agent.types import (
     AgentResponseContext,
     ExtraContextDict,
 )
-from tiger_agent.agent.utils import create_agent_and_context
-from tiger_agent.db.utils import (
-    add_salesforce_case_thread,
-    get_salesforce_account_id_for_channel,
-    get_salesforce_case_thread_thread_id,
-    usage_limit_reached,
-    user_ignored,
-)
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader
 from tiger_agent.prompts.types import PromptPackage
-from tiger_agent.salesforce.constants import (
-    SALESFORCE_CASE_CHANNEL,
-    SALESFORCE_ENABLE_SPAM_FILTERING,
-    SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD,
-    SALESFORCE_SLACK_THREAD_FIELD,
-)
-from tiger_agent.salesforce.types import (
-    SalesforceBaseEvent,
-    SalesforceCreateNewCaseEvent,
-    SalesforceFeedItemEvent,
-)
-from tiger_agent.salesforce.utils import (
-    create_case,
-    create_case_url,
-    download_feed_attachment,
-    get_feed_attachment_ids,
-)
-from tiger_agent.slack.types import (
-    BotInfo,
-    SlackAppMentionEvent,
-    SlackMessage,
-    SlackMessageEvent,
-)
-from tiger_agent.slack.utils import (
-    add_reaction,
-    download_private_file,
-    post_response,
-    send_feedback_rating_prompt,
-    set_status,
-    stream_response_to_mention,
-)
-from tiger_agent.tasks.types import HarnessContext, Task
+from tiger_agent.salesforce.types import SalesforceBaseEvent
+from tiger_agent.slack.types import BotInfo
+from tiger_agent.slack.utils import download_private_file
 from tiger_agent.utils import file_type_supported
 
 logger = logging.getLogger(__name__)
@@ -91,26 +39,22 @@ USER_PROMPT_REGEX = r"^user_prompt.*\.md$"
 
 
 class TigerAgent:
-    """AI-powered Slack bot using Pydantic-AI with MCP server integration.
+    """Prompt generation and context augmentation for LLM-based task handlers.
 
-    TigerAgent serves as an EventProcessor for the EventHarness system, processing
-    Slack app_mention events by generating AI responses with access to external tools
-    via MCP servers. It provides a complete interaction flow with visual feedback
-    through Slack reactions.
+    TigerAgent provides the building blocks for AI-powered responses:
+    - Dynamic prompting via Jinja2 templates
+    - MCP server loading and augmentation
+    - Context augmentation hooks for subclasses
 
-    Key Features:
-    - **Dynamic Prompting**: Uses Jinja2 templates for context-aware system/user prompts
-    - **MCP Integration**: Connects to multiple MCP servers for extended capabilities
-    - **Rich Slack Interaction**: Provides visual feedback with reactions and threading
-    - **Error Handling**: Graceful failure handling with user-friendly error messages
-    - **Context Awareness**: Incorporates user info, timezone, and event context
+    It is injected into HarnessContext and accessed by handler classes that
+    need LLM capabilities (SlackTaskHandler, SalesforceAssignmentChangedHandler).
 
     Args:
-        model: Pydantic-AI model specification (defaults to configured model)
+        model: Pydantic-AI model specification
         prompt_config: Sequence of PromptPackage instances or Path objects for extra prompt templates
         jinja_env: Pre-configured Jinja2 Environment (mutually exclusive with prompt_config)
         mcp_config_path: Path to MCP server configuration JSON file
-        max_attempts: Maximum retry attempts for failed events (defaults to 3)
+        max_attempts: Maximum retry attempts for failed tasks (defaults to 3)
         rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
         rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
 
@@ -229,49 +173,20 @@ class TigerAgent:
     async def make_system_prompt(
         self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict | None = None
     ) -> str | Sequence[str]:
-        """Generate system prompt from Jinja2 templates matching *system_prompt.md.
-
-        Renders template with the provided context,
-        creating a dynamic system prompt that can include event details,
-        user information, bot capabilities, and other contextual data.
-
-        Args:
-            ctx: Template context containing event, user, bot info, etc.
-
-        Returns:
-            Rendered system prompt strings
-        """
-
-        rendered_system_prompts = await self.render_prompts(
-            SYSTEM_PROMPT_REGEX, ctx, extra_ctx
-        )
-
-        return rendered_system_prompts
+        """Generate system prompt from Jinja2 templates matching *system_prompt.md."""
+        return await self.render_prompts(SYSTEM_PROMPT_REGEX, ctx, extra_ctx)
 
     @logfire.instrument("make_user_prompt", extract_args=False)
     async def make_user_prompt(
         self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict | None = None
     ) -> str | Sequence[UserContent]:
-        """Generate system prompt from Jinja2 templates matching *user_prompt.md
-
-        Renders the user prompt templates with the provided context,
-        creating a dynamic user prompt that typically contains the actual
-        Slack message content and relevant contextual information.
+        """Generate user prompt from Jinja2 templates matching *user_prompt.md.
 
         If the mention contains attached files, downloads them and returns
         a sequence of UserContent objects (text + binary files) for multimodal
         processing by the AI agent.
-
-        Args:
-            ctx: Template context containing event, user, bot info, etc.
-
-        Returns:
-            Rendered user prompt string if no files are attached, or a sequence
-            of UserContent objects (text prompt + file contents) if files are present
         """
-        rendered_user_prompts = await self.render_prompts(
-            USER_PROMPT_REGEX, ctx, extra_ctx
-        )
+        rendered_user_prompts = await self.render_prompts(USER_PROMPT_REGEX, ctx, extra_ctx)
 
         if (
             isinstance(ctx.mention, SalesforceBaseEvent)
@@ -292,12 +207,8 @@ class TigerAgent:
     def augment_mcp_servers(self, mcp_servers: MCPDict):
         """Hook to augment loaded MCP servers before use.
 
-        This method can be overridden in subclasses to modify or add to the
-        MCP servers created from configuration in-place. This can be useful
-        for adding a `process_tool_call` callback on servers for example.
-
-        Args:
-            mcp_servers: Dictionary of loaded MCP servers
+        Override in subclasses to modify or add to the MCP servers created from
+        configuration in-place (e.g. to add a process_tool_call callback).
         """
 
     async def augment_context(
@@ -305,397 +216,6 @@ class TigerAgent:
     ) -> None:
         """Hook to augment context with additional BaseModel objects.
 
-        This method can be overridden in subclasses to modify or add to the
-        extra context dictionary in-place. This can be useful for adding
-        custom BaseModel instances that will be available in Jinja2 templates.
-
-        Args:
-            ctx: Agent response context containing event data, user info, and bot info
-            extra_ctx: Dictionary of BaseModel objects keyed by name for template access
+        Override in subclasses to add custom BaseModel instances to extra_ctx
+        that will be available in Jinja2 templates.
         """
-
-    @logfire.instrument("handle_new_salesforce_case_feed_item", extract_args=["event"])
-    async def handle_new_salesforce_case_feed_item(
-        self, hctx: HarnessContext, event: SalesforceFeedItemEvent
-    ):
-        [channel_id, thread_ts] = await get_salesforce_case_thread_thread_id(
-            hctx.pool, case_id=event.feed_item.ParentId
-        )
-
-        # the body from Salesforce is html, let's convert to markdown
-        markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output().strip()
-
-        body = "\n".join(f"> {line}" for line in markdown_conversion.splitlines())
-        text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
-
-        attachment_ids = get_feed_attachment_ids(hctx.salesforce_client, event.feed_item.Id)
-        image_attachments = [
-            download_feed_attachment(hctx.salesforce_client, aid) for aid in attachment_ids
-        ]
-
-        await post_response(
-            client=hctx.app.client,
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text=text,
-            use_mrkdwn=True,
-            image_attachments=image_attachments,
-        )
-
-    async def handle_create_salesforce_case(
-        self,
-        hctx: HarnessContext,
-        event: SalesforceCreateNewCaseEvent,
-        channel_to_respond: str,
-    ) -> None:
-        account_id_for_channel = await get_salesforce_account_id_for_channel(
-            pool=hctx.pool, channel_id=channel_to_respond
-        )
-
-        if not account_id_for_channel:
-            logfire.warn(
-                "Skipping Salesforce case creation. No Salesforce account associated with the channel.",
-                channel=channel_to_respond,
-                user=event.user,
-            )
-            return
-
-        new_case = create_case(
-            salesforce_client=hctx.salesforce_client,
-            subject=event.subject,
-            description=event.description,
-            severity=event.severity,
-            account_id=account_id_for_channel,
-            project_id=event.project_id,
-            service_id=event.service_id,
-            origin="Slack",
-        )
-        response = await post_response(
-            client=hctx.app.client,
-            channel=channel_to_respond,
-            thread_ts=None,
-            text=f"*Support Case Created*\nCase Number: {new_case.CaseNumber}\nSubject: {new_case.Subject} \nDescription: {new_case.Description}",
-        )
-
-        new_case_thread_ts = response.data.get("ts", None)
-
-        if not new_case_thread_ts:
-            raise Exception(
-                "Could not create a thread for the customer-created Salesforce case"
-            )
-
-        # this stores the relationship betwixt the Slack thread
-        # and the Salesforce case so that we can sync the messages
-        # in the thread with the Salesforce case comments
-        await add_salesforce_case_thread(
-            hctx.pool,
-            thread_ts=new_case_thread_ts,
-            channel_id=channel_to_respond,
-            case_id=new_case.Id,
-        )
-
-        if not SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD:
-            logfire.error(
-                "SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD not specified, skipping"
-            )
-            return
-
-        result = await hctx.app.client.chat_getPermalink(
-            channel=channel_to_respond,
-            message_ts=new_case_thread_ts,
-        )
-        permalink = result.data.get("permalink")
-
-        hctx.salesforce_client.Case.update(
-            new_case.Id,
-            {SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD: permalink},
-            headers={"Sforce-Auto-Assign": "false"},
-        )
-
-        logfire.info(
-            "Updated Salesforce case to include the customer thread link",
-            extra={"permalink": permalink},
-        )
-
-    async def handle_salesforce_event(
-        self,
-        hctx: HarnessContext,
-        event: SalesforceBaseEvent,
-        agent: Agent,
-        user_prompt: str | list,
-        ctx: AgentResponseContext,
-        channel_to_respond: str,
-    ) -> SlackMessage | None:
-
-        response = await agent.run(
-            user_prompt=user_prompt,
-            deps=ctx,
-            usage_limits=UsageLimits(output_tokens_limit=9_000),
-        )
-
-        if response.output.is_spam:
-            logfire.info(
-                "Salesforce case identified as spam",
-                extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
-            )
-            if SALESFORCE_ENABLE_SPAM_FILTERING:
-                return
-
-        original_message = await post_response(
-            client=hctx.app.client,
-            channel=channel_to_respond,
-            thread_ts=None,
-            text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to <@{response.output.case_owner_slack_user_id}>' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
-        )
-
-        message_to_link_to = SlackMessage(
-            channel_id=channel_to_respond,
-            ts=original_message.data.get("ts"),
-            text=response.output.message,
-            thread_ts=None,
-            to_user_id=response.output.case_owner_slack_user_id,
-        )
-
-        # this is the detailed message
-        await post_response(
-            client=hctx.app.client,
-            channel=channel_to_respond,
-            thread_ts=message_to_link_to.ts,
-            text=response.output.message,
-        )
-
-        if message_to_link_to and SALESFORCE_SLACK_THREAD_FIELD:
-            if event.update_link_to_thread:
-                result = await hctx.app.client.chat_getPermalink(
-                    channel=message_to_link_to.channel_id,
-                    message_ts=message_to_link_to.ts,
-                )
-                permalink = result.data.get("permalink")
-
-                hctx.salesforce_client.Case.update(
-                    event.case.Id,
-                    {SALESFORCE_SLACK_THREAD_FIELD: permalink},
-                    headers={"Sforce-Auto-Assign": "false"},
-                )
-
-                logfire.info(
-                    "Updated Salesforce case to include the thread link",
-                    extra={"permalink": permalink},
-                )
-
-            if message_to_link_to.to_user_id:
-
-                async def _delayed_feedback(client, message):
-                    await asyncio.sleep(10)
-                    await send_feedback_rating_prompt(client, message)
-
-                asyncio.create_task(
-                    _delayed_feedback(hctx.app.client, message_to_link_to)
-                )
-
-        return message_to_link_to
-
-    async def handle_slack_event(
-        self,
-        hctx: HarnessContext,
-        event: SlackAppMentionEvent | SlackMessageEvent,
-        agent: Agent,
-        user_prompt: str | list,
-        ctx: AgentResponseContext,
-        channel_to_respond: str,
-    ) -> SlackMessage | None:
-        if await usage_limit_reached(
-            pool=hctx.pool,
-            user_id=event.user,
-            interval=self.rate_limit_interval,
-            allowed_requests=self.rate_limit_allowed_requests,
-        ):
-            logfire.info(
-                "User interaction limited due to usage",
-                allowed_requests=self.rate_limit_allowed_requests,
-                interval=self.rate_limit_interval,
-                user_id=event.user,
-            )
-
-            await post_response(
-                client=hctx.app.client,
-                channel=channel_to_respond,
-                thread_ts=event.thread_ts or event.ts,
-                text="I cannot process your request at this time due to usage limits. Please ask me again later.",
-            )
-
-            return
-
-        response_message: SlackMessage | None = None
-        await set_status(
-            client=hctx.app.client,
-            channel_id=event.channel,
-            thread_ts=event.thread_ts or event.ts,
-            is_busy=True,
-        )
-        slack_stream: AsyncChatStream | None = None
-
-        # my first attempt was using `run_stream`, however, there is a known 'issue'
-        # that that will return before tool calls are made: https://github.com/pydantic/pydantic-ai/issues/3574
-        async for stream_event in agent.run_stream_events(
-            user_prompt=user_prompt,
-            deps=ctx,
-            usage_limits=UsageLimits(output_tokens_limit=9_000),
-        ):
-            slack_stream = await stream_response_to_mention(
-                client=hctx.app.client,
-                slack_stream=slack_stream,
-                stream_event=stream_event,
-                channel_id=event.channel,
-                recipient_user_id=event.user,
-                recipient_team_id=self.bot_info.team_id,
-                ts=event.ts,
-                thread_ts=event.thread_ts,
-            )
-
-        if slack_stream is not None and slack_stream._state != "completed":
-            rest = await slack_stream.stop()
-            response_message = SlackMessage(
-                text=rest.data.get("message").get("text"),
-                ts=rest.data.get("ts"),
-                channel_id=rest.data.get("channel"),
-                thread_ts=None,
-                to_user_id=event.user,
-            )
-            logfire.info("ended", extra={"res": rest})
-
-        # clear the status widget
-        await set_status(
-            client=hctx.app.client,
-            channel_id=event.channel,
-            thread_ts=event.thread_ts or event.ts,
-            is_busy=False,
-        )
-
-        await add_reaction(
-            hctx.app.client,
-            event.channel,
-            event.ts,
-            "white_check_mark",
-        )
-
-        return response_message
-
-    @logfire.instrument("generate_response", extract_args=False)
-    async def create_and_send_response(
-        self, hctx: HarnessContext, task: Task
-    ) -> SlackMessage | None:
-        event = task.event
-        channel_to_respond = (
-            event.channel
-            if not isinstance(event, SalesforceBaseEvent)
-            or isinstance(event, SalesforceCreateNewCaseEvent)
-            else SALESFORCE_CASE_CHANNEL
-        )
-
-        if isinstance(event, SalesforceCreateNewCaseEvent):
-            await self.handle_create_salesforce_case(
-                hctx=hctx,
-                event=event,
-                channel_to_respond=channel_to_respond,
-            )
-            return
-
-        if isinstance(event, SalesforceFeedItemEvent):
-            await self.handle_new_salesforce_case_feed_item(hctx=hctx, event=event)
-            return
-
-        agent_and_ctx, self.bot_info = await create_agent_and_context(
-            hctx=hctx,
-            task=task,
-            model=self.model,
-            bot_info=self.bot_info,
-            channel_to_respond=channel_to_respond,
-            mcp_loader=self.mcp_loader,
-            augment_mcp_servers=self.augment_mcp_servers,
-            augment_context=self.augment_context,
-            make_system_prompt=self.make_system_prompt,
-            make_user_prompt=self.make_user_prompt,
-        )
-        agent = agent_and_ctx.agent
-        user_prompt = agent_and_ctx.user_prompt
-        ctx = agent_and_ctx.ctx
-        channel_to_respond = agent_and_ctx.channel_to_respond
-        event = ctx.mention
-
-        if isinstance(event, SalesforceBaseEvent):
-            return await self.handle_salesforce_event(
-                hctx=hctx,
-                event=event,
-                agent=agent,
-                user_prompt=user_prompt,
-                ctx=ctx,
-                channel_to_respond=channel_to_respond,
-            )
-
-        return await self.handle_slack_event(
-            hctx=hctx,
-            event=event,
-            agent=agent,
-            user_prompt=user_prompt,
-            ctx=ctx,
-            channel_to_respond=channel_to_respond,
-        )
-
-    async def __call__(self, hctx: HarnessContext, task: Task) -> None:
-        """Processes various tasks.
-
-        This method implements the complete TaskProcessor interface for the
-        TaskHarness system. It provides rich Slack interaction patterns:
-
-        Success Flow:
-        1. Generate AI response using MCP tools with real-time streaming
-        2. Show dynamic status messages during processing
-        3. Stream response updates directly to Slack thread
-        4. Add :white_check_mark: reaction for success
-
-        Failure Flow:
-        1. Clear any active status messages
-        2. Add :x: reaction to indicate failure
-        3. Post user-friendly error message
-        4. Re-raise exception for TaskHarness retry logic
-
-        The error message adapts based on retry attempts:
-        - During retries: "I will try again."
-        - Final failure: "I give up. Sorry."
-
-        Args:
-            ctx: Task context providing Slack app and database access
-            task: The task to process
-
-        Raises:
-            Exception: Re-raises any processing exceptions for TaskHarness retry handling
-        """
-        payload = task.event
-        try:
-            if not isinstance(payload, SalesforceBaseEvent) and await user_ignored(
-                pool=hctx.pool, user_id=payload.user
-            ):
-                logfire.info("Ignore user", user_id=payload.user)
-                return
-
-            message = await self.create_and_send_response(hctx, task)
-
-            if message:
-                logfire.info("Reponse sent", extra={"message": message})
-
-        except Exception as e:
-            logger.exception("response failed", exc_info=e)
-            if isinstance(payload, SalesforceBaseEvent):
-                return
-
-            await add_reaction(hctx.app.client, payload.channel, payload.ts, "x")
-            await post_response(
-                client=hctx.app.client,
-                channel=payload.channel,
-                thread_ts=payload.thread_ts if payload.thread_ts else payload.ts,
-                text="I experienced an issue trying to respond. I will try again."
-                if task.attempts < self.max_attempts
-                else " I give up. Sorry.",
-            )
-            raise e
