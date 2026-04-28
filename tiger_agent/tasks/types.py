@@ -7,7 +7,11 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
 )
-from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
+from tiger_agent.slack.types import (
+    SlackAppMentionEvent,
+    SlackMessageEvent,
+    SlackSalesforceCaseThreadMessageEvent,
+)
 
 
 class Task(BaseModel):
@@ -20,7 +24,7 @@ class Task(BaseModel):
         id: Primary key from agent.event table
         event_ts: Timestamp when the task was created
         attempts: Number of processing attempts made
-        vt: Visibility threshold - when task becomes available for processing
+        vt: Visibility timeout - when task becomes available for processing
         claimed: Array of timestamps when task was claimed by workers
         event: The original event payload
     """
@@ -33,6 +37,7 @@ class Task(BaseModel):
     event: (
         SlackAppMentionEvent
         | SlackMessageEvent
+        | SlackSalesforceCaseThreadMessageEvent
         | SalesforceCreateNewCaseEvent
         | SalesforceAssignmentChangedEvent
         | SalesforceFeedItemEvent

@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import logfire
-from pydantic_ai.messages import BinaryContent
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.context.ack.async_ack import AsyncAck
 from slack_bolt.context.respond.async_respond import AsyncRespond
@@ -17,18 +16,11 @@ from tiger_agent.db.utils import (
     insert_handled_event,
 )
 from tiger_agent.listeners import Listener
-from tiger_agent.salesforce.constants import (
-    SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
-    SALESFORCE_CASE_SUPPORT_EMAIL,
-    SALESFORCE_INTERNAL_FROM_NAME_SUFFIX,
-)
 from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
     SalesforceCreateNewCaseEvent,
 )
 from tiger_agent.salesforce.utils import (
-    EmailAttachment,
-    add_case_email_comment,
     get_services_for_account,
 )
 from tiger_agent.slack.commands import (
@@ -43,12 +35,10 @@ from tiger_agent.slack.constants import (
     REJECT_PROACTIVE_PROMPT,
     SLACK_APP_TOKEN,
 )
-from tiger_agent.slack.types import BotInfo, SlackCommand, UserInfo
+from tiger_agent.slack.types import BotInfo, SlackCommand, SlackSalesforceCaseThreadMessageEvent, UserInfo
 from tiger_agent.slack.utils import (
-    download_private_file,
     fetch_bot_info,
     fetch_team_info,
-    fetch_user_info,
     handle_new_salesforce_case_workflow_form_cancel,
     handle_new_salesforce_case_workflow_form_submit,
     handle_proactive_prompt,
@@ -187,53 +177,18 @@ class SlackListener(Listener):
                 logfire.info("No text in Slack message, not syncing to Salesforce")
                 return
 
-            user_info = await fetch_user_info(self._app.client, user_id=user)
-            user_is_external = (
-                user_info.is_external or user_info.team_id != self._bot_info.team_id
+            await insert_event(
+                self._pool,
+                SlackSalesforceCaseThreadMessageEvent(
+                    user=user,
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    text=text,
+                    salesforce_case_id=salesforce_case_id_for_slack_thread,
+                    files=files,
+                ).model_dump(),
             )
-            text_prefix, html_prefix = await self.get_reply_prefix_for_sender(user_info)
-
-            attachments: list[EmailAttachment] = []
-
-            for file in files:
-                type = file.get("mimetype")
-                url = file.get("url_private_download")
-                name = file.get("name")
-
-                file_content = await download_private_file(
-                    url_private_download=url,
-                )
-                if isinstance(file_content, BinaryContent):
-                    attachments.append(
-                        EmailAttachment(
-                            name=name,
-                            body=file_content.data,
-                            content_type=type,
-                        )
-                    )
-
-            add_case_email_comment(
-                self._hctx.salesforce_client,
-                case_id=salesforce_case_id_for_slack_thread,
-                body=f"{text_prefix}\n{text}",
-                html_body=f"<p>{html_prefix}</p><p>{text}</p>",
-                from_address=user_info.profile.email,
-                to_address=SALESFORCE_CASE_SUPPORT_EMAIL if user_is_external else None,
-                subject=SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
-                from_name=f"{user_info.real_name} ({SALESFORCE_INTERNAL_FROM_NAME_SUFFIX})"
-                if not user_is_external
-                else None,
-                attachments=attachments if attachments else None,
-            )
-
-            logfire.info(
-                "Synced Slack message to Salesforce",
-                case_id=salesforce_case_id_for_slack_thread,
-                comment_body=text,
-                user_id=user,
-                user_name=user_info.real_name,
-                user_is_external=user_is_external,
-            )
+            await self._trigger.put(True)
 
         # if proactive prompting is enabled for channel and agent is not mentioned
         # then offer a proactive prompt

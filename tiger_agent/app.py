@@ -6,6 +6,7 @@ from tiger_agent.tasks.handlers import (
     SalesforceAssignmentChangedHandler,
     SalesforceCreateCaseHandler,
     SalesforceFeedItemHandler,
+    SlackSalesforceCaseThreadMessageHandler,
     SlackTaskHandler,
 )
 from tiger_agent.agent.tiger_agent import TigerAgent
@@ -15,7 +16,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
 )
-from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
+from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent, SlackSalesforceCaseThreadMessageEvent
 from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.harness import TaskHarness
 from tiger_agent.types import HarnessContext
@@ -94,6 +95,7 @@ class TigerApp:
         processor.register(SalesforceAssignmentChangedEvent, SalesforceAssignmentChangedHandler(hctx=hctx, agent=agent))
         processor.register(SalesforceCreateNewCaseEvent, SalesforceCreateCaseHandler(hctx=hctx))
         processor.register(SalesforceFeedItemEvent, SalesforceFeedItemHandler(hctx=hctx))
+        processor.register(SlackSalesforceCaseThreadMessageEvent, SlackSalesforceCaseThreadMessageHandler(hctx=hctx))
 
         self._hctx = hctx
         self._listener_harness = ListenerHarness(hctx=hctx, task_processor=processor)
