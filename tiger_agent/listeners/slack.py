@@ -35,7 +35,12 @@ from tiger_agent.slack.constants import (
     REJECT_PROACTIVE_PROMPT,
     SLACK_APP_TOKEN,
 )
-from tiger_agent.slack.types import BotInfo, SlackCommand, SlackSalesforceCaseThreadMessageEvent, UserInfo
+from tiger_agent.slack.types import (
+    BotInfo,
+    SlackCommand,
+    SlackSalesforceCaseThreadMessageEvent,
+    UserInfo,
+)
 from tiger_agent.slack.utils import (
     fetch_bot_info,
     fetch_team_info,

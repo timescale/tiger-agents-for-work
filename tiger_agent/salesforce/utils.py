@@ -202,6 +202,35 @@ def get_services_for_account(
     ]
 
 
+_INLINE_IMAGE_MIME_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+
+
+def _build_inline_html_body(
+    text_body: str,
+    uploaded: list[tuple[str, str, str]],  # (version_id, content_type, filename)
+) -> str:
+    """Build an HtmlBody that embeds uploaded attachments inline.
+
+    Images render as <img> via the Salesforce Shepherd download URL so that
+    screenshots appear in-place in the case timeline. Other file types render
+    as a download link.
+    """
+    import html
+
+    parts = ["<div>"]
+    for line in text_body.splitlines():
+        parts.append(f"<p>{html.escape(line)}</p>")
+    for version_id, content_type, filename in uploaded:
+        url = f"/sfc/servlet.shepherd/version/download/{version_id}"
+        name = html.escape(filename)
+        if content_type in _INLINE_IMAGE_MIME_TYPES:
+            parts.append(f'<p><img src="{url}" alt="{name}" style="max-width:100%;height:auto" /></p>')
+        else:
+            parts.append(f'<p><a href="{url}">{name}</a></p>')
+    parts.append("</div>")
+    return "".join(parts)
+
+
 def add_case_email_comment(
     salesforce_client: Salesforce,
     case_id: str,
@@ -214,6 +243,9 @@ def add_case_email_comment(
     html_body: str | None = None,
     attachments: list[EmailAttachment] | None = None,
 ) -> None:
+    import os
+
+    has_attachments = bool(attachments)
     payload = {
         "ParentId": case_id,
         "FromAddress": from_address,
@@ -223,7 +255,8 @@ def add_case_email_comment(
         "TextBody": body,
         "HtmlBody": html_body,
         "Incoming": incoming,
-        "Status": "0",  # 0 = "New"
+        # Keep in Draft (5) while uploading attachments; finalize to "0" (New) after.
+        "Status": "5" if has_attachments else "0",
     }
     result = salesforce_client.EmailMessage.create(payload)
     if not result["success"] or not result["id"]:
@@ -233,21 +266,78 @@ def add_case_email_comment(
         return
 
     email_message_id = result["id"]
+
+    # Track successfully uploaded versions for inline HTML body construction:
+    # (version_id, content_type, filename)
+    uploaded: list[tuple[str, str, str]] = []
+
     for attachment in attachments or []:
         encoded = base64.b64encode(attachment.body).decode("utf-8")
-        att_result = salesforce_client.Attachment.create(
+
+        # Strip extension from Title to avoid doubled extensions (e.g. "foo.png.png").
+        # Salesforce stores the extension separately in FileExtension.
+        name_without_ext = os.path.splitext(attachment.name)[0] or attachment.name
+
+        # Upload file as ContentVersion
+        cv_result = salesforce_client.ContentVersion.create(
             {
-                "ParentId": email_message_id,
-                "Name": attachment.name,
-                "ContentType": attachment.content_type,
-                "Body": encoded,
+                "Title": name_without_ext,
+                "PathOnClient": attachment.name,
+                "VersionData": encoded,
+                "IsMajorVersion": False,
             }
         )
-        if not att_result["success"] or not att_result["id"]:
+        if not cv_result["success"] or not cv_result["id"]:
             logfire.error(
-                "Could not attach file to Salesforce email message",
+                "Could not upload attachment as ContentVersion",
                 extra={"email_message_id": email_message_id, "name": attachment.name},
             )
+            continue
+
+        version_id = cv_result["id"]
+
+        # Retrieve the ContentDocumentId for the newly created ContentVersion
+        cv_record = salesforce_client.query(
+            f"SELECT ContentDocumentId FROM ContentVersion WHERE Id = '{version_id}'"
+        )
+        records = cv_record.get("records", [])
+        if not records:
+            logfire.error(
+                "Could not retrieve ContentDocumentId for ContentVersion",
+                extra={"content_version_id": version_id},
+            )
+            continue
+
+        content_document_id = records[0]["ContentDocumentId"]
+
+        # Link the ContentDocument to the EmailMessage
+        link_result = salesforce_client.ContentDocumentLink.create(
+            {
+                "ContentDocumentId": content_document_id,
+                "LinkedEntityId": email_message_id,
+                "ShareType": "V",
+                "Visibility": "AllUsers",
+            }
+        )
+        if not link_result["success"] or not link_result["id"]:
+            logfire.error(
+                "Could not link ContentDocument to EmailMessage",
+                extra={
+                    "email_message_id": email_message_id,
+                    "content_document_id": content_document_id,
+                },
+            )
+            continue
+
+        uploaded.append((version_id, attachment.content_type or "", attachment.name))
+
+    # Finalize: set Status to "0" (New) and write the inline HTML body so
+    # images appear in-place in the Salesforce case timeline.
+    if has_attachments:
+        inline_html = _build_inline_html_body(body, uploaded)
+        salesforce_client.EmailMessage.update(
+            email_message_id, {"Status": "0", "HtmlBody": inline_html}
+        )
 
 
 def get_recent_case_feed_items(
@@ -336,7 +426,9 @@ def download_feed_attachment(
         "File": "application/octet-stream",
         "Link": "text/uri-list",
     }
-    content_type = _ATTACHMENT_TYPE_TO_MIME.get(attachment_type, "application/octet-stream")
+    content_type = _ATTACHMENT_TYPE_TO_MIME.get(
+        attachment_type, "application/octet-stream"
+    )
 
     return FileAttachment(
         name=name,

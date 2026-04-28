@@ -408,13 +408,15 @@ class SalesforceFeedItemHandler(TaskHandler):
 
 
 class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
-    """Handles SlackSalesforceCaseThreadMessageEvent — no LLM required.
+    """Handles SlackSalesforceCaseThreadMessageEvent
 
     Syncs a Slack message posted in a Salesforce-linked thread back to the
     Salesforce case as an email comment, including any file attachments.
     """
 
-    @logfire.instrument("SlackSalesforceCaseThreadMessageHandler.handle", extract_args=False)
+    @logfire.instrument(
+        "SlackSalesforceCaseThreadMessageHandler.handle", extract_args=False
+    )
     async def handle(self, task: Task) -> None:
         hctx = self._hctx
         event: SlackSalesforceCaseThreadMessageEvent = task.event
@@ -430,7 +432,9 @@ class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
         if in_same_team_as_bot:
             profile_workspace_url = hctx.bot_info.url.strip("/")
         else:
-            team_info = await fetch_team_info(hctx.app.client, team_id=user_info.team_id)
+            team_info = await fetch_team_info(
+                hctx.app.client, team_id=user_info.team_id
+            )
             if team_info:
                 profile_workspace_url = f"https://{team_info.domain}.slack.com"
 
