@@ -6,7 +6,11 @@ from typing import Any
 
 import logfire
 from aiosfstream_ng.client import Client
+from pydantic_ai import BinaryContent
 from simple_salesforce.api import Salesforce
+from slack_sdk.web.async_client import (
+    AsyncWebClient,
+)
 
 from tiger_agent.salesforce.clients import (
     ClientCredentialsAuthenticator,
@@ -22,6 +26,8 @@ from tiger_agent.salesforce.types import (
     SalesforceFeedItem,
     ServiceRecord,
 )
+from tiger_agent.slack.types import SlackBaseEvent, SlackFile
+from tiger_agent.slack.utils import download_private_file
 
 RECONNECT_DELAY_SECONDS = 30
 IGNORED_CONTACT_EMAILS = set(
@@ -224,7 +230,9 @@ def _build_inline_html_body(
         url = f"/sfc/servlet.shepherd/version/download/{version_id}"
         name = html.escape(filename)
         if content_type in _INLINE_IMAGE_MIME_TYPES:
-            parts.append(f'<p><img src="{url}" alt="{name}" style="max-width:100%;height:auto" /></p>')
+            parts.append(
+                f'<p><img src="{url}" alt="{name}" style="max-width:100%;height:auto" /></p>'
+            )
         else:
             parts.append(f'<p><a href="{url}">{name}</a></p>')
     parts.append("</div>")
@@ -258,6 +266,15 @@ def add_case_email_comment(
         # Keep in Draft (5) while uploading attachments; finalize to "0" (New) after.
         "Status": "5" if has_attachments else "0",
     }
+    # Delete any existing draft EmailMessages on the case before creating a new one,
+    # as draft messages block creation with INVALID_OPERATION.
+    if has_attachments:
+        drafts = salesforce_client.query(
+            f"SELECT Id FROM EmailMessage WHERE ParentId = '{case_id}' AND Status = '5'"
+        )
+        for draft in drafts.get("records", []):
+            salesforce_client.EmailMessage.delete(draft["Id"])
+
     result = salesforce_client.EmailMessage.create(payload)
     if not result["success"] or not result["id"]:
         logfire.error(
@@ -447,3 +464,46 @@ def get_project_ids_for_account(
     if not records:
         return None
     return [r["Project_Id__c"] for r in records if r.get("Project_Id__c")]
+
+
+async def build_email_attachments_from_slack_files(
+    client: AsyncWebClient,
+    event: SlackBaseEvent,
+) -> list[EmailAttachment]:
+    attachments: list[EmailAttachment] = []
+    for file in event.files or []:
+        if not file.id:
+            logfire.warn("Skipping file with no id", file_name=file.name)
+            continue
+        info_result = await client.files_info(file=file.id)
+        file = SlackFile.model_validate(info_result.data.get("file", {}))
+
+        if not file.url_private_download:
+            logfire.warn(
+                "Skipping file with no url_private_download",
+                file_id=file.id,
+                name=file.name,
+            )
+            continue
+        file_content = await download_private_file(
+            url_private_download=file.url_private_download,
+            mimetype=file.mimetype,
+        )
+        if not file_content:
+            logfire.info(
+                "Could not download file",
+                file_name=file.name,
+                url=file.url_private_download,
+            )
+            continue
+
+        attachments.append(
+            EmailAttachment(
+                name=file.name,
+                body=file_content.data
+                if isinstance(file_content, BinaryContent)
+                else file_content.encode("utf-8"),
+                content_type=file.mimetype,
+            )
+        )
+    return attachments

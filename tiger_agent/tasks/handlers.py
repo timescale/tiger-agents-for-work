@@ -12,7 +12,6 @@ from abc import ABC, abstractmethod
 import logfire
 from htmlslacker import HTMLSlacker
 from pydantic_ai import UsageLimits
-from pydantic_ai.messages import BinaryContent
 
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.utils import create_agent_and_context
@@ -39,8 +38,8 @@ from tiger_agent.salesforce.types import (
     SalesforceFeedItemEvent,
 )
 from tiger_agent.salesforce.utils import (
-    EmailAttachment,
     add_case_email_comment,
+    build_email_attachments_from_slack_files,
     create_case,
     create_case_url,
     download_feed_attachment,
@@ -54,7 +53,6 @@ from tiger_agent.slack.types import (
 )
 from tiger_agent.slack.utils import (
     add_reaction,
-    download_private_file,
     fetch_team_info,
     fetch_user_info,
     post_response,
@@ -122,10 +120,6 @@ class TaskProcessor:
                     else "I give up. Sorry.",
                 )
             raise
-
-
-# backwards-compat alias
-EventProcessor = TaskProcessor
 
 
 class SlackTaskHandler(TaskHandler):
@@ -445,20 +439,9 @@ class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
         else:
             html_prefix = text_prefix
 
-        attachments: list[EmailAttachment] = []
-        for file in event.files:
-            mimetype = file.get("mimetype")
-            url = file.get("url_private_download")
-            name = file.get("name")
-            file_content = await download_private_file(url_private_download=url)
-            if isinstance(file_content, BinaryContent):
-                attachments.append(
-                    EmailAttachment(
-                        name=name,
-                        body=file_content.data,
-                        content_type=mimetype,
-                    )
-                )
+        attachments = await build_email_attachments_from_slack_files(
+            client=hctx.app.client, event=event
+        )
 
         add_case_email_comment(
             hctx.salesforce_client,

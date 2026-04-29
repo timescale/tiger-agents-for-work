@@ -178,8 +178,10 @@ class SlackListener(Listener):
                 )
             )
         ):
-            if not (text := event.get("text", "")):
-                logfire.info("No text in Slack message, not syncing to Salesforce")
+            if (not (text := event.get("text", ""))) and not files:
+                logfire.info(
+                    "No text or attachments in Slack message, not syncing to Salesforce"
+                )
                 return
 
             await insert_event(
@@ -187,10 +189,12 @@ class SlackListener(Listener):
                 SlackSalesforceCaseThreadMessageEvent(
                     user=user,
                     channel=channel,
+                    ts=event.get("ts", ""),
+                    event_ts=event.get("event_ts", event.get("ts", "")),
                     thread_ts=thread_ts,
                     text=text,
-                    salesforce_case_id=salesforce_case_id_for_slack_thread,
                     files=files,
+                    salesforce_case_id=salesforce_case_id_for_slack_thread,
                 ).model_dump(),
             )
             await self._trigger.put(True)
