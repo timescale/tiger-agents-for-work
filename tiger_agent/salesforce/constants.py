@@ -2,6 +2,7 @@ import os
 
 CASE_ID_FIELD = "Id"
 CASE_OWNER_ID_FIELD = "OwnerId"
+CASE_STATUS_FIELD = "Status"
 DEV_HELP_LINKS_FIELD = "Dev_Help_Links__c"
 
 CASE_FIELDS = [

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 from tiger_agent.slack.types import BotInfo, SlackMessageEvent
+from tiger_agent.slack.utils import get_handle_link
 
 
 def format_thread_history(
@@ -25,9 +26,9 @@ def format_thread_history(
         if filter_message_ts and msg.ts in filter_message_ts:
             continue
         actor = (
-            f"<@{bot_info.user_id}> (you)"
+            f"{get_handle_link(bot_info.user_id)} (you)"
             if sender_id == bot_info.user_id
-            else f"<@{sender_id}>"
+            else get_handle_link(sender_id)
         )
         ts = datetime.fromtimestamp(float(msg.ts), tz=UTC).isoformat()
         lines.append(f"[{ts}] {actor}: {msg.text}")
