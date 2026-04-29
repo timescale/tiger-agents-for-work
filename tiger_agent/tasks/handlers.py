@@ -34,6 +34,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceBaseEvent,
+    SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
 )
@@ -52,9 +53,11 @@ from tiger_agent.slack.types import (
     SlackSalesforceCaseThreadMessageEvent,
 )
 from tiger_agent.slack.utils import (
+    add_quote_block,
     add_reaction,
     fetch_team_info,
     fetch_user_info,
+    get_handle_link,
     post_response,
     send_feedback_rating_prompt,
     set_status,
@@ -123,8 +126,6 @@ class TaskProcessor:
 
 
 class SlackTaskHandler(TaskHandler):
-    """Handles SlackAppMentionEvent and SlackMessageEvent via LLM."""
-
     def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
         super().__init__(hctx)
         self._agent = agent
@@ -203,8 +204,7 @@ class SlackTaskHandler(TaskHandler):
 
 
 class SalesforceAssignmentChangedHandler(TaskHandler):
-    """Handles SalesforceAssignmentChangedEvent
-
+    """
     Runs the agent to produce a case summary and posts it to the Salesforce
     case channel. Updates the Salesforce case with the Slack thread permalink.
     """
@@ -243,7 +243,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
-            text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to <@{response.output.case_owner_slack_user_id}>' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
+            text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(response.output.case_owner_slack_user_id)}' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
         )
 
         message_to_link_to = SlackMessage(
@@ -290,8 +290,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
 
 
 class SalesforceCreateCaseHandler(TaskHandler):
-    """Handles SalesforceCreateNewCaseEvent
-
+    """
     Creates a Salesforce case from a Slack-initiated form submission and posts
     a confirmation message to the originating channel.
     """
@@ -327,7 +326,8 @@ class SalesforceCreateCaseHandler(TaskHandler):
             client=hctx.app.client,
             channel=channel_to_respond,
             thread_ts=None,
-            text=f"*Support Case Created*\nCase Number: {new_case.CaseNumber}\nSubject: {new_case.Subject} \nDescription: {new_case.Description}",
+            text=f"*Support Case Created*\n_Submitter:_ {get_handle_link(event.user)}\n_Case Number:_ `{new_case.CaseNumber}`\n_Subject:_ `{new_case.Subject}` \n_Description:_\n{add_quote_block(new_case.Description)}",
+            use_mrkdwn=True,
         )
 
         new_case_thread_ts = response.data.get("ts", None)
@@ -366,9 +366,8 @@ class SalesforceCreateCaseHandler(TaskHandler):
 
 
 class SalesforceFeedItemHandler(TaskHandler):
-    """Handles SalesforceFeedItemEvent — no LLM required.
-
-    Syncs a Salesforce Chatter post on a case to the linked Slack thread.
+    """
+    Syncs a Salesforce post on a case to the linked Slack thread.
     """
 
     @logfire.instrument("SalesforceFeedItemHandler.handle", extract_args=False)
@@ -380,7 +379,7 @@ class SalesforceFeedItemHandler(TaskHandler):
         )
 
         markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output().strip()
-        body = "\n".join(f"> {line}" for line in markdown_conversion.splitlines())
+        body = add_quote_block(markdown_conversion)
         text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
 
         attachment_ids = get_feed_attachment_ids(
@@ -402,8 +401,7 @@ class SalesforceFeedItemHandler(TaskHandler):
 
 
 class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
-    """Handles SlackSalesforceCaseThreadMessageEvent
-
+    """
     Syncs a Slack message posted in a Salesforce-linked thread back to the
     Salesforce case as an email comment, including any file attachments.
     """
@@ -464,4 +462,22 @@ class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
             user_id=event.user,
             user_name=user_info.real_name,
             user_is_external=user_is_external,
+        )
+
+
+class SalesforceCaseStatusChangedHandler(TaskHandler):
+    """
+    Called when a Salesforce case status changes.
+    """
+
+    @logfire.instrument("SalesforceCaseStatusChangedHandler.handle", extract_args=False)
+    async def handle(self, task: Task) -> None:
+        hctx = self._hctx
+        event: SalesforceCaseStatusChangedEvent = task.event
+
+        await post_response(
+            client=hctx.app.client,
+            channel=event.slack_channel_id,
+            thread_ts=event.slack_thread_ts,
+            text=f"_Case status updated to_ `{event.case.Status}`",
         )

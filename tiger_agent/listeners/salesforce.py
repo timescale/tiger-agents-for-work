@@ -1,22 +1,30 @@
 import asyncio
 from asyncio import TaskGroup
+from collections.abc import Callable, Coroutine
 from datetime import datetime
+from typing import Any
 
 import logfire
 import schedule
 
-from tiger_agent.db.utils import insert_event, is_case_assignment_new
+from tiger_agent.db.utils import (
+    get_salesforce_case_thread_thread_id,
+    insert_event,
+    is_case_assignment_new,
+)
 from tiger_agent.listeners import Listener
 from tiger_agent.salesforce.case_feed_item_poller import SalesforceCaseFeedItemPoller
 from tiger_agent.salesforce.constants import (
     CASE_ID_FIELD,
     CASE_OWNER_ID_FIELD,
+    CASE_STATUS_FIELD,
     SALESFORCE_CASE_CHANNEL,
 )
 from tiger_agent.salesforce.new_case_poller import SalesforceNewCasePoller
 from tiger_agent.salesforce.types import (
     CaseData,
     SalesforceAssignmentChangedEvent,
+    SalesforceCaseStatusChangedEvent,
     SalesforceFeedItem,
     SalesforceFeedItemEvent,
 )
@@ -25,6 +33,9 @@ from tiger_agent.salesforce.utils import (
     subscribe_to_topic,
 )
 from tiger_agent.types import HarnessContext
+
+CASE_OWNER_CHANGED_TOPIC = "CaseOwnerChangedTopic"
+CASE_STATUS_CHANGED_TOPIC = "CaseStatusChangedTopic"
 
 
 class SalesforceListener(Listener):
@@ -51,7 +62,20 @@ class SalesforceListener(Listener):
             handler=self.handle_new_feed_item,
         )
 
-        tasks.create_task(self._subscribe_to_case_assignee_changed())
+        tasks.create_task(
+            self._subscribe_to_event(
+                CASE_OWNER_CHANGED_TOPIC,
+                [CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
+                self.handle_updated_case_assignee,
+            )
+        )
+        tasks.create_task(
+            self._subscribe_to_event(
+                CASE_STATUS_CHANGED_TOPIC,
+                [CASE_ID_FIELD, CASE_STATUS_FIELD],
+                self.handle_case_status_changed,
+            )
+        )
         tasks.create_task(self._run_schedule())
 
         # poller will look for cases that have been created+assigned
@@ -134,22 +158,47 @@ class SalesforceListener(Listener):
 
         await self._trigger.put(True)
 
-    async def _subscribe_to_case_assignee_changed(self):
+    async def _subscribe_to_event(
+        self,
+        topic_name: str,
+        fields: list[str],
+        handler: Callable[[CaseData], Coroutine[Any, Any, None]],
+    ):
         try:
-            topic_name = "CaseOwnerChangedTopic"
             self._upsert_case_push_topic_definition(
                 topic_name=topic_name,
-                fields=[CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
+                fields=fields,
                 notifyOnCreate=False,
                 notifyOnUpdate=True,
             )
             await subscribe_to_topic(
                 salesforce_client=self._salesforce_client,
                 topic_name=topic_name,
-                handler=self.handle_updated_case_assignee,
+                handler=handler,
             )
         except Exception:
-            logfire.exception("Error in subscribe_to_case_assignee_changed")
+            logfire.exception(f"Error subscribing to {topic_name}")
+
+    @logfire.instrument("handle_case_status_changed", extract_args=False)
+    async def handle_case_status_changed(self, case: CaseData):
+        result = await get_salesforce_case_thread_thread_id(self._pool, case_id=case.Id)
+
+        if not result:
+            # at present, we only care about Salesforce case status changes
+            # on cases that are correlated with Slack threads
+            return
+
+        full_case_data = self._salesforce_client.Case.get(case.Id)
+        [channel_id, thread_ts] = result
+        await insert_event(
+            pool=self._pool,
+            event=SalesforceCaseStatusChangedEvent(
+                case=full_case_data,
+                slack_thread_ts=thread_ts,
+                slack_channel_id=channel_id,
+            ).model_dump(),
+        )
+        await self._trigger.put(True)
 
     @logfire.instrument("handle_new_feed_item", extract_args=False)
     async def handle_new_feed_item(self, feed_item: SalesforceFeedItem):
