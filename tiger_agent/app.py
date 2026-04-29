@@ -2,13 +2,6 @@ import asyncio
 from datetime import timedelta
 from pathlib import Path
 
-from tiger_agent.tasks.handlers import (
-    SalesforceAssignmentChangedHandler,
-    SalesforceCreateCaseHandler,
-    SalesforceFeedItemHandler,
-    SlackSalesforceCaseThreadMessageHandler,
-    SlackTaskHandler,
-)
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.salesforce.types import (
@@ -16,8 +9,19 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
 )
-from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent, SlackSalesforceCaseThreadMessageEvent
-from tiger_agent.tasks.handlers import TaskProcessor
+from tiger_agent.slack.types import (
+    SlackAppMentionEvent,
+    SlackMessageEvent,
+    SlackSalesforceCaseThreadMessageEvent,
+)
+from tiger_agent.tasks.handlers import (
+    SalesforceAssignmentChangedHandler,
+    SalesforceCreateCaseHandler,
+    SalesforceFeedItemHandler,
+    SlackSalesforceCaseThreadMessageHandler,
+    SlackTaskHandler,
+    TaskProcessor,
+)
 from tiger_agent.tasks.harness import TaskHarness
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import get_harness_ctx
@@ -91,11 +95,24 @@ class TigerApp:
             )
 
         processor = TaskProcessor(hctx=hctx, agent=agent)
-        processor.register([SlackAppMentionEvent, SlackMessageEvent], SlackTaskHandler(hctx=hctx, agent=agent))
-        processor.register(SalesforceAssignmentChangedEvent, SalesforceAssignmentChangedHandler(hctx=hctx, agent=agent))
-        processor.register(SalesforceCreateNewCaseEvent, SalesforceCreateCaseHandler(hctx=hctx))
-        processor.register(SalesforceFeedItemEvent, SalesforceFeedItemHandler(hctx=hctx))
-        processor.register(SlackSalesforceCaseThreadMessageEvent, SlackSalesforceCaseThreadMessageHandler(hctx=hctx))
+        processor.register(
+            [SlackAppMentionEvent, SlackMessageEvent],
+            SlackTaskHandler(hctx=hctx, agent=agent),
+        )
+        processor.register(
+            SalesforceAssignmentChangedEvent,
+            SalesforceAssignmentChangedHandler(hctx=hctx, agent=agent),
+        )
+        processor.register(
+            SalesforceCreateNewCaseEvent, SalesforceCreateCaseHandler(hctx=hctx)
+        )
+        processor.register(
+            SalesforceFeedItemEvent, SalesforceFeedItemHandler(hctx=hctx)
+        )
+        processor.register(
+            SlackSalesforceCaseThreadMessageEvent,
+            SlackSalesforceCaseThreadMessageHandler(hctx=hctx),
+        )
 
         self._hctx = hctx
         self._listener_harness = ListenerHarness(hctx=hctx, task_processor=processor)

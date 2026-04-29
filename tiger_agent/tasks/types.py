@@ -36,8 +36,8 @@ class Task(BaseModel):
     claimed: list[datetime]
     event: (
         SlackAppMentionEvent
-        | SlackMessageEvent
         | SlackSalesforceCaseThreadMessageEvent
+        | SlackMessageEvent
         | SalesforceCreateNewCaseEvent
         | SalesforceAssignmentChangedEvent
         | SalesforceFeedItemEvent

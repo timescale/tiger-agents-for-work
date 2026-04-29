@@ -195,6 +195,7 @@ class SlackFile(BaseModel):
     url_private_download: str | None = None
     media_display_type: str | None = None
     size: int | None = None
+    file_access: str | None = None
 
 
 class SlackBaseEvent(BaseModel):
@@ -244,7 +245,7 @@ class SlackMessageEvent(SlackBaseEvent):
     subtype: str | None = None
 
 
-class SlackSalesforceCaseThreadMessageEvent(BaseModel):
+class SlackSalesforceCaseThreadMessageEvent(SlackBaseEvent):
     """Event representing a Slack message posted in a thread linked to a Salesforce case.
 
     Created by the listener when a non-bot message is posted in a thread that is
@@ -255,9 +256,5 @@ class SlackSalesforceCaseThreadMessageEvent(BaseModel):
     model_config = {"extra": "allow"}
 
     type: str = "slack_salesforce_case_thread_message"
-    user: str
-    channel: str
-    thread_ts: str
-    text: str
+
     salesforce_case_id: str
-    files: list[dict[str, Any]] = []

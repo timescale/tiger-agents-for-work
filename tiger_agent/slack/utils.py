@@ -377,6 +377,7 @@ async def download_slack_hosted_file(
 
 async def download_private_file(
     url_private_download: str,
+    mimetype: str | None = None,
 ) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
@@ -409,10 +410,15 @@ async def download_private_file(
             )
             resp.raise_for_status()
 
-            media_type = resp.headers["content-type"]
-
-            if not media_type:
-                raise ValueError("Cannot determine file content type")
+            # Prefer the mimetype from Slack's file metadata when available.
+            # The content-type response header often returns "application/force-download"
+            # regardless of the actual file type.
+            content_type_header = resp.headers.get("content-type", "")
+            media_type = mimetype or (
+                content_type_header
+                if content_type_header and content_type_header != "application/force-download"
+                else "application/octet-stream"
+            )
 
             # For text files, return string content
             if media_type.startswith("text/"):
