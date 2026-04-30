@@ -45,6 +45,7 @@ from tiger_agent.salesforce.utils import (
     create_case_url,
     download_feed_attachment,
     get_feed_attachment_ids,
+    replace_all_slack_mentions_with_links_to_profile,
 )
 from tiger_agent.slack.types import (
     SlackAppMentionEvent,
@@ -55,13 +56,14 @@ from tiger_agent.slack.types import (
 from tiger_agent.slack.utils import (
     add_quote_block,
     add_reaction,
-    fetch_team_info,
     fetch_user_info,
+    get_a_href_link_to_user_profile,
     get_handle_link,
     post_response,
     send_feedback_rating_prompt,
     set_status,
     stream_response_to_mention,
+    user_is_external,
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -415,43 +417,35 @@ class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
         event: SlackSalesforceCaseThreadMessageEvent = task.event
 
         user_info = await fetch_user_info(hctx.app.client, user_id=event.user)
-        user_is_external = (
-            user_info.is_external or user_info.team_id != hctx.bot_info.team_id
+        is_external_user = user_is_external(bot_info=hctx.bot_info, user_info=user_info)
+        link_to_user_profile = await get_a_href_link_to_user_profile(
+            hctx=hctx, user_info=user_info
         )
 
-        # Build reply prefix with a link to the sender's Slack profile
-        in_same_team_as_bot = hctx.bot_info.team_id == user_info.team_id
-        profile_workspace_url: str | None = None
-        if in_same_team_as_bot:
-            profile_workspace_url = hctx.bot_info.url.strip("/")
-        else:
-            team_info = await fetch_team_info(
-                hctx.app.client, team_id=user_info.team_id
-            )
-            if team_info:
-                profile_workspace_url = f"https://{team_info.domain}.slack.com"
-
         text_prefix = f"[Replied via Slack as @{user_info.name}]"
-        if profile_workspace_url:
-            user_profile_url = f"{profile_workspace_url}/team/{user_info.id}"
-            html_prefix = f'[Replied via Slack as <a href="{user_profile_url}">@{user_info.name}</a>]'
-        else:
-            html_prefix = text_prefix
+        html_prefix = f"[Replied via Slack as {link_to_user_profile}</a>]"
 
         attachments = await build_email_attachments_from_slack_files(
             client=hctx.app.client, event=event
         )
 
+        [
+            html_message_body,
+            plain_message_body,
+        ] = await replace_all_slack_mentions_with_links_to_profile(
+            hctx=hctx, message=event.text
+        )
+
         add_case_email_comment(
             hctx.salesforce_client,
             case_id=event.salesforce_case_id,
-            body=f"{text_prefix}\n{event.text}",
-            html_body=f"<p>{html_prefix}</p><p>{event.text}</p>",
+            body=f"{text_prefix}\n{plain_message_body}",
+            html_body=f"<p>{html_prefix}</p><p>{html_message_body}</p>",
             from_address=user_info.profile.email,
-            to_address=SALESFORCE_CASE_SUPPORT_EMAIL if user_is_external else None,
+            to_address=SALESFORCE_CASE_SUPPORT_EMAIL if is_external_user else None,
             subject=SALESFORCE_CASE_EMAIL_COMMENT_SUBJECT,
             from_name=f"{user_info.real_name} ({SALESFORCE_INTERNAL_FROM_NAME_SUFFIX})"
-            if not user_is_external
+            if not is_external_user
             else None,
             attachments=attachments if attachments else None,
         )
@@ -462,7 +456,7 @@ class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
             comment_body=event.text,
             user_id=event.user,
             user_name=user_info.real_name,
-            user_is_external=user_is_external,
+            user_is_external=is_external_user,
         )
 
 

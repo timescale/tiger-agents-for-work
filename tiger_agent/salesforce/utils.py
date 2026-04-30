@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import os
+import re
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -28,7 +29,12 @@ from tiger_agent.salesforce.types import (
     ServiceRecord,
 )
 from tiger_agent.slack.types import SlackBaseEvent, SlackFile
-from tiger_agent.slack.utils import download_private_file
+from tiger_agent.slack.utils import (
+    download_private_file,
+    fetch_user_info,
+    get_a_href_link_to_user_profile,
+)
+from tiger_agent.types import HarnessContext
 
 RECONNECT_DELAY_SECONDS = 30
 IGNORED_CONTACT_EMAILS = set(
@@ -541,3 +547,29 @@ async def build_email_attachments_from_slack_files(
             )
         )
     return attachments
+
+
+async def replace_all_slack_mentions_with_links_to_profile(
+    hctx: HarnessContext, message: str
+) -> tuple[str, str]:
+    """
+    This will replace all of the <@U....> app mentions with html links to the profiles.
+    It returns an html version (e.g. with the a hrefs) and a non html version (with just the @user.name)
+    """
+
+    html = f"{message}"
+    non_html = f"{message}"
+
+    matches = re.findall(r"<@(U[A-Z0-9]{10})>", message)
+
+    for match in matches:
+        user_info = await fetch_user_info(client=hctx.app.client, user_id=match)
+
+        link_to_user_profile = await get_a_href_link_to_user_profile(
+            hctx=hctx, user_info=user_info
+        )
+
+        html = html.replace(f"<@{match}>", link_to_user_profile)
+        non_html = non_html.replace(f"<@{match}>", f"@{user_info.name}")
+
+    return (html, non_html)
