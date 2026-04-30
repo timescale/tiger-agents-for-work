@@ -37,6 +37,14 @@ IGNORED_CONTACT_EMAILS = set(
     .split(",")
 )
 
+EXT_TO_MIME = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
+
 logfire.info("Salesforce ignore list", extra={"list": IGNORED_CONTACT_EMAILS})
 
 
@@ -396,62 +404,100 @@ def get_feed_attachment_ids(
     return [r["Id"] for r in result.get("records", [])]
 
 
+@logfire.instrument("download_feed_attachment {feed_attachment_id=}")
 def download_feed_attachment(
     salesforce_client: Salesforce,
     feed_attachment_id: str,
-) -> FileAttachment:
+) -> FileAttachment | None:
     """Download the body of a Salesforce FeedAttachment by its Id.
 
-    FeedAttachment records link a ContentDocument to a FeedItem. The binary
-    content is fetched from the ContentVersion REST endpoint.
+    Handles three attachment types:
+    - Content/File: fetched via ContentVersion.VersionData, falling back to
+      ContentDocument.Body if no ContentVersion exists.
+    - Attachment: fetched via the legacy Attachment.Body REST endpoint.
+    - Link: no body to download, returns None.
     """
-    attachment = salesforce_client.FeedAttachment.get(feed_attachment_id)
-    record_id = attachment.get("RecordId")
-    if not record_id:
-        raise ValueError(f"FeedAttachment {feed_attachment_id} has no RecordId")
-    attachment_type = attachment.get("Type", "")
+    try:
+        attachment = salesforce_client.FeedAttachment.get(feed_attachment_id)
+        record_id = attachment.get("RecordId")
+        attachment_type = attachment.get("Type", "")
 
-    version = salesforce_client.query(
-        f"SELECT Id, Title, FileExtension, VersionData"
-        f" FROM ContentVersion"
-        f" WHERE ContentDocumentId = '{record_id}'"
-        f" AND IsLatest = true"
-        f" LIMIT 1"
-    )
-    records = version.get("records", [])
-    if not records:
-        raise ValueError(f"No ContentVersion found for ContentDocument {record_id}")
+        if attachment_type == "Link":
+            return None
 
-    cv = records[0]
-    url = f"https://{salesforce_client.sf_instance}{cv['VersionData']}"
-    response = salesforce_client.session.get(
-        url,
-        headers={
-            "Authorization": f"Bearer {salesforce_client.session_id}",
-            "Accept": "*/*",
-        },
-    )
-    response.raise_for_status()
+        if not record_id:
+            raise ValueError(f"FeedAttachment {feed_attachment_id} has no RecordId")
 
-    name = cv.get("Title") or feed_attachment_id
-    extension = cv.get("FileExtension")
-    if extension:
-        name = f"{name}.{extension}"
+        match attachment_type:
+            # Legacy Attachment object — body lives directly on the Attachment record
+            case "Attachment":
+                att = salesforce_client.query(
+                    f"SELECT Name FROM Attachment WHERE Id = '{record_id}' LIMIT 1"
+                )
+                att_records = att.get("records", [])
+                name = att_records[0].get("Name") if att_records else feed_attachment_id
+                url = f"https://{salesforce_client.sf_instance}/services/data/v59.0/sobjects/Attachment/{record_id}/Body"
+                content_type = "application/octet-stream"
+            case "InlineImage":
+                # InlineImage: RecordId is a ContentDocument.Id, look up via ContentVersion
+                version = salesforce_client.query(
+                    f"SELECT Id, Title, FileExtension, FileType, VersionData"
+                    f" FROM ContentVersion"
+                    f" WHERE ContentDocumentId = '{record_id}'"
+                    f" AND IsLatest = true"
+                    f" LIMIT 1"
+                )
+                records = version.get("records", [])
+                if not records:
+                    raise ValueError(
+                        f"No ContentVersion found for ContentDocument {record_id}"
+                    )
+                cv = records[0]
+                url = f"https://{salesforce_client.sf_instance}{cv['VersionData']}"
+                name = cv.get("Title") or feed_attachment_id
+                extension = cv.get("FileExtension")
+                if extension:
+                    name = f"{name}.{extension}"
 
-    _ATTACHMENT_TYPE_TO_MIME = {
-        "InlineImage": "image/png",
-        "File": "application/octet-stream",
-        "Link": "text/uri-list",
-    }
-    content_type = _ATTACHMENT_TYPE_TO_MIME.get(
-        attachment_type, "application/octet-stream"
-    )
+                content_type = EXT_TO_MIME.get(
+                    (extension or "").lower(), "application/octet-stream"
+                )
+            case "Content":
+                # Content/File: RecordId is a ContentVersion.Id directly
+                cv = salesforce_client.ContentVersion.get(record_id)
+                url = f"https://{salesforce_client.sf_instance}{cv['VersionData']}"
+                name = cv.get("Title") or feed_attachment_id
+                extension = cv.get("FileExtension")
+                if extension:
+                    name = f"{name}.{extension}"
+                content_type = "application/octet-stream"
+            case _:
+                logfire.warn(
+                    "Unexpected attachment type, ignoring",
+                    attachment_type=attachment_type,
+                )
+                return None
 
-    return FileAttachment(
-        name=name,
-        body=response.content,
-        content_type=content_type,
-    )
+        response = salesforce_client.session.get(
+            url,
+            headers={
+                "Authorization": f"Bearer {salesforce_client.session_id}",
+                "Accept": "*/*",
+            },
+        )
+        response.raise_for_status()
+
+        return FileAttachment(
+            name=name,
+            body=response.content,
+            content_type=content_type,
+        )
+    except Exception:
+        logfire.exception(
+            "Failed to download feed attachment, skipping",
+            feed_attachment_id=feed_attachment_id,
+        )
+        return None
 
 
 def get_project_ids_for_account(

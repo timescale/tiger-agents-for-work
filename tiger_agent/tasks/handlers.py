@@ -371,7 +371,7 @@ class SalesforceFeedItemHandler(TaskHandler):
     Syncs a Salesforce Chatter post on a case to the linked Slack thread.
     """
 
-    @logfire.instrument("SalesforceFeedItemHandler.handle", extract_args=False)
+    @logfire.instrument("SalesforceFeedItemHandler.handle", extract_args=["task"])
     async def handle(self, task: Task) -> None:
         hctx = self._hctx
         event: SalesforceFeedItemEvent = task.event
@@ -386,9 +386,10 @@ class SalesforceFeedItemHandler(TaskHandler):
         attachment_ids = get_feed_attachment_ids(
             hctx.salesforce_client, event.feed_item.Id
         )
-        image_attachments = [
-            download_feed_attachment(hctx.salesforce_client, aid)
+        file_attachments = [
+            a
             for aid in attachment_ids
+            if (a := download_feed_attachment(hctx.salesforce_client, aid)) is not None
         ]
 
         await post_response(
@@ -397,7 +398,7 @@ class SalesforceFeedItemHandler(TaskHandler):
             thread_ts=thread_ts,
             text=text,
             use_mrkdwn=True,
-            image_attachments=image_attachments,
+            file_attachments=file_attachments,
         )
 
 

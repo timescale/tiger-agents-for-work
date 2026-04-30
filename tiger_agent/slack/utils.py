@@ -233,14 +233,14 @@ async def fetch_thread_messages(
         return []
 
 
-@logfire.instrument("post_response", extract_args=["channel", "thread_ts"])
+@logfire.instrument("post_response", extract_args=["channel", "thread_ts", "text"])
 async def post_response(
     client: AsyncWebClient,
     channel: str,
     thread_ts: str | None,
     text: str,
     use_mrkdwn: bool = False,
-    image_attachments: list[FileAttachment] | None = None,
+    file_attachments: list[FileAttachment] | None = None,
 ) -> AsyncSlackResponse:
     """Post a response message to Slack with rich formatting.
 
@@ -269,9 +269,7 @@ async def post_response(
         unfurl_media=False,
     )
 
-    for attachment in image_attachments or []:
-        if not attachment.content_type.startswith("image/"):
-            continue
+    for attachment in file_attachments or []:
         await client.files_upload_v2(
             channel=channel,
             thread_ts=thread_ts,
