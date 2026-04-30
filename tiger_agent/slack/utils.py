@@ -12,7 +12,6 @@ All functions are designed to be resilient, gracefully handling API errors and p
 structured data models for Slack entities.
 """
 
-import os
 import re
 from collections.abc import Sequence
 from typing import Any
@@ -414,7 +413,8 @@ async def download_private_file(
             content_type_header = resp.headers.get("content-type", "")
             media_type = mimetype or (
                 content_type_header
-                if content_type_header and content_type_header != "application/force-download"
+                if content_type_header
+                and content_type_header != "application/force-download"
                 else "application/octet-stream"
             )
 
@@ -640,13 +640,13 @@ async def send_proactive_prompt(
     await client.chat_postEphemeral(
         channel=channel,
         user=user,
-        text=f"Hey <@{user}>, would you like me to assist you?",
+        text=f"Hey {get_handle_link(user)}, would you like me to assist you?",
         blocks=[
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"Hey <@{user}>, would you like me to assist you?",
+                    "text": f"Hey {get_handle_link(user)}, would you like me to assist you?",
                 },
             },
             {
@@ -691,7 +691,7 @@ async def send_feedback_rating_prompt(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"Hey <@{user}>, how would you rate the helpfulness of my response?",
+                    "text": f"Hey{get_handle_link(user)}, how would you rate the helpfulness of my response?",
                 },
             },
             {
@@ -779,7 +779,7 @@ async def handle_proactive_prompt(
 
     await respond(
         response_type="ephemeral",
-        text=f"I will respond to your message now! For future reference, you can include <@{bot_info.user_id}> in a message and I will respond.",
+        text=f"I will respond to your message now! For future reference, you can include {get_handle_link(bot_info.user_id)} in a message and I will respond.",
         replace_original=True,
         delete_original=True,
     )
@@ -1017,3 +1017,11 @@ async def handle_new_salesforce_case_workflow_form_cancel(
     """
     await ack()
     await respond(text="", replace_original=True, delete_original=True)
+
+
+def add_quote_block(body: str) -> str:
+    return "\n".join(f"> {line}" for line in body.splitlines())
+
+
+def get_handle_link(user_id: str) -> str:
+    return f"<@{user_id}>"

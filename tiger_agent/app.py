@@ -6,6 +6,7 @@ from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
+    SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
 )
@@ -16,6 +17,7 @@ from tiger_agent.slack.types import (
 )
 from tiger_agent.tasks.handlers import (
     SalesforceAssignmentChangedHandler,
+    SalesforceCaseStatusChangedHandler,
     SalesforceCreateCaseHandler,
     SalesforceFeedItemHandler,
     SlackSalesforceCaseThreadMessageHandler,
@@ -112,6 +114,10 @@ class TigerApp:
         processor.register(
             SlackSalesforceCaseThreadMessageEvent,
             SlackSalesforceCaseThreadMessageHandler(hctx=hctx),
+        )
+        processor.register(
+            SalesforceCaseStatusChangedEvent,
+            SalesforceCaseStatusChangedHandler(hctx=hctx),
         )
 
         self._hctx = hctx

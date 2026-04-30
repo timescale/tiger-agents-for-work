@@ -107,6 +107,16 @@ class SalesforceFeedItemEvent(SalesforceBaseEvent):
     feed_item: SalesforceFeedItem
 
 
+class SalesforceCaseStatusChangedEvent(SalesforceBaseEvent):
+    """Pydantic model for a Salesforce case closed event."""
+
+    type: str = "salesforce_event"
+    subtype: str = "case_status_changed"
+    case: CaseData
+    slack_thread_ts: str | None = None
+    slack_channel_id: str | None = None
+
+
 class AgentFeedbackRatingEvent(BaseModel):
     type: str = "agent_feedback_rating"
 
