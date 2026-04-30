@@ -102,7 +102,7 @@ class SalesforceListener(Listener):
             "NotifyForOperationUpdate": notifyOnUpdate,
             "NotifyForOperationUndelete": False,
             "NotifyForOperationDelete": False,
-            "NotifyForFields": "Referenced",
+            "NotifyForFields": "Select",
         }
 
         results = self._salesforce_client.query(
