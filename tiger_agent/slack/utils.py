@@ -58,6 +58,7 @@ from tiger_agent.slack.types import (
     TeamInfo,
     UserInfo,
 )
+from tiger_agent.types import HarnessContext
 from tiger_agent.utils import file_type_supported
 
 
@@ -1025,3 +1026,36 @@ def add_quote_block(body: str) -> str:
 
 def get_handle_link(user_id: str) -> str:
     return f"<@{user_id}>"
+
+
+def user_is_external(bot_info: BotInfo, user_info: UserInfo) -> bool:
+    # seemingly you can't trust Slacks' is_external fields
+    # so this is going to compare the user's team with
+    # the bots team (which we will assume is the home team, as it were)
+
+    in_same_team_as_bot = bot_info.team_id == user_info.team_id
+    return (
+        user_info.is_external
+        or user_info.is_restricted
+        or user_info.is_stranger
+        or user_info.is_ultra_restricted
+        or not in_same_team_as_bot
+    )
+
+
+async def get_a_href_link_to_user_profile(
+    hctx: HarnessContext, user_info: UserInfo
+) -> str | None:
+    profile_workspace_url: str | None = None
+    if user_is_external(bot_info=hctx.bot_info, user_info=user_info):
+        team_info = await fetch_team_info(hctx.app.client, team_id=user_info.team_id)
+        if team_info:
+            profile_workspace_url = f"https://{team_info.domain}.slack.com"
+    else:
+        profile_workspace_url = hctx.bot_info.url.strip("/")
+
+    if profile_workspace_url:
+        user_profile_url = f"{profile_workspace_url}/team/{user_info.id}"
+        return f'<a href="{user_profile_url}">@{user_info.name}</a>'
+
+    return f"@{user_info.name}"
