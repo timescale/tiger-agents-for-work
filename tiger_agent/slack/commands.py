@@ -18,6 +18,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
 from tiger_agent.slack.types import BotInfo, SlackCommand
 from tiger_agent.slack.utils import (
+    get_handle_link,
     parse_slack_url,
     parse_slack_user_name,
     send_new_case_button,

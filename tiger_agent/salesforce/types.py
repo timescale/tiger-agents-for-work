@@ -130,3 +130,16 @@ class AgentFeedbackRatingEvent(BaseModel):
 class ServiceRecord:
     service_id: str
     project_id: str | None
+
+
+class ContentVersion(BaseModel):
+    """Pydantic model for a Salesforce ContentVersion record."""
+
+    model_config = {"extra": "allow"}
+
+    Id: str
+    Title: str | None = None
+    FileExtension: str | None = None
+    VersionData: str | None = None
+    ContentDocumentId: str | None = None
+    IsLatest: bool | None = None
