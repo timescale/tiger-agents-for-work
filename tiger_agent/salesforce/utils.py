@@ -21,6 +21,7 @@ from tiger_agent.salesforce.constants import (
 )
 from tiger_agent.salesforce.types import (
     CaseData,
+    ContentVersion,
     EmailAttachment,
     FileAttachment,
     SalesforceFeedItem,
@@ -427,24 +428,20 @@ def download_feed_attachment(
 
         if not record_id:
             raise ValueError(f"FeedAttachment {feed_attachment_id} has no RecordId")
-
+        content_version: ContentVersion | None = None
         match attachment_type:
-            # Legacy Attachment object — body lives directly on the Attachment record
-            case "Attachment":
-                att = salesforce_client.query(
-                    f"SELECT Name FROM Attachment WHERE Id = '{record_id}' LIMIT 1"
+            case "Content":
+                # Content: RecordId is a ContentVersion.Id directly
+                content_version = ContentVersion.model_validate(
+                    salesforce_client.ContentVersion.get(record_id)
                 )
-                att_records = att.get("records", [])
-                name = att_records[0].get("Name") if att_records else feed_attachment_id
-                url = f"https://{salesforce_client.sf_instance}/services/data/v59.0/sobjects/Attachment/{record_id}/Body"
-                content_type = "application/octet-stream"
+
             case "InlineImage":
-                # InlineImage: RecordId is a ContentDocument.Id, look up via ContentVersion
+                # InlineImage: RecordId is a ContentDocument.Id
                 version = salesforce_client.query(
-                    f"SELECT Id, Title, FileExtension, FileType, VersionData"
+                    f"SELECT Id, Title, FileExtension, VersionData, ContentDocumentId"
                     f" FROM ContentVersion"
-                    f" WHERE ContentDocumentId = '{record_id}'"
-                    f" AND IsLatest = true"
+                    f" WHERE ContentDocumentId = '{record_id}' AND IsLatest = true"
                     f" LIMIT 1"
                 )
                 records = version.get("records", [])
@@ -452,25 +449,8 @@ def download_feed_attachment(
                     raise ValueError(
                         f"No ContentVersion found for ContentDocument {record_id}"
                     )
-                cv = records[0]
-                url = f"https://{salesforce_client.sf_instance}{cv['VersionData']}"
-                name = cv.get("Title") or feed_attachment_id
-                extension = cv.get("FileExtension")
-                if extension:
-                    name = f"{name}.{extension}"
+                content_version = ContentVersion.model_validate(records[0])
 
-                content_type = EXT_TO_MIME.get(
-                    (extension or "").lower(), "application/octet-stream"
-                )
-            case "Content":
-                # Content/File: RecordId is a ContentVersion.Id directly
-                cv = salesforce_client.ContentVersion.get(record_id)
-                url = f"https://{salesforce_client.sf_instance}{cv['VersionData']}"
-                name = cv.get("Title") or feed_attachment_id
-                extension = cv.get("FileExtension")
-                if extension:
-                    name = f"{name}.{extension}"
-                content_type = "application/octet-stream"
             case _:
                 logfire.warn(
                     "Unexpected attachment type, ignoring",
@@ -478,6 +458,14 @@ def download_feed_attachment(
                 )
                 return None
 
+        url = f"https://{salesforce_client.sf_instance}{content_version.VersionData}"
+        name = content_version.Title or feed_attachment_id
+        extension = content_version.FileExtension
+        if extension:
+            name = f"{name}.{extension}"
+        content_type = EXT_TO_MIME.get(
+            (extension or "").lower(), "application/octet-stream"
+        )
         response = salesforce_client.session.get(
             url,
             headers={
