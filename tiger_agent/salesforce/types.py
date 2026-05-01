@@ -41,6 +41,8 @@ class CaseData(BaseModel):
     Priority: str | None = None
     CreatedDate: str | None = None
     CreatedById: str | None = None
+    Cloud_Project_ID__c: str | None = None
+    Cloud_Service_ID__c: str | None = None
 
 
 class SalesforceBaseEvent(BaseModel):
