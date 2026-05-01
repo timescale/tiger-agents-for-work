@@ -328,7 +328,26 @@ class SalesforceCreateCaseHandler(TaskHandler):
             client=hctx.app.client,
             channel=channel_to_respond,
             thread_ts=None,
-            text=f"*Support Case Created*\n_Submitter:_ {get_handle_link(event.user)}\n_Case Number:_ `{new_case.CaseNumber}`\n_Subject:_ `{new_case.Subject}` \n_Description:_\n{add_quote_block(new_case.Description)}",
+            text="\n".join(
+                [
+                    "*Support Case Created*",
+                    f"_Submitter:_ {get_handle_link(event.user)}",
+                    f"_Case Number:_ `{new_case.CaseNumber}`",
+                    f"_Subject:_ `{new_case.Subject}`",
+                    *(
+                        [f"_Project Id:_: `{new_case.Cloud_Project_ID__c}`"]
+                        if new_case.Cloud_Project_ID__c
+                        else []
+                    ),
+                    *(
+                        [f"_Service Id:_: `{new_case.Cloud_Service_ID__c}`"]
+                        if new_case.Cloud_Service_ID__c
+                        else []
+                    ),
+                    "_Description:_",
+                    add_quote_block(new_case.Description),
+                ]
+            ),
             use_mrkdwn=True,
         )
 
