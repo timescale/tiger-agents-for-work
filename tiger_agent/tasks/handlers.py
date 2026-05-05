@@ -60,6 +60,7 @@ from tiger_agent.slack.utils import (
     add_reaction,
     fetch_user_info,
     get_a_href_link_to_user_profile,
+    get_channel_link,
     get_handle_link,
     post_response,
     send_feedback_rating_prompt,
@@ -529,8 +530,12 @@ class AgentFeedbackRatingHandler(TaskHandler):
                         if event.rating is not None
                         else []
                     ),
-                    *([f"_User:_ <@{event.user}>"] if event.user else []),
-                    *([f"_Channel:_ <#{event.channel}>"] if event.channel else []),
+                    *([f"_User:_ {get_handle_link(event.user)}"] if event.user else []),
+                    *(
+                        [f"_Channel:_ {get_channel_link(event.channel)}"]
+                        if event.channel
+                        else []
+                    ),
                     *(
                         [
                             f"_Description:_ \n{'\n'.join(f'> {line}' for line in event.description.splitlines())}"
