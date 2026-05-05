@@ -834,12 +834,13 @@ async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | No
     return resp.data.get("ts")
 
 
-async def send_feedback_form(client: AsyncWebClient, trigger_id: str):
+async def send_feedback_form(client: AsyncWebClient, trigger_id: str, channel: str | None = None):
     await client.views_open(
         trigger_id=trigger_id,
         view={
             "type": "modal",
             "callback_id": FEEDBACK_FORM_SUBMIT,
+            "private_metadata": channel or "",
             "title": {"type": "plain_text", "text": "Submit Feedback/Request"},
             "submit": {"type": "plain_text", "text": "Submit"},
             "close": {"type": "plain_text", "text": "Cancel"},

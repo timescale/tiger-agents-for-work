@@ -18,6 +18,7 @@ from tiger_agent.db.utils import (
 from tiger_agent.listeners import Listener
 from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
+    AgentFeedbackRatingSubtype,
     SalesforceCreateNewCaseEvent,
 )
 from tiger_agent.salesforce.utils import (
@@ -46,6 +47,7 @@ from tiger_agent.slack.types import (
 from tiger_agent.slack.utils import (
     fetch_bot_info,
     fetch_team_info,
+    fetch_user_info,
     handle_new_salesforce_case_workflow_form_cancel,
     handle_new_salesforce_case_workflow_form_submit,
     handle_proactive_prompt,
@@ -53,6 +55,7 @@ from tiger_agent.slack.utils import (
     send_new_salesforce_case_workflow_form,
     send_proactive_prompt,
     set_status,
+    user_is_external,
 )
 from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.utils import process_task
@@ -301,14 +304,22 @@ class SlackListener(Listener):
     async def _handle_feedback_form_trigger(self, ack: AsyncAck, body: dict[str, Any]):
         await ack()
         trigger_id = body.get("trigger_id")
+        channel = body.get("channel", {}).get("id")
         if not trigger_id:
             return
-        await send_feedback_form(client=self._app.client, trigger_id=trigger_id)
+        await send_feedback_form(
+            client=self._app.client, trigger_id=trigger_id, channel=channel
+        )
 
     async def _handle_feedback_form_submit(self, ack: AsyncAck, body: dict[str, Any]):
         await ack()
-        values = body.get("view", {}).get("state", {}).get("values", {})
-        user = body.get("user", {}).get("id")
+        view = body.get("view", {})
+        values = view.get("state", {}).get("values", {})
+        channel = view.get("private_metadata") or None
+        user_id = body.get("user", {}).get("id")
+        user_info = await fetch_user_info(client=self._app.client, user_id=user_id)
+
+        is_external = user_is_external(self._bot_info, user_info=user_info)
 
         rating = (
             values.get("rating_block", {})
@@ -322,19 +333,25 @@ class SlackListener(Listener):
             .get("value")
         )
 
-        await insert_handled_event(
+        await insert_event(
             pool=self._pool,
             event=AgentFeedbackRatingEvent(
                 description=description,
-                user=user,
+                subtype=AgentFeedbackRatingSubtype.external
+                if is_external
+                else AgentFeedbackRatingSubtype.internal,
+                user=user_id,
+                channel=channel,
                 rating=int(rating) if rating else None,
             ).model_dump(),
         )
+
+        await self._hctx.trigger.put(True)
         logfire.info(
             "Feedback form submitted",
             rating=rating,
             description=description,
-            user=user,
+            user=user_id,
         )
 
     async def _handle_proactive_prompt(
@@ -399,11 +416,21 @@ class SlackListener(Listener):
             rating=rating,
         )
 
-        await insert_handled_event(
+        user_info = await fetch_user_info(client=self._app.client, user_id=user)
+
+        is_external = user_is_external(self._bot_info, user_info=user_info)
+
+        await insert_event(
             pool=self._pool,
             event=AgentFeedbackRatingEvent(
                 message_ts=agent_message_ts,
                 channel=channel,
                 rating=int(rating),
+                user=user,
+                subtype=AgentFeedbackRatingSubtype.external
+                if is_external
+                else AgentFeedbackRatingSubtype.internal,
             ).model_dump(),
         )
+
+        await self._hctx.trigger.put(True)

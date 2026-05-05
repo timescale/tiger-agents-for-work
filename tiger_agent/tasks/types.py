@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from tiger_agent.salesforce.types import (
+    AgentFeedbackRatingEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
@@ -43,4 +44,5 @@ class Task(BaseModel):
         | SalesforceAssignmentChangedEvent
         | SalesforceFeedItemEvent
         | SalesforceCaseStatusChangedEvent
+        | AgentFeedbackRatingEvent
     )
