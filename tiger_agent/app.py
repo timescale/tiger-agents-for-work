@@ -16,7 +16,6 @@ from tiger_agent.slack.types import (
     SlackMessageEvent,
     SlackSalesforceCaseThreadMessageEvent,
 )
-from tiger_agent.slack.utils import send_new_case_button
 from tiger_agent.tasks.handlers import (
     AgentFeedbackRatingHandler,
     SalesforceAssignmentChangedHandler,
