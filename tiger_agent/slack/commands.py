@@ -21,7 +21,7 @@ from tiger_agent.slack.utils import (
     get_handle_link,
     parse_slack_url,
     parse_slack_user_name,
-    send_new_case_button,
+    send_new_case_and_feedback_button,
 )
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import serialize_to_jsonb
@@ -264,7 +264,7 @@ async def handle_salesforce_add_customer_channel_command(
     )
     bot_name = ctx.bot_info.name if ctx.bot_info else "Support Bot"
     bot_user_id = ctx.bot_info.user_id if ctx.bot_info else None
-    bot_mention = f"<@{bot_user_id}>" if bot_user_id else bot_name
+    bot_mention = get_handle_link(bot_user_id) if bot_user_id else bot_name
     await ctx.hctx.app.client.chat_postMessage(
         channel=channel_id,
         text=(
@@ -273,7 +273,9 @@ async def handle_salesforce_add_customer_channel_command(
             "clicking the button below. That button will be pinned to this channel for easy access."
         ),
     )
-    ts = await send_new_case_button(ctx.hctx.app.client, channel=channel_id)
+    ts = await send_new_case_and_feedback_button(
+        ctx.hctx.app.client, channel=channel_id
+    )
     if ts:
         await ctx.hctx.app.client.pins_add(channel=channel_id, timestamp=ts)
 

@@ -799,7 +799,9 @@ async def handle_proactive_prompt(
         return
 
 
-async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | None:
+async def send_new_case_and_feedback_button(
+    client: AsyncWebClient, channel: str
+) -> str | None:
     resp = await client.chat_postMessage(
         channel=channel,
         text="Open a new support case",
@@ -834,7 +836,9 @@ async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | No
     return resp.data.get("ts")
 
 
-async def send_feedback_form(client: AsyncWebClient, trigger_id: str, channel: str | None = None):
+async def send_feedback_form(
+    client: AsyncWebClient, trigger_id: str, channel: str | None = None
+):
     await client.views_open(
         trigger_id=trigger_id,
         view={
