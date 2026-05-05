@@ -29,6 +29,8 @@ from tiger_agent.slack.commands import (
 from tiger_agent.slack.constants import (
     AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
+    FEEDBACK_FORM_SUBMIT,
+    FEEDBACK_FORM_TRIGGER,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
@@ -47,6 +49,7 @@ from tiger_agent.slack.utils import (
     handle_new_salesforce_case_workflow_form_cancel,
     handle_new_salesforce_case_workflow_form_submit,
     handle_proactive_prompt,
+    send_feedback_form,
     send_new_salesforce_case_workflow_form,
     send_proactive_prompt,
     set_status,
@@ -98,6 +101,8 @@ class SlackListener(Listener):
         self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER)(
             self._handle_new_salesforce_case_workflow_form_trigger
         )
+        self._app.action(FEEDBACK_FORM_TRIGGER)(self._handle_feedback_form_trigger)
+        self._app.view(FEEDBACK_FORM_SUBMIT)(self._handle_feedback_form_submit)
         self._app.event("message")(self._on_message)
         self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
         self._app.event("app_mention")(self._on_slack_event)
@@ -291,6 +296,45 @@ class SlackListener(Listener):
             channel=channel,
             user=user,
             services=services_and_projects,
+        )
+
+    async def _handle_feedback_form_trigger(self, ack: AsyncAck, body: dict[str, Any]):
+        await ack()
+        trigger_id = body.get("trigger_id")
+        if not trigger_id:
+            return
+        await send_feedback_form(client=self._app.client, trigger_id=trigger_id)
+
+    async def _handle_feedback_form_submit(self, ack: AsyncAck, body: dict[str, Any]):
+        await ack()
+        values = body.get("view", {}).get("state", {}).get("values", {})
+        user = body.get("user", {}).get("id")
+
+        rating = (
+            values.get("rating_block", {})
+            .get("rating_input", {})
+            .get("selected_option", {})
+            .get("value")
+        )
+        description = (
+            values.get("description_block", {})
+            .get("description_input", {})
+            .get("value")
+        )
+
+        await insert_handled_event(
+            pool=self._pool,
+            event=AgentFeedbackRatingEvent(
+                description=description,
+                user=user,
+                rating=int(rating) if rating else None,
+            ).model_dump(),
+        )
+        logfire.info(
+            "Feedback form submitted",
+            rating=rating,
+            description=description,
+            user=user,
         )
 
     async def _handle_proactive_prompt(

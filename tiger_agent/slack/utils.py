@@ -42,6 +42,8 @@ from tiger_agent.salesforce.types import FileAttachment, ServiceRecord
 from tiger_agent.slack.constants import (
     AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
+    FEEDBACK_FORM_SUBMIT,
+    FEEDBACK_FORM_TRIGGER,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
@@ -806,7 +808,7 @@ async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | No
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Need help? Click the button below to open a new support case.",
+                    "text": "Need help? Click the button below to open a new support case, or submit feedback/feature request for our Slack-powered support experience.",
                 },
             },
             {
@@ -817,13 +819,93 @@ async def send_new_case_button(client: AsyncWebClient, channel: str) -> str | No
                         "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
                         "style": "primary",
                         "text": {"type": "plain_text", "text": "Open Support Case"},
-                    }
+                    },
+                    {
+                        "type": "button",
+                        "action_id": FEEDBACK_FORM_TRIGGER,
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Feedback/Request"},
+                    },
                 ],
             },
         ],
     )
     assert isinstance(resp.data, dict)
     return resp.data.get("ts")
+
+
+async def send_feedback_form(client: AsyncWebClient, trigger_id: str):
+    await client.views_open(
+        trigger_id=trigger_id,
+        view={
+            "type": "modal",
+            "callback_id": FEEDBACK_FORM_SUBMIT,
+            "title": {"type": "plain_text", "text": "Submit Feedback/Request"},
+            "submit": {"type": "plain_text", "text": "Submit"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "input",
+                    "block_id": "description_block",
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Feedback / Feature Request",
+                    },
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "description_input",
+                        "multiline": True,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Share your feedback or describe a feature you'd like to see",
+                        },
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "rating_block",
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Rating for Slack case management integration",
+                    },
+                    "element": {
+                        "type": "static_select",
+                        "action_id": "rating_input",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select a rating",
+                        },
+                        "options": [
+                            {
+                                "text": {"type": "plain_text", "text": "No Rating"},
+                                "value": "none",
+                            },
+                            {
+                                "text": {"type": "plain_text", "text": "1 - Poor"},
+                                "value": "1",
+                            },
+                            {
+                                "text": {"type": "plain_text", "text": "2 - Fair"},
+                                "value": "2",
+                            },
+                            {
+                                "text": {"type": "plain_text", "text": "3 - Good"},
+                                "value": "3",
+                            },
+                            {
+                                "text": {"type": "plain_text", "text": "4 - Very Good"},
+                                "value": "4",
+                            },
+                            {
+                                "text": {"type": "plain_text", "text": "5 - Excellent"},
+                                "value": "5",
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    )
 
 
 async def send_new_salesforce_case_workflow_form(
