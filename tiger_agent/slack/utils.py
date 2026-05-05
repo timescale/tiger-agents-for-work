@@ -869,6 +869,7 @@ async def send_feedback_form(
                 {
                     "type": "input",
                     "block_id": "rating_block",
+                    "optional": True,
                     "label": {
                         "type": "plain_text",
                         "text": "Rating for Slack case management integration",
@@ -881,10 +882,6 @@ async def send_feedback_form(
                             "text": "Select a rating",
                         },
                         "options": [
-                            {
-                                "text": {"type": "plain_text", "text": "No Rating"},
-                                "value": "none",
-                            },
                             {
                                 "text": {"type": "plain_text", "text": "1 - Poor"},
                                 "value": "1",
@@ -1113,6 +1110,10 @@ def add_quote_block(body: str) -> str:
 
 def get_handle_link(user_id: str) -> str:
     return f"<@{user_id}>"
+
+
+def get_channel_link(channel_id: str) -> str:
+    return f"<#{channel_id}>"
 
 
 def user_is_external(bot_info: BotInfo, user_info: UserInfo) -> bool:
