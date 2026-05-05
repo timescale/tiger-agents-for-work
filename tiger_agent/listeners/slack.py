@@ -324,9 +324,8 @@ class SlackListener(Listener):
         rating = (
             values.get("rating_block", {})
             .get("rating_input", {})
-            .get("selected_option", {})
-            .get("value")
-        )
+            .get("selected_option") or {}
+        ).get("value")
         description = (
             values.get("description_block", {})
             .get("description_input", {})
@@ -425,7 +424,7 @@ class SlackListener(Listener):
             event=AgentFeedbackRatingEvent(
                 message_ts=agent_message_ts,
                 channel=channel,
-                rating=int(rating),
+                rating=int(rating) if rating else None,
                 user=user,
                 subtype=AgentFeedbackRatingSubtype.external
                 if is_external
