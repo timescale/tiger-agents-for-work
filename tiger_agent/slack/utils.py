@@ -836,7 +836,7 @@ async def send_feedback_form(
                     "optional": True,
                     "label": {
                         "type": "plain_text",
-                        "text": "Rating for Slack case management integration",
+                        "text": "Rating (Optional)",
                     },
                     "element": {
                         "type": "static_select",
