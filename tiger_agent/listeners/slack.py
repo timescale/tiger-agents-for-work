@@ -1,6 +1,6 @@
+import json
 import re
 from asyncio import TaskGroup
-from collections.abc import Sequence
 from typing import Any
 
 import logfire
@@ -28,7 +28,6 @@ from tiger_agent.slack.commands import (
     handle_command,
 )
 from tiger_agent.slack.constants import (
-    AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
     FEEDBACK_FORM_SUBMIT,
     FEEDBACK_FORM_TRIGGER,
@@ -94,7 +93,7 @@ class SlackListener(Listener):
         self._hctx.bot_info = self._bot_info
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
-        self._app.action(AGENT_FEEDBACK_RATING)(self._handle_agent_feedback_rating)
+
         self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT)(
             self._handle_new_salesforce_case_workflow_form_submit
         )
@@ -307,15 +306,22 @@ class SlackListener(Listener):
         channel = body.get("channel", {}).get("id")
         if not trigger_id:
             return
+        action_value = body.get("actions", [{}])[0].get("value")
+        thread_ts = json.loads(action_value).get("thread_ts") if action_value else None
         await send_feedback_form(
-            client=self._app.client, trigger_id=trigger_id, channel=channel
+            client=self._app.client,
+            trigger_id=trigger_id,
+            channel=channel,
+            thread_ts=thread_ts,
         )
 
     async def _handle_feedback_form_submit(self, ack: AsyncAck, body: dict[str, Any]):
         await ack()
         view = body.get("view", {})
         values = view.get("state", {}).get("values", {})
-        channel = view.get("private_metadata") or None
+        metadata = json.loads(view.get("private_metadata") or "{}")
+        channel = metadata.get("channel")
+        message_ts = metadata.get("thread_ts")
         user_id = body.get("user", {}).get("id")
         user_info = await fetch_user_info(client=self._app.client, user_id=user_id)
 
@@ -324,7 +330,8 @@ class SlackListener(Listener):
         rating = (
             values.get("rating_block", {})
             .get("rating_input", {})
-            .get("selected_option") or {}
+            .get("selected_option")
+            or {}
         ).get("value")
         description = (
             values.get("description_block", {})
@@ -342,6 +349,7 @@ class SlackListener(Listener):
                 user=user_id,
                 channel=channel,
                 rating=int(rating) if rating else None,
+                message_ts=message_ts,
             ).model_dump(),
         )
 
@@ -372,64 +380,3 @@ class SlackListener(Listener):
             return
 
         await process_task(self._task_processor, self._hctx, event)
-
-    async def _handle_agent_feedback_rating(
-        self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
-    ):
-        await ack()
-
-        actions = body.get("actions")
-        if actions is None or not isinstance(actions, Sequence) or len(actions) != 1:
-            logfire.error("Actions was not an expected payload", event=body)
-            return
-
-        selected_option = actions[0].get("selected_option")
-        if selected_option is None:
-            logfire.error("No selected option in feedback rating action", event=body)
-            return
-
-        value = selected_option.get("value")
-        if value is None:
-            logfire.error("No value in selected option", event=body)
-            return
-
-        parts = value.split("|")
-        if len(parts) != 4:
-            logfire.error("Unexpected value format in feedback rating", value=value)
-            return
-
-        agent_message_ts, channel, user, rating = parts
-
-        await respond(
-            response_type="ephemeral",
-            text="",
-            replace_original=True,
-            delete_original=True,
-        )
-
-        logfire.info(
-            "Agent feedback rating received",
-            agent_message_ts=agent_message_ts,
-            channel=channel,
-            user=user,
-            rating=rating,
-        )
-
-        user_info = await fetch_user_info(client=self._app.client, user_id=user)
-
-        is_external = user_is_external(self._bot_info, user_info=user_info)
-
-        await insert_event(
-            pool=self._pool,
-            event=AgentFeedbackRatingEvent(
-                message_ts=agent_message_ts,
-                channel=channel,
-                rating=int(rating) if rating else None,
-                user=user,
-                subtype=AgentFeedbackRatingSubtype.external
-                if is_external
-                else AgentFeedbackRatingSubtype.internal,
-            ).model_dump(),
-        )
-
-        await self._hctx.trigger.put(True)
