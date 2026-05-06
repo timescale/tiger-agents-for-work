@@ -64,7 +64,7 @@ from tiger_agent.slack.utils import (
     get_channel_link,
     get_handle_link,
     post_response,
-    send_feedback_rating_prompt,
+    send_feedback_button,
     set_status,
     stream_response_to_mention,
     user_is_external,
@@ -284,15 +284,19 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
                     extra={"permalink": permalink},
                 )
 
-            if message_to_link_to.to_user_id:
-
-                async def _delayed_feedback(client, message):
-                    await asyncio.sleep(10)
-                    await send_feedback_rating_prompt(client, message)
-
-                asyncio.create_task(
-                    _delayed_feedback(hctx.app.client, message_to_link_to)
+            async def _delayed_feedback(client, channel, message_ts):
+                await asyncio.sleep(10)
+                await send_feedback_button(
+                    client=client, channel=channel, thread_ts=message_ts
                 )
+
+            asyncio.create_task(
+                _delayed_feedback(
+                    hctx.app.client,
+                    channel=message_to_link_to.channel_id,
+                    message_ts=message_to_link_to.ts,
+                )
+            )
 
 
 class SalesforceCreateCaseHandler(TaskHandler):

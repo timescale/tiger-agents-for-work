@@ -9,7 +9,6 @@ AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL = os.environ.get(
 
 CONFIRM_PROACTIVE_PROMPT = "confirm_proactive_prompt"
 REJECT_PROACTIVE_PROMPT = "reject_proactive_prompt"
-AGENT_FEEDBACK_RATING = "agent_feedback_rating"
 
 NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT = "new_salesforce_case_workflow_form_submit"
 NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL = "new_salesforce_case_workflow_form_cancel"

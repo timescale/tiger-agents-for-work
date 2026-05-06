@@ -12,6 +12,7 @@ All functions are designed to be resilient, gracefully handling API errors and p
 structured data models for Slack entities.
 """
 
+import json
 import re
 from collections.abc import Sequence
 from typing import Any
@@ -40,7 +41,6 @@ from slack_sdk.web.async_client import (
 
 from tiger_agent.salesforce.types import FileAttachment, ServiceRecord
 from tiger_agent.slack.constants import (
-    AGENT_FEEDBACK_RATING,
     CONFIRM_PROACTIVE_PROMPT,
     FEEDBACK_FORM_SUBMIT,
     FEEDBACK_FORM_TRIGGER,
@@ -54,7 +54,6 @@ from tiger_agent.slack.types import (
     BotInfo,
     ChannelInfo,
     SlackFile,
-    SlackMessage,
     SlackMessageEvent,
     SlackUrlParts,
     TeamInfo,
@@ -674,79 +673,6 @@ async def send_proactive_prompt(
     )
 
 
-async def send_feedback_rating_prompt(
-    client: AsyncWebClient, agent_message: SlackMessage
-):
-    agent_message_ts = agent_message.ts
-    channel = agent_message.channel_id
-    user = agent_message.to_user_id
-
-    def get_encoded_value(rating: int) -> str:
-        return f"{agent_message_ts}|{channel}|{user}|{rating}"
-
-    await client.chat_postEphemeral(
-        channel=channel,
-        user=user,
-        thread_ts=agent_message_ts,
-        text=f"Hey <@{user}>, how would you rate the helpfulness of my response? ",
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"Hey{get_handle_link(user)}, how would you rate the helpfulness of my response?",
-                },
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "radio_buttons",
-                        "action_id": AGENT_FEEDBACK_RATING,
-                        "options": [
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "1 - Not helpful at all",
-                                },
-                                "value": get_encoded_value(1),
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "2 - Slightly helpful",
-                                },
-                                "value": get_encoded_value(2),
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "3 - Somewhat helpful",
-                                },
-                                "value": get_encoded_value(3),
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "4 - Mostly helpful",
-                                },
-                                "value": get_encoded_value(4),
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "5 - Very helpful",
-                                },
-                                "value": get_encoded_value(5),
-                            },
-                        ],
-                    }
-                ],
-            },
-        ],
-    )
-
-
 async def handle_proactive_prompt(
     ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond, bot_info: BotInfo
 ) -> int | None:
@@ -836,15 +762,53 @@ async def send_new_case_and_feedback_button(
     return resp.data.get("ts")
 
 
+async def send_feedback_button(
+    client: AsyncWebClient, channel: str, thread_ts: str | None = None
+) -> str | None:
+    resp = await client.chat_postMessage(
+        channel=channel,
+        text="Open a new support case",
+        thread_ts=thread_ts,
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Let me know how I did and how I can do better!",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "action_id": FEEDBACK_FORM_TRIGGER,
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Submit Feedback"},
+                        "value": json.dumps({"thread_ts": thread_ts}),
+                    },
+                ],
+            },
+        ],
+    )
+    assert isinstance(resp.data, dict)
+    return resp.data.get("ts")
+
+
 async def send_feedback_form(
-    client: AsyncWebClient, trigger_id: str, channel: str | None = None
+    client: AsyncWebClient,
+    trigger_id: str,
+    channel: str | None = None,
+    thread_ts: str | None = None,
 ):
     await client.views_open(
         trigger_id=trigger_id,
         view={
             "type": "modal",
             "callback_id": FEEDBACK_FORM_SUBMIT,
-            "private_metadata": channel or "",
+            "private_metadata": json.dumps(
+                {"channel": channel, "thread_ts": thread_ts}
+            ),
             "title": {"type": "plain_text", "text": "Submit Feedback/Request"},
             "submit": {"type": "plain_text", "text": "Submit"},
             "close": {"type": "plain_text", "text": "Cancel"},
