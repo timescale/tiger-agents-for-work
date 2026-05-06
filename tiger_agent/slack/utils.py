@@ -836,7 +836,7 @@ async def send_feedback_form(
                     "optional": True,
                     "label": {
                         "type": "plain_text",
-                        "text": "Rating (Optional)",
+                        "text": "Rating",
                     },
                     "element": {
                         "type": "static_select",
