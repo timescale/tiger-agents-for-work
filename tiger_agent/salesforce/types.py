@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import StrEnum
 
 from pydantic import BaseModel
 
@@ -119,13 +120,21 @@ class SalesforceCaseStatusChangedEvent(SalesforceBaseEvent):
     slack_channel_id: str | None = None
 
 
+class AgentFeedbackRatingSubtype(StrEnum):
+    internal = "internal"
+    external = "external"
+
+
 class AgentFeedbackRatingEvent(BaseModel):
     type: str = "agent_feedback_rating"
+    subtype: AgentFeedbackRatingSubtype = AgentFeedbackRatingSubtype.internal
 
     # the agent message that was rated
-    message_ts: str
+    message_ts: str | None = None
     channel: str
-    rating: int
+    rating: int | None = None
+    description: str | None = None
+    user: str | None = None
 
 
 @dataclass
