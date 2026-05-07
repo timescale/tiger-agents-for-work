@@ -24,6 +24,7 @@ from tiger_agent.slack.utils import (
     fetch_bot_info,
     fetch_thread_messages,
     fetch_user_info,
+    post_response,
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -96,6 +97,11 @@ async def create_agent_and_context(
     ) -> BinaryContent | str | None:
         return await download_slack_hosted_file(file=file)
 
+    async def _send_direct_message(message: str, user_id: str) -> None:
+        await post_response(
+            hctx.app.client, channel=user_id, thread_ts=None, text=message
+        )
+
     pydantic_agent = Agent(
         model=agent.model,
         deps_type=dict[str, Any],
@@ -109,7 +115,13 @@ async def create_agent_and_context(
                 takes_ctx=False,
                 name="download_slack_hosted_file",
                 description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
-            )
+            ),
+            Tool(
+                _send_direct_message,
+                takes_ctx=False,
+                name="send_direct_message",
+                description="This will send a direct message (DM) to a Slack user. Requires Slack user id.",
+            ),
         ],
         toolsets=toolsets,
         model_settings={"extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}}
