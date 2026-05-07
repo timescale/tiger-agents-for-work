@@ -34,6 +34,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
     AgentFeedbackRatingSubtype,
+    CustomRuleMatchEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceBaseEvent,
     SalesforceCaseStatusChangedEvent,
@@ -69,6 +70,7 @@ from tiger_agent.slack.utils import (
     stream_response_to_mention,
     user_is_external,
 )
+from tiger_agent.tasks.custom_rules import evaluate_custom_rules
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
@@ -129,6 +131,14 @@ class TaskProcessor:
                     else "I give up. Sorry.",
                 )
             raise
+
+        # skip rule evaluation for match events themselves to avoid loops
+        if not isinstance(event, CustomRuleMatchEvent):
+            await evaluate_custom_rules(
+                pool=hctx.pool,
+                event_type=event.type,
+                event_dict=task.event.model_dump(),
+            )
 
 
 class SlackTaskHandler(TaskHandler):
@@ -556,3 +566,27 @@ class AgentFeedbackRatingHandler(TaskHandler):
                     ]
                 ),
             )
+
+
+class CustomRuleMatchHandler(TaskHandler):
+    def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
+        super().__init__(hctx)
+        self._agent = agent
+
+    @logfire.instrument("CustomRuleMatchHandler.handle", extract_args=False)
+    async def handle(self, task: Task) -> None:
+        hctx = self._hctx
+        event: CustomRuleMatchEvent = task.event
+
+        agent_and_ctx = await create_agent_and_context(
+            hctx=hctx,
+            task=task,
+            agent=self._agent,
+            channel_to_respond=event.owner_slack_id,
+        )
+
+        await agent_and_ctx.agent.run(
+            user_prompt=agent_and_ctx.user_prompt,
+            deps=agent_and_ctx.ctx,
+            usage_limits=UsageLimits(output_tokens_limit=9_000),
+        )

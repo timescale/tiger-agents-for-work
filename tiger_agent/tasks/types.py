@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
+    CustomRuleMatchEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
@@ -45,4 +46,5 @@ class Task(BaseModel):
         | SalesforceFeedItemEvent
         | SalesforceCaseStatusChangedEvent
         | AgentFeedbackRatingEvent
+        | CustomRuleMatchEvent
     )

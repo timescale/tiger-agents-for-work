@@ -13,12 +13,24 @@ from tiger_agent.agent.types import (
     AgentSalesforceResponse,
     ExtraContextDict,
 )
+from tiger_agent.db.utils import insert_custom_rule
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.types import (
+    AgentFeedbackRatingEvent,
+    CustomRule,
+    SalesforceAssignmentChangedEvent,
     SalesforceBaseEvent,
+    SalesforceCaseStatusChangedEvent,
+    SalesforceCreateNewCaseEvent,
+    SalesforceFeedItemEvent,
 )
-from tiger_agent.slack.types import SlackFile
+from tiger_agent.slack.types import (
+    SlackAppMentionEvent,
+    SlackFile,
+    SlackMessageEvent,
+    SlackSalesforceCaseThreadMessageEvent,
+)
 from tiger_agent.slack.utils import (
     download_slack_hosted_file,
     fetch_bot_info,
@@ -31,6 +43,44 @@ from tiger_agent.utils import wrap_mcp_servers_with_exception_handling
 
 if TYPE_CHECKING:
     from tiger_agent.agent.tiger_agent import TigerAgent
+
+# Maps each event model class to its (event_type_value, human description).
+# event_type_value is what gets stored in agent.custom_rules.event_type
+# and used for SQL filtering.
+EVENT_TYPE_REGISTRY: dict[type, tuple[str, str]] = {
+    SlackAppMentionEvent: (
+        "app_mention",
+        "A user directly @mentioned the bot in a Slack channel",
+    ),
+    SlackMessageEvent: (
+        "message",
+        "A message posted in a Slack channel the bot is monitoring",
+    ),
+    SlackSalesforceCaseThreadMessageEvent: (
+        "slack_salesforce_case_thread_message",
+        "A Slack message posted in a thread linked to a Salesforce case",
+    ),
+    SalesforceCreateNewCaseEvent: (
+        "salesforce_event",
+        "A new Salesforce support case was opened via Slack",
+    ),
+    SalesforceAssignmentChangedEvent: (
+        "salesforce_event",
+        "A Salesforce case was assigned or reassigned to a support engineer.",
+    ),
+    SalesforceFeedItemEvent: (
+        "salesforce_event",
+        "A new message posted to a Salesforce case feed (e.g. a customer reply or engineer response)",
+    ),
+    SalesforceCaseStatusChangedEvent: (
+        "salesforce_event",
+        "A Salesforce case status changed (e.g. New → In Progress → Closed)",
+    ),
+    AgentFeedbackRatingEvent: (
+        "agent_feedback_rating",
+        "A user submitted a feedback rating via the in-app feedback form",
+    ),
+}
 
 
 @dataclass
@@ -96,6 +146,29 @@ async def create_agent_and_context(
     ) -> BinaryContent | str | None:
         return await download_slack_hosted_file(file=file)
 
+    owner_slack_id = event.user if not isinstance(event, SalesforceBaseEvent) else None
+
+    async def _create_custom_rule(
+        name: str,
+        event_type: type,
+        criteria: str,
+        action_prompt: str,
+    ) -> CustomRule:
+        event_type_value, _ = EVENT_TYPE_REGISTRY[event_type]
+        return await insert_custom_rule(
+            pool=hctx.pool,
+            name=name,
+            owner_slack_id=owner_slack_id,
+            event_type=event_type_value,
+            criteria=criteria,
+            action_prompt=action_prompt,
+        )
+
+    event_type_options = "\n".join(
+        f"- {cls.__name__}: {description}"
+        for cls, (_, description) in EVENT_TYPE_REGISTRY.items()
+    )
+
     pydantic_agent = Agent(
         model=agent.model,
         deps_type=dict[str, Any],
@@ -109,7 +182,27 @@ async def create_agent_and_context(
                 takes_ctx=False,
                 name="download_slack_hosted_file",
                 description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
-            )
+            ),
+            Tool(
+                _create_custom_rule,
+                takes_ctx=False,
+                name="create_custom_rule",
+                description=(
+                    "Create a persistent custom rule that monitors incoming events and triggers "
+                    "an action when a criteria is matched. Use this when a user asks to be notified "
+                    "about or alerted to specific conditions. Always confirm the rule details with the "
+                    "user before calling this tool.\n\n"
+                    "Parameters:\n"
+                    "- name: short descriptive name for the rule\n"
+                    "- event_type: the event model class to monitor. Choose from:\n"
+                    f"{event_type_options}\n"
+                    "- criteria: natural language description of the condition that must be met for "
+                    "the rule to trigger. Be specific.\n"
+                    "- action_prompt: instructions for what to do when the rule matches. "
+                    "Include who to notify and what to say. You have access to the matched event "
+                    "payload and the match reason."
+                ),
+            ),
         ],
         toolsets=toolsets,
         model_settings={"extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}}

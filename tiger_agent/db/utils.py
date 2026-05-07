@@ -10,7 +10,7 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic import ValidationError
 
 from tiger_agent.db.constants import PG_MAX_POOL_SIZE
-from tiger_agent.salesforce.types import SalesforceBaseEvent, SalesforceFeedItem
+from tiger_agent.salesforce.types import CustomRule, SalesforceBaseEvent, SalesforceFeedItem
 from tiger_agent.tasks.types import Task as Event
 
 logger = logging.getLogger(__name__)
@@ -444,3 +444,96 @@ async def filter_new_feed_items(
         existing_ids |= {row[0] for row in await result.fetchall()}
 
     return [item for item in feed_items if item.Id not in existing_ids]
+
+
+async def get_matching_custom_rules(
+    pool: AsyncConnectionPool, event_type: str
+) -> list[CustomRule]:
+    """Return enabled custom rules that match the given event type."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            """SELECT id, name, owner_slack_id, event_type, criteria, action_prompt, enabled
+               FROM agent.custom_rules
+               WHERE event_type = %s AND enabled = true""",
+            (event_type,),
+        )
+        rows = await result.fetchall()
+        return [
+            CustomRule(
+                id=row[0],
+                name=row[1],
+                owner_slack_id=row[2],
+                event_type=row[3],
+                criteria=row[4],
+                action_prompt=row[5],
+                enabled=row[6],
+            )
+            for row in rows
+        ]
+
+
+async def insert_custom_rule(
+    pool: AsyncConnectionPool,
+    name: str,
+    owner_slack_id: str,
+    event_type: str,
+    criteria: str,
+    action_prompt: str,
+) -> CustomRule:
+    """Insert a new custom rule and return it."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            """INSERT INTO agent.custom_rules (name, owner_slack_id, event_type, criteria, action_prompt)
+               VALUES (%s, %s, %s, %s, %s)
+               RETURNING id, name, owner_slack_id, event_type, criteria, action_prompt, enabled""",
+            (name, owner_slack_id, event_type, criteria, action_prompt),
+        )
+        row = await result.fetchone()
+        return CustomRule(
+            id=row[0],
+            name=row[1],
+            owner_slack_id=row[2],
+            event_type=row[3],
+            criteria=row[4],
+            action_prompt=row[5],
+            enabled=row[6],
+        )
+
+
+async def list_custom_rules(
+    pool: AsyncConnectionPool, owner_slack_id: str
+) -> list[CustomRule]:
+    """Return all rules owned by the given Slack user."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            """SELECT id, name, owner_slack_id, event_type, criteria, action_prompt, enabled
+               FROM agent.custom_rules
+               WHERE owner_slack_id = %s
+               ORDER BY created_at DESC""",
+            (owner_slack_id,),
+        )
+        rows = await result.fetchall()
+        return [
+            CustomRule(
+                id=row[0],
+                name=row[1],
+                owner_slack_id=row[2],
+                event_type=row[3],
+                criteria=row[4],
+                action_prompt=row[5],
+                enabled=row[6],
+            )
+            for row in rows
+        ]
+
+
+async def delete_custom_rule(
+    pool: AsyncConnectionPool, rule_id: int, owner_slack_id: str
+) -> bool:
+    """Delete a custom rule. Returns True if a row was deleted."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            "DELETE FROM agent.custom_rules WHERE id = %s AND owner_slack_id = %s",
+            (rule_id, owner_slack_id),
+        )
+        return result.rowcount > 0

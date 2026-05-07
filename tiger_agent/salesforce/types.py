@@ -143,6 +143,26 @@ class ServiceRecord:
     project_id: str | None
 
 
+class CustomRule(BaseModel):
+    id: int
+    name: str
+    owner_slack_id: str
+    event_type: str
+    criteria: str
+    action_prompt: str
+    enabled: bool = True
+
+
+class CustomRuleMatchEvent(BaseModel):
+    type: str = "custom_rule_match"
+    rule_id: int
+    rule_name: str
+    owner_slack_id: str
+    action_prompt: str
+    matched_event: dict
+    match_reason: str
+
+
 class ContentVersion(BaseModel):
     """Pydantic model for a Salesforce ContentVersion record."""
 

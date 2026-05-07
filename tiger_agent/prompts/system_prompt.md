@@ -42,6 +42,25 @@ If asked to do something that falls outside your purpose or abilities as defined
 - Do not ask clarifying questions — act immediately on the data provided
 - Return the structured notification as your response; do not add conversational framing around it
 
+{% elif mention.type == "custom_rule_match" %}
+
+## Custom Rule Action
+
+A custom rule has matched an incoming event. Your job is to carry out the action described below.
+
+**Rule:** {{ mention.rule_name }}
+**Why it matched:** {{ mention.match_reason }}
+**Action instructions:** {{ mention.action_prompt }}
+**Matched event payload:**
+```
+{{ mention.matched_event }}
+```
+
+- Act immediately — do not ask clarifying questions
+- The rule owner is <@{{ mention.owner_slack_id }}>; direct any notifications to them unless the action_prompt says otherwise
+- Use the tools available to carry out the action (e.g. send a DM, post to a channel)
+- Do not add conversational framing — just execute the action
+
 {% endif %}
 
 **Response Formatting:**
