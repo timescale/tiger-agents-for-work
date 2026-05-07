@@ -153,6 +153,7 @@ async def create_agent_and_context(
         event_type: type,
         criteria: str,
         action_prompt: str,
+        criteria_examples: list[str] | None = None,
     ) -> CustomRule:
         event_type_value, _ = EVENT_TYPE_REGISTRY[event_type]
         return await insert_custom_rule(
@@ -162,6 +163,7 @@ async def create_agent_and_context(
             event_type=event_type_value,
             criteria=criteria,
             action_prompt=action_prompt,
+            criteria_examples=criteria_examples,
         )
 
     event_type_options = "\n".join(
@@ -200,7 +202,10 @@ async def create_agent_and_context(
                     "the rule to trigger. Be specific.\n"
                     "- action_prompt: instructions for what to do when the rule matches. "
                     "Include who to notify and what to say. You have access to the matched event "
-                    "payload and the match reason."
+                    "payload and the match reason.\n"
+                    "- criteria_examples: optional list of example event descriptions or scenarios "
+                    "that would satisfy the criteria. Helps the judge LLM make more accurate "
+                    "decisions. Provide concrete examples when the criteria might be ambiguous."
                 ),
             ),
         ],

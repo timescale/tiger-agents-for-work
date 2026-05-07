@@ -9,6 +9,7 @@ create table agent.custom_rules
 , event_type     text not null
 , criteria       text not null
 , action_prompt  text not null
+, criteria_examples jsonb not null default '[]'::jsonb
 , enabled        boolean not null default true
 , created_at     timestamptz not null default now()
 );

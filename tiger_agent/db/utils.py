@@ -446,30 +446,31 @@ async def filter_new_feed_items(
     return [item for item in feed_items if item.Id not in existing_ids]
 
 
+def _row_to_custom_rule(row) -> CustomRule:
+    return CustomRule(
+        id=row[0],
+        name=row[1],
+        owner_slack_id=row[2],
+        event_type=row[3],
+        criteria=row[4],
+        criteria_examples=row[5] or [],
+        action_prompt=row[6],
+        enabled=row[7],
+    )
+
+
 async def get_matching_custom_rules(
     pool: AsyncConnectionPool, event_type: str
 ) -> list[CustomRule]:
     """Return enabled custom rules that match the given event type."""
     async with pool.connection() as con:
         result = await con.execute(
-            """SELECT id, name, owner_slack_id, event_type, criteria, action_prompt, enabled
+            """SELECT id, name, owner_slack_id, event_type, criteria, criteria_examples, action_prompt, enabled
                FROM agent.custom_rules
                WHERE event_type = %s AND enabled = true""",
             (event_type,),
         )
-        rows = await result.fetchall()
-        return [
-            CustomRule(
-                id=row[0],
-                name=row[1],
-                owner_slack_id=row[2],
-                event_type=row[3],
-                criteria=row[4],
-                action_prompt=row[5],
-                enabled=row[6],
-            )
-            for row in rows
-        ]
+        return [_row_to_custom_rule(row) for row in await result.fetchall()]
 
 
 async def insert_custom_rule(
@@ -479,25 +480,17 @@ async def insert_custom_rule(
     event_type: str,
     criteria: str,
     action_prompt: str,
+    criteria_examples: list[str] | None = None,
 ) -> CustomRule:
     """Insert a new custom rule and return it."""
     async with pool.connection() as con:
         result = await con.execute(
-            """INSERT INTO agent.custom_rules (name, owner_slack_id, event_type, criteria, action_prompt)
-               VALUES (%s, %s, %s, %s, %s)
-               RETURNING id, name, owner_slack_id, event_type, criteria, action_prompt, enabled""",
-            (name, owner_slack_id, event_type, criteria, action_prompt),
+            """INSERT INTO agent.custom_rules (name, owner_slack_id, event_type, criteria, criteria_examples, action_prompt)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               RETURNING id, name, owner_slack_id, event_type, criteria, criteria_examples, action_prompt, enabled""",
+            (name, owner_slack_id, event_type, criteria, Jsonb(criteria_examples or []), action_prompt),
         )
-        row = await result.fetchone()
-        return CustomRule(
-            id=row[0],
-            name=row[1],
-            owner_slack_id=row[2],
-            event_type=row[3],
-            criteria=row[4],
-            action_prompt=row[5],
-            enabled=row[6],
-        )
+        return _row_to_custom_rule(await result.fetchone())
 
 
 async def list_custom_rules(
@@ -506,25 +499,13 @@ async def list_custom_rules(
     """Return all rules owned by the given Slack user."""
     async with pool.connection() as con:
         result = await con.execute(
-            """SELECT id, name, owner_slack_id, event_type, criteria, action_prompt, enabled
+            """SELECT id, name, owner_slack_id, event_type, criteria, criteria_examples, action_prompt, enabled
                FROM agent.custom_rules
                WHERE owner_slack_id = %s
                ORDER BY created_at DESC""",
             (owner_slack_id,),
         )
-        rows = await result.fetchall()
-        return [
-            CustomRule(
-                id=row[0],
-                name=row[1],
-                owner_slack_id=row[2],
-                event_type=row[3],
-                criteria=row[4],
-                action_prompt=row[5],
-                enabled=row[6],
-            )
-            for row in rows
-        ]
+        return [_row_to_custom_rule(row) for row in await result.fetchall()]
 
 
 async def delete_custom_rule(

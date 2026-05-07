@@ -149,6 +149,7 @@ class CustomRule(BaseModel):
     owner_slack_id: str
     event_type: str
     criteria: str
+    criteria_examples: list[str] = []
     action_prompt: str
     enabled: bool = True
 
