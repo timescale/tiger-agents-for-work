@@ -105,25 +105,19 @@ async def create_agent_and_context(
     ) -> BinaryContent | str | None:
         return await download_slack_hosted_file(file=file)
 
-    owner_slack_id = (
-        event.user
-        if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch))
-        else None
-    )
-
-    async def _list_user_defined_rules() -> list[UserDefinedRule]:
-        return await list_user_defined_rules(
-            pool=hctx.pool, owner_slack_id=owner_slack_id
-        )
-
-    async def _delete_user_defined_rule(rule_id: int) -> bool:
-        return await delete_user_defined_rule(
-            pool=hctx.pool, rule_id=rule_id, owner_slack_id=owner_slack_id
-        )
-
     _event_type_by_name: dict[str, type] = {
         cls.__name__: cls for cls in EVENT_TYPE_REGISTRY
     }
+
+    async def _list_user_defined_rules() -> list[UserDefinedRule]:
+        assert isinstance(event, SlackBaseEvent)
+        return await list_user_defined_rules(pool=hctx.pool, owner_slack_id=event.user)
+
+    async def _delete_user_defined_rule(rule_id: int) -> bool:
+        assert isinstance(event, SlackBaseEvent)
+        return await delete_user_defined_rule(
+            pool=hctx.pool, rule_id=rule_id, owner_slack_id=event.user
+        )
 
     async def _create_user_defined_rule(
         name: str,
@@ -132,6 +126,7 @@ async def create_agent_and_context(
         action_prompt: str,
         criteria_examples: list[str] | None = None,
     ) -> UserDefinedRule:
+        assert isinstance(event, SlackBaseEvent)
         if event_type not in _event_type_by_name:
             raise ValueError(
                 f"Unknown event_type {event_type!r}. "
@@ -147,7 +142,7 @@ async def create_agent_and_context(
         return await insert_user_defined_rule(
             pool=hctx.pool,
             name=name,
-            owner_slack_id=owner_slack_id,
+            owner_slack_id=event.user,
             event_type=cls.model_fields["type"].default,
             event_subtype=event_subtype,
             criteria=criteria,
