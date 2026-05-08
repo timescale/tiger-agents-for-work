@@ -20,7 +20,10 @@ from simple_salesforce.api import Salesforce
 
 from tiger_agent.db.utils import filter_new_feed_items
 from tiger_agent.salesforce.types import SalesforceFeedItem
-from tiger_agent.salesforce.utils import get_recent_case_feed_items
+from tiger_agent.salesforce.utils import (
+    get_recent_case_email_messages,
+    get_recent_case_feed_items,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,19 @@ class SalesforceCaseFeedItemPoller:
         self._handler = handler
         self._poll_interval_seconds = poll_interval_seconds
         self._last_poll: datetime | None = None
+        self._bot_sf_user_id: str | None = None
+
+    def _get_bot_sf_user_id(self) -> str | None:
+        """Fetch and cache the Salesforce user ID of the integration user."""
+        if self._bot_sf_user_id is None:
+            try:
+                result = self._salesforce_client.restful(
+                    "chatter/users/me", method="GET"
+                )
+                self._bot_sf_user_id = result.get("id")
+            except Exception:
+                logfire.exception("Failed to fetch bot Salesforce user ID")
+        return self._bot_sf_user_id
 
     async def _poll(self) -> None:
         # TODO: can improve the fallback by doing a query on the last feed item event in the db
@@ -55,6 +71,12 @@ class SalesforceCaseFeedItemPoller:
             types=["TextPost", "ContentPost"],
             public_only=True,
             created_after=since_str,
+        ) + get_recent_case_email_messages(
+            salesforce_client=self._salesforce_client,
+            created_after=since_str,
+            # the agent will create EmailMessages when syncing Slack messages
+            # so we do not want to create an infinite loop!
+            exclude_creator_id=self._get_bot_sf_user_id(),
         )
 
         # filter out feed items that have already been handled

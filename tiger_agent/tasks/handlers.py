@@ -71,8 +71,8 @@ from tiger_agent.slack.utils import (
     stream_response_to_mention,
     user_is_external,
 )
-from tiger_agent.tasks.user_defined_rules import evaluate_user_defined_rules
 from tiger_agent.tasks.types import Task
+from tiger_agent.tasks.user_defined_rules import evaluate_user_defined_rules
 from tiger_agent.types import HarnessContext
 
 logger = logging.getLogger(__name__)
@@ -414,9 +414,15 @@ class SalesforceFeedItemHandler(TaskHandler):
     async def handle(self, task: Task) -> None:
         hctx = self._hctx
         event: SalesforceFeedItemEvent = task.event
-        [channel_id, thread_ts] = await get_salesforce_case_thread_thread_id(
+        result = await get_salesforce_case_thread_thread_id(
             hctx.pool, case_id=event.feed_item.ParentId
         )
+
+        if not result:
+            # if the FeedItem's case is not associated with a Slack thread, do nothing
+            return
+
+        [channel_id, thread_ts] = result
 
         markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output().strip()
         body = add_quote_block(markdown_conversion)

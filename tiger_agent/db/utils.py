@@ -407,17 +407,6 @@ async def filter_new_feed_items(
     if not feed_items:
         return []
 
-    # first, filter to only feed items whose ParentId has a matching case_id
-    # in the salesforce_case_thread table (i.e. cases we are actively tracking)
-    parent_ids = list({item.ParentId for item in feed_items if item.ParentId})
-    async with pool.connection() as con:
-        result = await con.execute(
-            "SELECT DISTINCT case_id FROM agent.salesforce_case_thread WHERE case_id = ANY(%s)",
-            (parent_ids,),
-        )
-        tracked_case_ids = {row[0] for row in await result.fetchall()}
-
-    feed_items = [item for item in feed_items if item.ParentId in tracked_case_ids]
     if not feed_items:
         return []
 
