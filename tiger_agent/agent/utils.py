@@ -24,7 +24,6 @@ from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
     UserDefinedRule,
-    UserDefinedRuleMatch,
 )
 from tiger_agent.slack.types import SlackBaseEvent, SlackFile
 from tiger_agent.slack.utils import (
@@ -67,7 +66,6 @@ async def create_agent_and_context(
         mcp_servers=all_mcp_servers,
         client=hctx.app.client,
         channel_id=channel_to_respond,
-        filter_internal_only=not isinstance(event, UserDefinedRuleMatch),
     )
 
     wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
