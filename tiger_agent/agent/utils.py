@@ -78,7 +78,6 @@ async def create_agent_and_context(
         bot=hctx.bot_info,
         user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
         if not isinstance(event, SalesforceBaseEvent)
-        and not isinstance(event, UserDefinedRuleMatch)
         else None,
         mcp_servers=mcp_servers,
     )
@@ -86,12 +85,7 @@ async def create_agent_and_context(
     extra_ctx: ExtraContextDict = {}
     await agent.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
-    if (
-        not isinstance(event, SalesforceBaseEvent)
-        and not isinstance(event, UserDefinedRuleMatch)
-        and event.thread_ts
-        and hctx.bot_info
-    ):
+    if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and hctx.bot_info:
         thread_messages = await fetch_thread_messages(
             client=hctx.app.client,
             channel=event.channel,
@@ -118,7 +112,9 @@ async def create_agent_and_context(
     )
 
     async def _list_user_defined_rules() -> list[UserDefinedRule]:
-        return await list_user_defined_rules(pool=hctx.pool, owner_slack_id=owner_slack_id)
+        return await list_user_defined_rules(
+            pool=hctx.pool, owner_slack_id=owner_slack_id
+        )
 
     async def _delete_user_defined_rule(rule_id: int) -> bool:
         return await delete_user_defined_rule(
@@ -163,45 +159,6 @@ async def create_agent_and_context(
         f"- {cls.__name__}: {cls.event_description}" for cls in EVENT_TYPE_REGISTRY
     )
 
-    rule_management_tools = (
-        [
-            Tool(
-                _list_user_defined_rules,
-                takes_ctx=False,
-                name="list_user_defined_rules",
-                description=(
-                    "List all user-defined rules owned by the current user. "
-                    'Use when the user asks things like "show me my rules", '
-                    '"what rules do I have set up?", or "list my custom rules".'
-                ),
-            ),
-            Tool(
-                _delete_user_defined_rule,
-                takes_ctx=False,
-                name="delete_user_defined_rule",
-                description=(
-                    "Delete a user-defined rule by its ID. Only rules owned by the current user "
-                    'can be deleted. Returns True if deleted, False if not found. Use when the user asks things like '
-                    '"delete rule 3", "remove my rule with ID 7", or "turn off rule 12".'
-                ),
-            ),
-            Tool(
-                _create_user_defined_rule,
-                takes_ctx=False,
-                name="create_user_defined_rule",
-                description=(
-                    "Call this when the user wants to be notified, alerted, or asks to create a rule or automation. "
-                    "Creates a persistent rule that triggers a custom action when a matching event occurs. "
-                    "Infer all parameters from the user's request.\n"
-                    f"event_type must be one of:\n{event_type_options}\n"
-                    "criteria_examples are optional but improve matching accuracy."
-                ),
-            ),
-        ]
-        if isinstance(event, SlackBaseEvent)
-        else []
-    )
-
     pydantic_agent = Agent(
         model=agent.model,
         deps_type=dict[str, Any],
@@ -216,7 +173,44 @@ async def create_agent_and_context(
                 name="download_slack_hosted_file",
                 description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
             ),
-            *rule_management_tools,
+            *(
+                [
+                    Tool(
+                        _list_user_defined_rules,
+                        takes_ctx=False,
+                        name="list_user_defined_rules",
+                        description=(
+                            "List all user-defined rules owned by the current user. "
+                            'Use when the user asks things like "show me my rules", '
+                            '"what rules do I have set up?", or "list my custom rules".'
+                        ),
+                    ),
+                    Tool(
+                        _delete_user_defined_rule,
+                        takes_ctx=False,
+                        name="delete_user_defined_rule",
+                        description=(
+                            "Delete a user-defined rule by its ID. Only rules owned by the current user "
+                            "can be deleted. Returns True if deleted, False if not found. Use when the user asks things like "
+                            '"delete rule 3", "remove my rule with ID 7", or "turn off rule 12".'
+                        ),
+                    ),
+                    Tool(
+                        _create_user_defined_rule,
+                        takes_ctx=False,
+                        name="create_user_defined_rule",
+                        description=(
+                            "Call this when the user wants to be notified, alerted, or asks to create a rule or automation. "
+                            "Creates a persistent rule that triggers a custom action when a matching event occurs. "
+                            "Infer all parameters from the user's request.\n"
+                            f"event_type must be one of:\n{event_type_options}\n"
+                            "criteria_examples are optional but improve matching accuracy."
+                        ),
+                    ),
+                ]
+                if isinstance(event, SlackBaseEvent)
+                else []
+            ),
         ],
         toolsets=toolsets,
         model_settings={"extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}}
