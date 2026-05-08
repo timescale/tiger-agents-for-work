@@ -6,12 +6,13 @@ the task in its handle() method.
 """
 
 import asyncio
+import json
 import logging
 from abc import ABC, abstractmethod
 
 import logfire
 from htmlslacker import HTMLSlacker
-from pydantic_ai import UsageLimits
+from pydantic_ai import Agent, Tool, UsageLimits
 
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.utils import create_agent_and_context
@@ -39,6 +40,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
+    UserDefinedRuleMatch,
 )
 from tiger_agent.salesforce.utils import (
     add_case_email_comment,
@@ -69,6 +71,7 @@ from tiger_agent.slack.utils import (
     stream_response_to_mention,
     user_is_external,
 )
+from tiger_agent.tasks.user_defined_rules import evaluate_user_defined_rules
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
@@ -118,7 +121,7 @@ class TaskProcessor:
             await handler.handle(task)
         except Exception as e:
             logger.exception("handler failed", exc_info=e)
-            if not isinstance(event, SalesforceBaseEvent):
+            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch)):
                 await add_reaction(hctx.app.client, event.channel, event.ts, "x")
                 await post_response(
                     client=hctx.app.client,
@@ -129,6 +132,14 @@ class TaskProcessor:
                     else "I give up. Sorry.",
                 )
             raise
+
+        # skip rule evaluation for match events themselves to avoid loops
+        if not isinstance(event, UserDefinedRuleMatch):
+            await evaluate_user_defined_rules(
+                pool=hctx.pool,
+                event_type=event.type,
+                event_dict=task.event.model_dump(),
+            )
 
 
 class SlackTaskHandler(TaskHandler):
@@ -556,3 +567,43 @@ class AgentFeedbackRatingHandler(TaskHandler):
                     ]
                 ),
             )
+
+
+class UserDefinedRuleMatchHandler(TaskHandler):
+    def __init__(self, hctx: HarnessContext) -> None:
+        super().__init__(hctx)
+
+    @logfire.instrument("UserDefinedRuleMatchHandler.handle", extract_args=False)
+    async def handle(self, task: Task) -> None:
+        hctx = self._hctx
+        event: UserDefinedRuleMatch = task.event
+
+        async def _send_dm(user_id: str, message: str) -> None:
+            await post_response(
+                client=hctx.app.client,
+                channel=user_id,
+                thread_ts=None,
+                text=message,
+            )
+
+        agent = Agent(
+            model="anthropic:claude-haiku-4-5",
+            system_prompt=(
+                "You are an automated action agent. A custom monitoring rule has matched an incoming "
+                "event and you must carry out the action described in the user prompt. "
+                "Use the send_dm tool to notify users. Act immediately — do not ask clarifying questions "
+                "and do not add conversational framing."
+            ),
+            tools=[Tool(_send_dm, takes_ctx=False, name="send_dm")],
+        )
+
+        user_prompt = (
+            f"{event.action_prompt}\n\n"
+            f"## Event Payload\n\n"
+            f"```\n{json.dumps(event.matched_event, indent=2, default=str)}\n```"
+        )
+
+        await agent.run(
+            user_prompt=user_prompt,
+            usage_limits=UsageLimits(output_tokens_limit=9_000),
+        )

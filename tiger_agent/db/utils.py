@@ -10,7 +10,11 @@ from psycopg_pool import AsyncConnectionPool
 from pydantic import ValidationError
 
 from tiger_agent.db.constants import PG_MAX_POOL_SIZE
-from tiger_agent.salesforce.types import SalesforceBaseEvent, SalesforceFeedItem
+from tiger_agent.salesforce.types import (
+    SalesforceBaseEvent,
+    SalesforceFeedItem,
+    UserDefinedRule,
+)
 from tiger_agent.tasks.types import Task as Event
 
 logger = logging.getLogger(__name__)
@@ -444,3 +448,94 @@ async def filter_new_feed_items(
         existing_ids |= {row[0] for row in await result.fetchall()}
 
     return [item for item in feed_items if item.Id not in existing_ids]
+
+
+async def get_matching_user_defined_rules(
+    pool: AsyncConnectionPool, event_type: str, event_subtype: str | None = None
+) -> list[UserDefinedRule]:
+    """Return enabled custom rules that match the given event type and optional subtype."""
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        if event_subtype is not None:
+            await cur.execute(
+                """SELECT *
+                   FROM agent.user_defined_rules
+                   WHERE event_type = %s
+                     AND (event_subtype IS NULL OR event_subtype = %s)
+                     AND enabled = true""",
+                (event_type, event_subtype),
+            )
+        else:
+            await cur.execute(
+                """SELECT *
+                   FROM agent.user_defined_rules
+                   WHERE event_type = %s AND enabled = true""",
+                (event_type,),
+            )
+        return [UserDefinedRule(**row) for row in await cur.fetchall()]
+
+
+@logfire.instrument("insert_user_defined_rule", extract_args=False)
+async def insert_user_defined_rule(
+    pool: AsyncConnectionPool,
+    name: str,
+    owner_slack_id: str,
+    event_type: str,
+    criteria: str,
+    action_prompt: str,
+    event_subtype: str | None = None,
+    criteria_examples: list[str] | None = None,
+) -> UserDefinedRule:
+    """Insert a new custom rule and return it."""
+    logfire.info(
+        "Inserting custom rule",
+        name=name,
+        owner_slack_id=owner_slack_id,
+        event_type=event_type,
+        event_subtype=event_subtype,
+    )
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """INSERT INTO agent.user_defined_rules
+                   (name, owner_slack_id, event_type, event_subtype, criteria, criteria_examples, action_prompt)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               RETURNING *""",
+            (
+                name,
+                owner_slack_id,
+                event_type,
+                event_subtype,
+                criteria,
+                Jsonb(criteria_examples or []),
+                action_prompt,
+            ),
+        )
+        rule = UserDefinedRule(**await cur.fetchone())
+        logfire.info("Custom rule inserted", rule_id=rule.id, name=rule.name)
+        return rule
+
+
+async def list_user_defined_rules(
+    pool: AsyncConnectionPool, owner_slack_id: str
+) -> list[UserDefinedRule]:
+    """Return all rules owned by the given Slack user."""
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """SELECT *
+               FROM agent.user_defined_rules
+               WHERE owner_slack_id = %s
+               ORDER BY created_at DESC""",
+            (owner_slack_id,),
+        )
+        return [UserDefinedRule(**row) for row in await cur.fetchall()]
+
+
+async def delete_user_defined_rule(
+    pool: AsyncConnectionPool, rule_id: int, owner_slack_id: str
+) -> bool:
+    """Delete a custom rule. Returns True if a row was deleted."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            "DELETE FROM agent.user_defined_rules WHERE id = %s AND owner_slack_id = %s",
+            (rule_id, owner_slack_id),
+        )
+        return result.rowcount > 0

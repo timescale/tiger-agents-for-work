@@ -13,12 +13,19 @@ from tiger_agent.agent.types import (
     AgentSalesforceResponse,
     ExtraContextDict,
 )
+from tiger_agent.db.utils import (
+    delete_user_defined_rule,
+    insert_user_defined_rule,
+    list_user_defined_rules,
+)
+from tiger_agent.events import EVENT_TYPE_REGISTRY
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
+    UserDefinedRule,
 )
-from tiger_agent.slack.types import SlackFile
+from tiger_agent.slack.types import SlackBaseEvent, SlackFile
 from tiger_agent.slack.utils import (
     download_slack_hosted_file,
     fetch_bot_info,
@@ -97,10 +104,54 @@ async def create_agent_and_context(
     ) -> BinaryContent | str | None:
         return await download_slack_hosted_file(file=file)
 
-    async def _send_direct_message(message: str, user_id: str) -> None:
-        await post_response(
-            hctx.app.client, channel=user_id, thread_ts=None, text=message
+    _event_type_by_name: dict[str, type] = {
+        cls.__name__: cls for cls in EVENT_TYPE_REGISTRY
+    }
+
+    async def _list_user_defined_rules() -> list[UserDefinedRule]:
+        assert isinstance(event, SlackBaseEvent)
+        return await list_user_defined_rules(pool=hctx.pool, owner_slack_id=event.user)
+
+    async def _delete_user_defined_rule(rule_id: int) -> bool:
+        assert isinstance(event, SlackBaseEvent)
+        return await delete_user_defined_rule(
+            pool=hctx.pool, rule_id=rule_id, owner_slack_id=event.user
         )
+
+    async def _create_user_defined_rule(
+        name: str,
+        event_type: str,
+        criteria: str,
+        action_prompt: str,
+        criteria_examples: list[str] | None = None,
+    ) -> UserDefinedRule:
+        assert isinstance(event, SlackBaseEvent)
+        if event_type not in _event_type_by_name:
+            raise ValueError(
+                f"Unknown event_type {event_type!r}. "
+                f"Valid options: {', '.join(_event_type_by_name)}"
+            )
+        cls = _event_type_by_name[event_type]
+        subtype_field = cls.model_fields.get("subtype")
+        event_subtype = (
+            subtype_field.default
+            if subtype_field and isinstance(subtype_field.default, str)
+            else None
+        )
+        return await insert_user_defined_rule(
+            pool=hctx.pool,
+            name=name,
+            owner_slack_id=event.user,
+            event_type=cls.model_fields["type"].default,
+            event_subtype=event_subtype,
+            criteria=criteria,
+            action_prompt=action_prompt,
+            criteria_examples=criteria_examples,
+        )
+
+    event_type_options = "\n".join(
+        f"- {cls.__name__}: {cls.event_description}" for cls in EVENT_TYPE_REGISTRY
+    )
 
     pydantic_agent = Agent(
         model=agent.model,
@@ -116,11 +167,43 @@ async def create_agent_and_context(
                 name="download_slack_hosted_file",
                 description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
             ),
-            Tool(
-                _send_direct_message,
-                takes_ctx=False,
-                name="send_direct_message",
-                description="This will send a direct message (DM) to a Slack user. Requires Slack user id.",
+            *(
+                [
+                    Tool(
+                        _list_user_defined_rules,
+                        takes_ctx=False,
+                        name="list_user_defined_rules",
+                        description=(
+                            "List all user-defined rules owned by the current user. "
+                            'Use when the user asks things like "show me my rules", '
+                            '"what rules do I have set up?", or "list my custom rules".'
+                        ),
+                    ),
+                    Tool(
+                        _delete_user_defined_rule,
+                        takes_ctx=False,
+                        name="delete_user_defined_rule",
+                        description=(
+                            "Delete a user-defined rule by its ID. Only rules owned by the current user "
+                            "can be deleted. Returns True if deleted, False if not found. Use when the user asks things like "
+                            '"delete rule 3", "remove my rule with ID 7", or "turn off rule 12".'
+                        ),
+                    ),
+                    Tool(
+                        _create_user_defined_rule,
+                        takes_ctx=False,
+                        name="create_user_defined_rule",
+                        description=(
+                            "Call this when the user wants to be notified, alerted, or asks to create a rule or automation. "
+                            "Creates a persistent rule that triggers a custom action when a matching event occurs. "
+                            "Infer all parameters from the user's request.\n"
+                            f"event_type must be one of:\n{event_type_options}\n"
+                            "criteria_examples are optional but improve matching accuracy."
+                        ),
+                    ),
+                ]
+                if isinstance(event, SlackBaseEvent)
+                else []
             ),
         ],
         toolsets=toolsets,

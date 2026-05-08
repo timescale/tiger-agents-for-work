@@ -5,13 +5,18 @@ from pydantic import BaseModel, Field
 
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.salesforce.types import (
+    AgentFeedbackRatingEvent,
     SalesforceAssignmentChangedEvent,
+    SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
+    SalesforceFeedItemEvent,
+    UserDefinedRuleMatch,
 )
 from tiger_agent.slack.types import (
     BotInfo,
     SlackAppMentionEvent,
     SlackMessageEvent,
+    SlackSalesforceCaseThreadMessageEvent,
     UserInfo,
 )
 from tiger_agent.tasks.types import Task
@@ -37,8 +42,13 @@ class AgentResponseContext(BaseModel):
     mention: (
         SlackAppMentionEvent
         | SlackMessageEvent
-        | SalesforceAssignmentChangedEvent
+        | SlackSalesforceCaseThreadMessageEvent
         | SalesforceCreateNewCaseEvent
+        | SalesforceAssignmentChangedEvent
+        | SalesforceFeedItemEvent
+        | SalesforceCaseStatusChangedEvent
+        | AgentFeedbackRatingEvent
+        | UserDefinedRuleMatch
     )
     bot: BotInfo
     user: UserInfo | None = None

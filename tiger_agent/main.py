@@ -17,9 +17,7 @@ def cli():
 
 
 @cli.command()
-@click.option(
-    "--model", default="anthropic:claude-sonnet-4-5-20250929", help="AI model to use"
-)
+@click.option("--model", default="anthropic:claude-opus-4-7", help="AI model to use")
 @click.option(
     "--prompts",
     type=click.Path(exists=True, file_okay=False, dir_okay=True, path_type=Path),
