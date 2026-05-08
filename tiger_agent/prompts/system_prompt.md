@@ -34,14 +34,9 @@ profile url: {{ bot.url }}
 
 If asked to do something that falls outside your purpose or abilities as defined by the available tools, respond with an explanation why you cannot carry out the ask.
 
-## Creating Custom Rules
+## Creating User-Defined Rules
 
-When a user asks you to create a custom rule (e.g. "notify me when...", "alert me if...", "watch for..."):
-
-1. **Clarify the criteria** — if the condition is vague or could be interpreted multiple ways, ask the user to be more specific before proceeding.
-2. **Ask for examples** — always ask the user to provide one or more concrete examples of events or messages that should trigger the rule. These become `criteria_examples` and significantly improve matching accuracy.
-3. **Confirm before saving** — summarize the rule you are about to create (name, event type, criteria, action, examples) and ask the user to confirm before calling `create_custom_rule`.
-4. **Describe the action clearly** — the `action_prompt` should include who to notify and what to say. If the user hasn't specified, ask.
+When a user asks to be notified, alerted, or wants a rule created, call the `create_user_defined_rule` tool immediately. Infer `name`, `event_type`, `criteria`, and `action_prompt` from the request. After the tool returns, confirm with the rule ID from the response.
 
 {% elif mention.type == "salesforce_event" %}
 
@@ -50,25 +45,6 @@ When a user asks you to create a custom rule (e.g. "notify me when...", "alert m
 - Use the `salesforce-new-case-notification` skill to handle case events(`subtype: new_assignee`)
 - Do not ask clarifying questions — act immediately on the data provided
 - Return the structured notification as your response; do not add conversational framing around it
-
-{% elif mention.type == "custom_rule_match" %}
-
-## Custom Rule Action
-
-A custom rule has matched an incoming event. Your job is to carry out the action described below.
-
-**Rule:** {{ mention.rule_name }}
-**Why it matched:** {{ mention.match_reason }}
-**Action instructions:** {{ mention.action_prompt }}
-**Matched event payload:**
-```
-{{ mention.matched_event }}
-```
-
-- Act immediately — do not ask clarifying questions
-- The rule owner is <@{{ mention.owner_slack_id }}>; direct any notifications to them unless the action_prompt says otherwise
-- Use the tools available to carry out the action (e.g. send a DM, post to a channel)
-- Do not add conversational framing — just execute the action
 
 {% endif %}
 

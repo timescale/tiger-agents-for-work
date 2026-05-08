@@ -6,11 +6,11 @@ from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.salesforce.types import (
     AgentFeedbackRatingEvent,
-    CustomRuleMatchEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
+    UserDefinedRuleMatch,
 )
 from tiger_agent.slack.types import (
     SlackAppMentionEvent,
@@ -19,7 +19,6 @@ from tiger_agent.slack.types import (
 )
 from tiger_agent.tasks.handlers import (
     AgentFeedbackRatingHandler,
-    CustomRuleMatchHandler,
     SalesforceAssignmentChangedHandler,
     SalesforceCaseStatusChangedHandler,
     SalesforceCreateCaseHandler,
@@ -27,6 +26,7 @@ from tiger_agent.tasks.handlers import (
     SlackSalesforceCaseThreadMessageHandler,
     SlackTaskHandler,
     TaskProcessor,
+    UserDefinedRuleMatchHandler,
 )
 from tiger_agent.tasks.harness import TaskHarness
 from tiger_agent.types import HarnessContext
@@ -127,7 +127,7 @@ class TigerApp:
             AgentFeedbackRatingEvent, AgentFeedbackRatingHandler(hctx=hctx)
         )
         processor.register(
-            CustomRuleMatchEvent, CustomRuleMatchHandler(hctx=hctx, agent=agent)
+            UserDefinedRuleMatch, UserDefinedRuleMatchHandler(hctx=hctx)
         )
 
         self._hctx = hctx

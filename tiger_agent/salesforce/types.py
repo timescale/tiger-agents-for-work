@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import BaseModel
 
@@ -62,6 +63,9 @@ class SalesforceCreateNewCaseEvent(SalesforceBaseEvent):
 
     type: str = "salesforce_event"
     subtype: str = "create_new_case"
+    event_description: ClassVar[str] = (
+        "A user submitted a request to open a new Salesforce support case (the case has not yet been created)"
+    )
     subject: str
     description: str
     user: str
@@ -76,6 +80,9 @@ class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
 
     type: str = "salesforce_event"
     subtype: str = "new_assignee"
+    event_description: ClassVar[str] = (
+        "A new Salesforce support case has been created — use this to monitor for new cases"
+    )
     case: CaseData
     update_link_to_thread: bool = True
 
@@ -107,6 +114,9 @@ class SalesforceFeedItemEvent(SalesforceBaseEvent):
 
     type: str = "salesforce_event"
     subtype: str = "new_feed_item"
+    event_description: ClassVar[str] = (
+        "A new message posted to a Salesforce case feed (e.g. a customer reply or engineer response)"
+    )
     feed_item: SalesforceFeedItem
 
 
@@ -115,6 +125,9 @@ class SalesforceCaseStatusChangedEvent(SalesforceBaseEvent):
 
     type: str = "salesforce_event"
     subtype: str = "case_status_changed"
+    event_description: ClassVar[str] = (
+        "A Salesforce case status changed (e.g. New → In Progress → Closed)"
+    )
     case: CaseData
     slack_thread_ts: str | None = None
     slack_channel_id: str | None = None
@@ -128,6 +141,9 @@ class AgentFeedbackRatingSubtype(StrEnum):
 class AgentFeedbackRatingEvent(BaseModel):
     type: str = "agent_feedback_rating"
     subtype: AgentFeedbackRatingSubtype = AgentFeedbackRatingSubtype.internal
+    event_description: ClassVar[str] = (
+        "A user submitted a feedback rating via the in-app feedback form"
+    )
 
     # the agent message that was rated
     message_ts: str | None = None
@@ -143,18 +159,19 @@ class ServiceRecord:
     project_id: str | None
 
 
-class CustomRule(BaseModel):
+class UserDefinedRule(BaseModel):
     id: int
     name: str
     owner_slack_id: str
     event_type: str
+    event_subtype: str | None = None
     criteria: str
     criteria_examples: list[str] = []
     action_prompt: str
     enabled: bool = True
 
 
-class CustomRuleMatchEvent(BaseModel):
+class UserDefinedRuleMatch(BaseModel):
     type: str = "custom_rule_match"
     rule_id: int
     rule_name: str
