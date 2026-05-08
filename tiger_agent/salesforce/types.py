@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import ClassVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 @dataclass
@@ -169,6 +169,11 @@ class UserDefinedRule(BaseModel):
     criteria_examples: list[str] = []
     action_prompt: str
     enabled: bool = True
+
+    @field_validator("criteria_examples", mode="before")
+    @classmethod
+    def coerce_none_to_empty_list(cls, v: object) -> object:
+        return v or []
 
 
 class UserDefinedRuleMatch(BaseModel):

@@ -450,34 +450,14 @@ async def filter_new_feed_items(
     return [item for item in feed_items if item.Id not in existing_ids]
 
 
-def _row_to_user_defined_rule(row) -> UserDefinedRule:
-    return UserDefinedRule(
-        id=row[0],
-        name=row[1],
-        owner_slack_id=row[2],
-        event_type=row[3],
-        event_subtype=row[4],
-        criteria=row[5],
-        criteria_examples=row[6] or [],
-        action_prompt=row[7],
-        enabled=row[8],
-    )
-
-
-_CUSTOM_RULE_COLUMNS = (
-    "id, name, owner_slack_id, event_type, event_subtype, "
-    "criteria, criteria_examples, action_prompt, enabled"
-)
-
-
 async def get_matching_user_defined_rules(
     pool: AsyncConnectionPool, event_type: str, event_subtype: str | None = None
 ) -> list[UserDefinedRule]:
     """Return enabled custom rules that match the given event type and optional subtype."""
-    async with pool.connection() as con:
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
         if event_subtype is not None:
-            result = await con.execute(
-                f"""SELECT {_CUSTOM_RULE_COLUMNS}
+            await cur.execute(
+                """SELECT *
                    FROM agent.user_defined_rules
                    WHERE event_type = %s
                      AND (event_subtype IS NULL OR event_subtype = %s)
@@ -485,13 +465,13 @@ async def get_matching_user_defined_rules(
                 (event_type, event_subtype),
             )
         else:
-            result = await con.execute(
-                f"""SELECT {_CUSTOM_RULE_COLUMNS}
+            await cur.execute(
+                """SELECT *
                    FROM agent.user_defined_rules
                    WHERE event_type = %s AND enabled = true""",
                 (event_type,),
             )
-        return [_row_to_user_defined_rule(row) for row in await result.fetchall()]
+        return [UserDefinedRule(**row) for row in await cur.fetchall()]
 
 
 @logfire.instrument("insert_user_defined_rule", extract_args=False)
@@ -513,12 +493,12 @@ async def insert_user_defined_rule(
         event_type=event_type,
         event_subtype=event_subtype,
     )
-    async with pool.connection() as con:
-        result = await con.execute(
-            f"""INSERT INTO agent.user_defined_rules
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """INSERT INTO agent.user_defined_rules
                    (name, owner_slack_id, event_type, event_subtype, criteria, criteria_examples, action_prompt)
                VALUES (%s, %s, %s, %s, %s, %s, %s)
-               RETURNING {_CUSTOM_RULE_COLUMNS}""",
+               RETURNING *""",
             (
                 name,
                 owner_slack_id,
@@ -529,7 +509,7 @@ async def insert_user_defined_rule(
                 action_prompt,
             ),
         )
-        rule = _row_to_user_defined_rule(await result.fetchone())
+        rule = UserDefinedRule(**await cur.fetchone())
         logfire.info("Custom rule inserted", rule_id=rule.id, name=rule.name)
         return rule
 
@@ -538,15 +518,15 @@ async def list_user_defined_rules(
     pool: AsyncConnectionPool, owner_slack_id: str
 ) -> list[UserDefinedRule]:
     """Return all rules owned by the given Slack user."""
-    async with pool.connection() as con:
-        result = await con.execute(
-            f"""SELECT {_CUSTOM_RULE_COLUMNS}
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """SELECT *
                FROM agent.user_defined_rules
                WHERE owner_slack_id = %s
                ORDER BY created_at DESC""",
             (owner_slack_id,),
         )
-        return [_row_to_user_defined_rule(row) for row in await result.fetchall()]
+        return [UserDefinedRule(**row) for row in await cur.fetchall()]
 
 
 async def delete_user_defined_rule(
