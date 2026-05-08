@@ -400,6 +400,45 @@ def get_recent_case_feed_items(
         return []
 
 
+def get_recent_case_email_messages(
+    salesforce_client: Salesforce,
+    created_after: str | None = None,
+    incoming_only: bool = False,
+    exclude_creator_id: str | None = None,
+) -> list[SalesforceFeedItem]:
+    """Fetch recent EmailMessages on Cases and normalize them into SalesforceFeedItem shape."""
+    try:
+        conditions = ["ParentId != null"]
+        if created_after is not None:
+            conditions.append(f"CreatedDate > {created_after}")
+        if incoming_only:
+            conditions.append("Incoming = true")
+        if exclude_creator_id is not None:
+            conditions.append(f"CreatedById != '{exclude_creator_id}'")
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        result = salesforce_client.query(
+            f"SELECT Id, ParentId, TextBody, Subject, CreatedDate, CreatedById,"
+            f" FromName, FromAddress, Incoming"
+            f" FROM EmailMessage{where}"
+            f" ORDER BY CreatedDate DESC"
+        )
+        return [
+            SalesforceFeedItem(
+                Id=r["Id"],
+                ParentId=r.get("ParentId"),
+                Body=r.get("TextBody") or r.get("Subject"),
+                Type="EmailMessage",
+                CreatedDate=r.get("CreatedDate"),
+                CreatedById=r.get("CreatedById"),
+                CreatedBy={"Name": r.get("FromName"), "Email": r.get("FromAddress")},
+            )
+            for r in result.get("records", [])
+        ]
+    except Exception:
+        logfire.exception("Failed to fetch recent case email messages")
+        return []
+
+
 def get_feed_attachment_ids(
     salesforce_client: Salesforce,
     feed_item_id: str,
