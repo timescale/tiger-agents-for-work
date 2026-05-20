@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -20,7 +21,6 @@ from tiger_agent.db.utils import (
 )
 from tiger_agent.events import EVENT_TYPE_REGISTRY
 from tiger_agent.mcp.utils import filter_mcp_servers
-from tiger_agent.prompts.utils import format_thread_history
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
     UserDefinedRule,
@@ -31,7 +31,6 @@ from tiger_agent.slack.utils import (
     fetch_bot_info,
     fetch_thread_messages,
     fetch_user_info,
-    post_response,
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -90,9 +89,8 @@ async def create_agent_and_context(
             channel=event.channel,
             thread_ts=event.thread_ts,
         )
-        extra_ctx["thread_history"] = format_thread_history(
-            thread_messages, hctx.bot_info, [event.ts]
-        )
+
+        extra_ctx["thread_history"] = json.dumps([m.model_dump() for m in thread_messages])
 
     system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
     user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)

@@ -186,7 +186,9 @@ class TigerAgent:
         a sequence of UserContent objects (text + binary files) for multimodal
         processing by the AI agent.
         """
-        rendered_user_prompts = await self.render_prompts(USER_PROMPT_REGEX, ctx, extra_ctx)
+        rendered_user_prompts = await self.render_prompts(
+            USER_PROMPT_REGEX, ctx, extra_ctx
+        )
 
         if (
             isinstance(ctx.mention, SalesforceBaseEvent)
@@ -196,9 +198,7 @@ class TigerAgent:
             return rendered_user_prompts
 
         user_contents: list[UserContent] = [
-            await download_private_file(
-                url_private_download=file.url_private_download,
-            )
+            await download_private_file(file)
             for file in ctx.mention.files
             if file_type_supported(file.mimetype)
         ]

@@ -167,7 +167,9 @@ def serialize_to_jsonb(model: BaseModel) -> Jsonb:
 
 
 def file_type_supported(mimetype: str) -> bool:
-    return mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
+    return mimetype and (
+        mimetype == "application/pdf" or mimetype.startswith(("text/", "image/"))
+    )
 
 
 def get_harness_ctx(

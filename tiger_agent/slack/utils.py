@@ -369,14 +369,11 @@ async def download_slack_hosted_file(
     if not file_type_supported(file.mimetype):
         return "File type not supported"
 
-    return await download_private_file(
-        url_private_download=file.url_private_download,
-    )
+    return await download_private_file(file)
 
 
 async def download_private_file(
-    url_private_download: str,
-    mimetype: str | None = None,
+    file: SlackFile,
 ) -> BinaryContent | str | None:
     """Download a private Slack file using the bot token for authentication.
 
@@ -395,7 +392,7 @@ async def download_private_file(
         HTTP errors, or authentication failures
     """
     try:
-        if url_private_download is None:
+        if file.url_private_download is None:
             raise ValueError("No private url provided")
 
         if not SLACK_BOT_TOKEN:
@@ -404,7 +401,7 @@ async def download_private_file(
         async with httpx.AsyncClient() as client:
             # Download file using bot token for authentication
             resp = await client.get(
-                url=url_private_download,
+                url=file.url_private_download,
                 headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
             )
             resp.raise_for_status()
@@ -413,7 +410,7 @@ async def download_private_file(
             # The content-type response header often returns "application/force-download"
             # regardless of the actual file type.
             content_type_header = resp.headers.get("content-type", "")
-            media_type = mimetype or (
+            media_type = file.mimetype or (
                 content_type_header
                 if content_type_header
                 and content_type_header != "application/force-download"
