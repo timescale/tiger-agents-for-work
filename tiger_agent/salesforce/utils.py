@@ -564,10 +564,7 @@ async def build_email_attachments_from_slack_files(
                 name=file.name,
             )
             continue
-        file_content = await download_private_file(
-            url_private_download=file.url_private_download,
-            mimetype=file.mimetype,
-        )
+        file_content = await download_private_file(file)
         if not file_content:
             logfire.info(
                 "Could not download file",
