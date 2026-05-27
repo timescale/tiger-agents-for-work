@@ -20,6 +20,8 @@ from tiger_agent.db.utils import (
     list_user_defined_rules,
 )
 from tiger_agent.events import EVENT_TYPE_REGISTRY
+from tiger_agent.logfire.constants import LOGFIRE_READ_TOKEN
+from tiger_agent.logfire.utils import get_tool_calls_for_event
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
@@ -90,7 +92,9 @@ async def create_agent_and_context(
             thread_ts=event.thread_ts,
         )
 
-        extra_ctx["thread_history"] = json.dumps([m.model_dump() for m in thread_messages])
+        extra_ctx["thread_history"] = json.dumps(
+            [m.model_dump() for m in thread_messages]
+        )
 
     system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
     user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
@@ -147,9 +151,79 @@ async def create_agent_and_context(
             criteria_examples=criteria_examples,
         )
 
+    # just a wrapper so we can pass the event in closure
+    async def _get_tool_calls_for_event(
+        lookback_hours: float = 24.0,
+    ) -> list[dict[str, any]] | None:
+        return await get_tool_calls_for_event(
+            event=event, lookback_hours=lookback_hours
+        )
+
     event_type_options = "\n".join(
         f"- {cls.__name__}: {cls.event_description}" for cls in EVENT_TYPE_REGISTRY
     )
+
+    tools = [
+        Tool(
+            _download_slack_hosted_file,
+            takes_ctx=False,
+            name="download_slack_hosted_file",
+            description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
+        ),
+        *(
+            [
+                Tool(
+                    _list_user_defined_rules,
+                    takes_ctx=False,
+                    name="list_user_defined_rules",
+                    description=(
+                        "List all user-defined rules owned by the current user. "
+                        'Use when the user asks things like "show me my rules", '
+                        '"what rules do I have set up?", or "list my custom rules".'
+                    ),
+                ),
+                Tool(
+                    _delete_user_defined_rule,
+                    takes_ctx=False,
+                    name="delete_user_defined_rule",
+                    description=(
+                        "Delete a user-defined rule by its ID. Only rules owned by the current user "
+                        "can be deleted. Returns True if deleted, False if not found. Use when the user asks things like "
+                        '"delete rule 3", "remove my rule with ID 7", or "turn off rule 12".'
+                    ),
+                ),
+                Tool(
+                    _create_user_defined_rule,
+                    takes_ctx=False,
+                    name="create_user_defined_rule",
+                    description=(
+                        "Call this when the user wants to be notified, alerted, or asks to create a rule or automation. "
+                        "Creates a persistent rule that triggers a custom action when a matching event occurs. "
+                        "Infer all parameters from the user's request.\n"
+                        f"event_type must be one of:\n{event_type_options}\n"
+                        "criteria_examples are optional but improve matching accuracy."
+                    ),
+                ),
+            ]
+            if isinstance(event, SlackBaseEvent)
+            else []
+        ),
+    ]
+
+    if LOGFIRE_READ_TOKEN:
+        tools.append(
+            Tool(
+                _get_tool_calls_for_event,
+                takes_ctx=False,
+                name="get_tool_calls_for_event",
+                description=(
+                    "Retrieve all tool calls made by the agent in response to the current Slack event. "
+                    "Returns a JSON list of tool calls with their names, arguments, and responses. "
+                    'Use when the user asks things like "what tools did you call?", '
+                    '"what did you look up?", or "show me what you did last time".'
+                ),
+            )
+        )
 
     pydantic_agent = Agent(
         model=agent.model,
@@ -197,6 +271,17 @@ async def create_agent_and_context(
                             "Infer all parameters from the user's request.\n"
                             f"event_type must be one of:\n{event_type_options}\n"
                             "criteria_examples are optional but improve matching accuracy."
+                        ),
+                    ),
+                    Tool(
+                        _get_tool_calls_for_event,
+                        takes_ctx=False,
+                        name="get_tool_calls_for_event",
+                        description=(
+                            "Retrieve all tool calls made by the agent in response to the current Slack event. "
+                            "Returns a JSON list of tool calls with their names, arguments, and responses. "
+                            'Use when the user asks things like "what tools did you call?", '
+                            '"what did you look up?", or "show me what you did last time".'
                         ),
                     ),
                 ]
