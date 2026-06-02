@@ -24,13 +24,11 @@ from tiger_agent.logfire.utils import get_tool_calls_for_event
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
-    SalesforceEmailMessage,
     UserDefinedRule,
 )
 from tiger_agent.salesforce.utils import (
     EXT_TO_MIME,
     download_content_version_url,
-    get_case_email_messages,
 )
 from tiger_agent.slack.types import SlackBaseEvent, SlackFile
 from tiger_agent.slack.utils import (
@@ -93,13 +91,7 @@ async def create_agent_and_context(
     extra_ctx: ExtraContextDict = {}
     await agent.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
-    # for salesforce and slack events, let's grab any conversational elements
-    # and add for extra context.
-    if isinstance(event, SalesforceBaseEvent):
-        case_emails = get_case_email_messages(hctx.salesforce_client, event.case.Id)
-        extra_ctx["case_emails"] = pretty_print_models(case_emails)
-
-    elif event.thread_ts and hctx.bot_info:
+    if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and hctx.bot_info:
         thread_messages = await fetch_thread_messages(
             client=hctx.app.client,
             channel=event.channel,
@@ -117,10 +109,6 @@ async def create_agent_and_context(
         file: SlackFile,
     ) -> BinaryContent | str | None:
         return await download_slack_hosted_file(file=file)
-
-    def _get_case_emails(case_id: str) -> list[SalesforceEmailMessage]:
-        res = get_case_email_messages(hctx.salesforce_client, case_id=case_id)
-        return res
 
     def _download_salesforce_hosted_file(
         url: str, filename: str
@@ -205,16 +193,6 @@ async def create_agent_and_context(
                 "Download a Salesforce-hosted file by its relative URL and filename. "
                 "Use this for inline images in EmailMessage HtmlBody (e.g. <img src='/sfc/servlet.shepherd/version/download/<id>' alt='filename.png'>). "
                 "Pass the src as url and the alt attribute value as filename."
-            ),
-        ),
-        Tool(
-            _get_case_emails,
-            takes_ctx=False,
-            name="fetch_salesforce_case_emails",
-            description=(
-                "Fetch email messages on a Salesforce case by case ID. "
-                'Use this when the user asks to get, show, or retrieve emails on a case (e.g. "get me case emails on <case_id>", "show emails for case <case_id>"). '
-                "Prefer this tool over any MCP server tool for fetching case emails."
             ),
         ),
         *(

@@ -34,15 +34,9 @@ A new Salesforce support case has been received.
 
 {% endif %}
 
-{% if case_emails %}
-
 ## Case Emails
 
-The following is the email history in the Salesforce case. If an email has an attachment or an inline image, download the attachment for full context.
-
-{{ case_emails }}
-
-{% endif %}
+Call `get_case_details` with `case_id_or_number` set to `{{ mention.case.Id }}` and `query_salesforce_directly` set to `true` to retrieve the full email thread. If an email has an attached or inline image, download that image for fuller context.
 
 {% elif mention.type in ["app_mention", "message"] %}
 
