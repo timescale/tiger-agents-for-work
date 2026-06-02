@@ -106,6 +106,15 @@ class SalesforceFeedItem(BaseModel):
     CreatedBy: SalesforceFeedItemCreatedBy | None = None
 
 
+class SalesforceEmailMessage(SalesforceFeedItem):
+    """Pydantic model for a Salesforce EmailMessage record."""
+
+    Subject: str | None = None
+    HasAttachment: bool | None = None
+    Type: str | None = "EmailMessage"
+    HtmlBody: str | None = None
+
+
 # at present, we are using these to synchronize
 # comments made on cases with a Slack thread
 # that is linked to the case

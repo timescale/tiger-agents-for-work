@@ -34,6 +34,16 @@ A new Salesforce support case has been received.
 
 {% endif %}
 
+{% if case_emails %}
+
+## Case Emails
+
+The following is the email history in the Salesforce case. If an email has an attachment or an inline image, download the attachment for full context.
+
+{{ case_emails }}
+
+{% endif %}
+
 {% elif mention.type in ["app_mention", "message"] %}
 
 ## Event Type

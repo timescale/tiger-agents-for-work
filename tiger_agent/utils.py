@@ -199,3 +199,15 @@ def get_harness_ctx(
         max_age_minutes=max_age_minutes,
         invisibility_minutes=invisibility_minutes,
     )
+
+
+def _pretty_print_model(model: BaseModel) -> str:
+    return "\n".join(
+        f"{k}: {v}" for k, v in model.model_dump().items() if v is not None
+    )
+
+
+def pretty_print_models(models: list[BaseModel]) -> str:
+    return "\n\n".join(
+        f"--- {i} ---\n{_pretty_print_model(m)}" for i, m in enumerate(models, 1)
+    )

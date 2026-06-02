@@ -21,8 +21,8 @@ from simple_salesforce.api import Salesforce
 from tiger_agent.db.utils import filter_new_feed_items
 from tiger_agent.salesforce.types import SalesforceFeedItem
 from tiger_agent.salesforce.utils import (
-    get_recent_case_email_messages,
-    get_recent_case_feed_items,
+    get_case_email_messages,
+    get_case_feed_items,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,12 +66,12 @@ class SalesforceCaseFeedItemPoller:
         self._last_poll = datetime.now(UTC)
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        case_feed_items = get_recent_case_feed_items(
+        case_feed_items = get_case_feed_items(
             salesforce_client=self._salesforce_client,
             types=["TextPost", "ContentPost"],
             public_only=True,
             created_after=since_str,
-        ) + get_recent_case_email_messages(
+        ) + get_case_email_messages(
             salesforce_client=self._salesforce_client,
             created_after=since_str,
             # the agent will create EmailMessages when syncing Slack messages

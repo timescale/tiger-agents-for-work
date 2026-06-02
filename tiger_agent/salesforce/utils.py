@@ -25,6 +25,7 @@ from tiger_agent.salesforce.types import (
     ContentVersion,
     EmailAttachment,
     FileAttachment,
+    SalesforceEmailMessage,
     SalesforceFeedItem,
     ServiceRecord,
 )
@@ -372,8 +373,9 @@ def add_case_email_comment(
         )
 
 
-def get_recent_case_feed_items(
+def get_case_feed_items(
     salesforce_client: Salesforce,
+    case_id: str | None = None,
     created_after: str | None = None,
     types: list[str] | None = None,
     public_only: bool = False,
@@ -387,6 +389,8 @@ def get_recent_case_feed_items(
             conditions.append(f"Type IN ({type_list})")
         if public_only:
             conditions.append("Visibility = 'AllUsers'")
+        if case_id:
+            conditions.append(f"Parent.Id = {case_id}")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         result = salesforce_client.query(
             f"SELECT Id, ParentId, Body, Type, CreatedDate, CreatedById,"
@@ -400,12 +404,13 @@ def get_recent_case_feed_items(
         return []
 
 
-def get_recent_case_email_messages(
+def get_case_email_messages(
     salesforce_client: Salesforce,
+    case_id: str | None = None,
     created_after: str | None = None,
     incoming_only: bool = False,
     exclude_creator_id: str | None = None,
-) -> list[SalesforceFeedItem]:
+) -> list[SalesforceEmailMessage]:
     """Fetch recent EmailMessages on Cases and normalize them into SalesforceFeedItem shape."""
     try:
         conditions = ["ParentId != null"]
@@ -415,21 +420,25 @@ def get_recent_case_email_messages(
             conditions.append("Incoming = true")
         if exclude_creator_id is not None:
             conditions.append(f"CreatedById != '{exclude_creator_id}'")
+        if case_id:
+            conditions.append(f"Parent.Id = '{case_id}'")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         result = salesforce_client.query(
             f"SELECT Id, ParentId, TextBody, Subject, CreatedDate, CreatedById,"
-            f" FromName, FromAddress, Incoming"
+            f" FromName, FromAddress, Incoming, HasAttachment, HtmlBody"
             f" FROM EmailMessage{where}"
             f" ORDER BY CreatedDate DESC"
         )
         return [
-            SalesforceFeedItem(
+            SalesforceEmailMessage(
                 Id=r["Id"],
                 ParentId=r.get("ParentId"),
                 Body=r.get("TextBody") or r.get("Subject"),
-                Type="EmailMessage",
                 CreatedDate=r.get("CreatedDate"),
                 CreatedById=r.get("CreatedById"),
+                HtmlBody=r.get("HtmlBody"),
+                Subject=r.get("Subject"),
+                HasAttachment=r.get("HasAttachment"),
                 CreatedBy={"Name": r.get("FromName"), "Email": r.get("FromAddress")},
             )
             for r in result.get("records", [])
@@ -448,6 +457,32 @@ def get_feed_attachment_ids(
         f"SELECT Id FROM FeedAttachment WHERE FeedEntityId = '{feed_item_id}'"
     )
     return [r["Id"] for r in result.get("records", [])]
+
+
+def download_content_version_url(
+    salesforce_client: Salesforce, content_version_url: str
+) -> bytes:
+    # Shepherd URLs (/sfc/servlet.shepherd/version/download/{id}) require browser
+    # cookie auth. Rewrite them to the REST API VersionData endpoint which accepts
+    # Bearer auth, same as the VersionData path returned by SOQL queries.
+    shepherd_match = re.search(
+        r"/sfc/servlet\.shepherd/version/download/([A-Za-z0-9]+)",
+        content_version_url,
+    )
+    if shepherd_match:
+        version_id = shepherd_match.group(1)
+        content_version_url = f"/services/data/v{salesforce_client.sf_version}/sobjects/ContentVersion/{version_id}/VersionData"
+
+    url = f"https://{salesforce_client.sf_instance}{content_version_url}"
+    response = salesforce_client.session.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {salesforce_client.session_id}",
+            "Accept": "*/*",
+        },
+    )
+    response.raise_for_status()
+    return response.content
 
 
 @logfire.instrument("download_feed_attachment {feed_attachment_id=}")
@@ -503,7 +538,6 @@ def download_feed_attachment(
                 )
                 return None
 
-        url = f"https://{salesforce_client.sf_instance}{content_version.VersionData}"
         name = content_version.Title or feed_attachment_id
         extension = content_version.FileExtension
         if extension:
@@ -511,18 +545,14 @@ def download_feed_attachment(
         content_type = EXT_TO_MIME.get(
             (extension or "").lower(), "application/octet-stream"
         )
-        response = salesforce_client.session.get(
-            url,
-            headers={
-                "Authorization": f"Bearer {salesforce_client.session_id}",
-                "Accept": "*/*",
-            },
+        body = download_content_version_url(
+            salesforce_client=salesforce_client,
+            content_version_url=content_version.VersionData,
         )
-        response.raise_for_status()
 
         return FileAttachment(
             name=name,
-            body=response.content,
+            body=body,
             content_type=content_type,
         )
     except Exception:

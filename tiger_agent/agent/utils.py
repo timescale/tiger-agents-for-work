@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -25,7 +24,13 @@ from tiger_agent.logfire.utils import get_tool_calls_for_event
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
+    SalesforceEmailMessage,
     UserDefinedRule,
+)
+from tiger_agent.salesforce.utils import (
+    EXT_TO_MIME,
+    download_content_version_url,
+    get_case_email_messages,
 )
 from tiger_agent.slack.types import SlackBaseEvent, SlackFile
 from tiger_agent.slack.utils import (
@@ -36,7 +41,10 @@ from tiger_agent.slack.utils import (
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
-from tiger_agent.utils import wrap_mcp_servers_with_exception_handling
+from tiger_agent.utils import (
+    pretty_print_models,
+    wrap_mcp_servers_with_exception_handling,
+)
 
 if TYPE_CHECKING:
     from tiger_agent.agent.tiger_agent import TigerAgent
@@ -85,16 +93,20 @@ async def create_agent_and_context(
     extra_ctx: ExtraContextDict = {}
     await agent.augment_context(ctx=ctx, extra_ctx=extra_ctx)
 
-    if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and hctx.bot_info:
+    # for salesforce and slack events, let's grab any conversational elements
+    # and add for extra context.
+    if isinstance(event, SalesforceBaseEvent):
+        case_emails = get_case_email_messages(hctx.salesforce_client, event.case.Id)
+        extra_ctx["case_emails"] = pretty_print_models(case_emails)
+
+    elif event.thread_ts and hctx.bot_info:
         thread_messages = await fetch_thread_messages(
             client=hctx.app.client,
             channel=event.channel,
             thread_ts=event.thread_ts,
         )
 
-        extra_ctx["thread_history"] = json.dumps(
-            [m.model_dump() for m in thread_messages]
-        )
+        extra_ctx["thread_history"] = pretty_print_models(thread_messages)
 
     system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
     user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
@@ -105,6 +117,21 @@ async def create_agent_and_context(
         file: SlackFile,
     ) -> BinaryContent | str | None:
         return await download_slack_hosted_file(file=file)
+
+    def _get_case_emails(case_id: str) -> list[SalesforceEmailMessage]:
+        res = get_case_email_messages(hctx.salesforce_client, case_id=case_id)
+        return res
+
+    def _download_salesforce_hosted_file(
+        url: str, filename: str
+    ) -> BinaryContent | str:
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        media_type = EXT_TO_MIME.get(ext, "application/octet-stream")
+        try:
+            content = download_content_version_url(hctx.salesforce_client, url)
+            return BinaryContent(data=content, media_type=media_type)
+        except Exception as e:
+            return f"Failed to download file: {e}"
 
     _event_type_by_name: dict[str, type] = {
         cls.__name__: cls for cls in EVENT_TYPE_REGISTRY
@@ -170,6 +197,26 @@ async def create_agent_and_context(
             name="download_slack_hosted_file",
             description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
         ),
+        Tool(
+            _download_salesforce_hosted_file,
+            takes_ctx=False,
+            name="download_salesforce_hosted_file",
+            description=(
+                "Download a Salesforce-hosted file by its relative URL and filename. "
+                "Use this for inline images in EmailMessage HtmlBody (e.g. <img src='/sfc/servlet.shepherd/version/download/<id>' alt='filename.png'>). "
+                "Pass the src as url and the alt attribute value as filename."
+            ),
+        ),
+        Tool(
+            _get_case_emails,
+            takes_ctx=False,
+            name="fetch_salesforce_case_emails",
+            description=(
+                "Fetch email messages on a Salesforce case by case ID. "
+                'Use this when the user asks to get, show, or retrieve emails on a case (e.g. "get me case emails on <case_id>", "show emails for case <case_id>"). '
+                "Prefer this tool over any MCP server tool for fetching case emails."
+            ),
+        ),
         *(
             [
                 Tool(
@@ -232,63 +279,7 @@ async def create_agent_and_context(
         output_type=AgentSalesforceResponse
         if isinstance(event, SalesforceBaseEvent)
         else str,
-        tools=[
-            Tool(
-                _download_slack_hosted_file,
-                takes_ctx=False,
-                name="download_slack_hosted_file",
-                description="This will download a file associated with a Slack message and return its contents. Note: only images, text, or PDFs are supported.",
-            ),
-            *(
-                [
-                    Tool(
-                        _list_user_defined_rules,
-                        takes_ctx=False,
-                        name="list_user_defined_rules",
-                        description=(
-                            "List all user-defined rules owned by the current user. "
-                            'Use when the user asks things like "show me my rules", '
-                            '"what rules do I have set up?", or "list my custom rules".'
-                        ),
-                    ),
-                    Tool(
-                        _delete_user_defined_rule,
-                        takes_ctx=False,
-                        name="delete_user_defined_rule",
-                        description=(
-                            "Delete a user-defined rule by its ID. Only rules owned by the current user "
-                            "can be deleted. Returns True if deleted, False if not found. Use when the user asks things like "
-                            '"delete rule 3", "remove my rule with ID 7", or "turn off rule 12".'
-                        ),
-                    ),
-                    Tool(
-                        _create_user_defined_rule,
-                        takes_ctx=False,
-                        name="create_user_defined_rule",
-                        description=(
-                            "Call this when the user wants to be notified, alerted, or asks to create a rule or automation. "
-                            "Creates a persistent rule that triggers a custom action when a matching event occurs. "
-                            "Infer all parameters from the user's request.\n"
-                            f"event_type must be one of:\n{event_type_options}\n"
-                            "criteria_examples are optional but improve matching accuracy."
-                        ),
-                    ),
-                    Tool(
-                        _get_tool_calls_for_event,
-                        takes_ctx=False,
-                        name="get_tool_calls_for_event",
-                        description=(
-                            "Retrieve all tool calls made by the agent in response to the current Slack event. "
-                            "Returns a JSON list of tool calls with their names, arguments, and responses. "
-                            'Use when the user asks things like "what tools did you call?", '
-                            '"what did you look up?", or "show me what you did last time".'
-                        ),
-                    ),
-                ]
-                if isinstance(event, SlackBaseEvent)
-                else []
-            ),
-        ],
+        tools=tools,
         toolsets=toolsets,
         model_settings={"extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}}
         if (isinstance(agent.model, str) and agent.model.startswith("anthropic:"))
