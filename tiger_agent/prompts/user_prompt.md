@@ -34,6 +34,10 @@ A new Salesforce support case has been received.
 
 {% endif %}
 
+## Case Emails
+
+Call `get_case_details` with `case_id_or_number` set to `{{ mention.case.Id }}` and `query_salesforce_directly` set to `true` to retrieve the full email thread. If an email has an attached or inline image, download that image for fuller context.
+
 {% elif mention.type in ["app_mention", "message"] %}
 
 ## Event Type
