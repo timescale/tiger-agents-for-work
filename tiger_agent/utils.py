@@ -201,13 +201,27 @@ def get_harness_ctx(
     )
 
 
-def _pretty_print_model(model: BaseModel) -> str:
-    return "\n".join(
-        f"{k}: {v}" for k, v in model.model_dump().items() if v is not None
-    )
+def _to_yaml(value: Any, indent: int = 0) -> str:
+    pad = "  " * indent
+    if isinstance(value, dict):
+        lines = []
+        for k, v in value.items():
+            if v is None:
+                continue
+            rendered = _to_yaml(v, indent + 1)
+            if "\n" in rendered:
+                lines.append(f"{pad}{k}:\n{rendered}")
+            else:
+                lines.append(f"{pad}{k}: {rendered}")
+        return "\n".join(lines)
+    if isinstance(value, list):
+        items = [f"{pad}- {_to_yaml(v, indent + 1).lstrip()}" for v in value if v is not None]
+        return "\n".join(items)
+    return str(value)
 
 
 def pretty_print_models(models: list[BaseModel]) -> str:
-    return "\n\n".join(
-        f"--- {i} ---\n{_pretty_print_model(m)}" for i, m in enumerate(models, 1)
-    )
+    parts = []
+    for model in models:
+        parts.append(f"---\n{_to_yaml(model.model_dump())}")
+    return "\n\n".join(parts)
