@@ -361,6 +361,22 @@ class SlackListener(Listener):
             user=user_id,
         )
 
+        await self._hctx.app.client.chat_postEphemeral(
+            channel=channel,
+            user=user_id,
+            text="Thank you for submitting feedback!",
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Feedback Received*\nScore: `{rating}`\nDescription: ```{description}```\n\nThank you for your feedback!",
+                    },
+                },
+            ],
+            thread_ts=message_ts,
+        )
+
     async def _handle_proactive_prompt(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
     ):
