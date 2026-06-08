@@ -110,7 +110,7 @@ async def insert_event(
 
     Args:
         event: Raw Slack/Salesforce event payload as dictionary
-        timeout: How far in the future that the event should be handled. Defaults to 0 seconds
+        vt: Manually set the visibility timestamp -- if None, will be now()
     """
     async with (
         pool.connection() as con,
