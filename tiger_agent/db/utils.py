@@ -504,7 +504,8 @@ async def upsert_feedback_request_reminder(
     action: Literal["add", "remove"],
     reminder_datetime: datetime,
 ) -> None:
-
+    # agent.event has no unique constraint on (user, type, vt), so we use
+    # delete-then-insert as the upsert strategy.
     existing = await get_feedback_request_reminder(
         pool=pool, user_id=user_id, vt=reminder_datetime
     )
@@ -513,6 +514,7 @@ async def upsert_feedback_request_reminder(
 
     if existing:
         assert isinstance(existing.event, AgentFeedbackRequestReminderEvent)
+        # Always delete first — we re-insert below with the updated thread list.
         await delete_event(pool=pool, event=existing)
 
         if action == "add":
@@ -527,6 +529,7 @@ async def upsert_feedback_request_reminder(
             ]
 
             if not remaining:
+                # No threads left — deletion above is sufficient.
                 return
             new_event = existing.event.model_copy(update={"threads": remaining})
     else:
