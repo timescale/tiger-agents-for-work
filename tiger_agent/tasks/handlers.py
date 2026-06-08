@@ -363,7 +363,7 @@ class AgentFeedbackRequestReminderHandler(TaskHandler):
             client=hctx.app.client,
             channel=event.user,
             thread_ts=None,
-            text=f"Hey, just a reminder to leave feedback on the following threads:\n{thread_links}",
+            text=f"Hey! Thanks for all your support today. When you get a chance, we'd love to hear your thoughts on these conversations:\n{thread_links}",
         )
 
 
