@@ -20,6 +20,7 @@ from tiger_agent.db.utils import (
     add_salesforce_case_thread,
     get_salesforce_account_id_for_channel,
     get_salesforce_case_thread_thread_id,
+    upsert_feedback_request_reminder,
     usage_limit_reached,
     user_ignored,
 )
@@ -33,8 +34,6 @@ from tiger_agent.salesforce.constants import (
     SALESFORCE_SLACK_THREAD_FIELD,
 )
 from tiger_agent.salesforce.types import (
-    AgentFeedbackRatingEvent,
-    AgentFeedbackRatingSubtype,
     SalesforceAssignmentChangedEvent,
     SalesforceBaseEvent,
     SalesforceCaseStatusChangedEvent,
@@ -53,6 +52,10 @@ from tiger_agent.salesforce.utils import (
 )
 from tiger_agent.slack.constants import AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL
 from tiger_agent.slack.types import (
+    AgentFeedbackRatingEvent,
+    AgentFeedbackRatingSubtype,
+    AgentFeedbackRequestReminderEvent,
+    FeedbackReminderThread,
     SlackAppMentionEvent,
     SlackMessage,
     SlackMessageEvent,
@@ -61,6 +64,7 @@ from tiger_agent.slack.types import (
 from tiger_agent.slack.utils import (
     add_quote_block,
     add_reaction,
+    fetch_end_of_day_for_user,
     fetch_user_info,
     get_a_href_link_to_user_profile,
     get_channel_link,
@@ -295,6 +299,23 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
                     extra={"permalink": permalink},
                 )
 
+            if case_owner_user_id:
+                users_end_of_day = await fetch_end_of_day_for_user(
+                    client=hctx.app.client, user_id=case_owner_user_id
+                )
+
+                await upsert_feedback_request_reminder(
+                    pool=hctx.pool,
+                    user_id=case_owner_user_id,
+                    thread=FeedbackReminderThread(
+                        channel=message_to_link_to.channel_id,
+                        message_ts=message_to_link_to.ts,
+                        label=event.case.CaseNumber,
+                    ),
+                    action="add",
+                    reminder_datetime=users_end_of_day,
+                )
+
             async def _delayed_feedback(client, channel, message_ts):
                 await asyncio.sleep(10)
                 await send_feedback_button(
@@ -308,6 +329,42 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
                     message_ts=message_to_link_to.ts,
                 )
             )
+
+
+class AgentFeedbackRequestReminderHandler(TaskHandler):
+    """
+    When the agent supplies feedback, we have a mechanism that will remind the recipient
+    to leave feedback. At this time, the only scenario that this will happen is when the agent
+    gives a suggested response for a new Salesforce case. When the new case event occurs,
+    we enqueue a AgentFeedbackRequestReminderEvent with a future vt -- this effectively
+    schedules the reminder for the future (e.g. at the end of the support engineer's day)
+    """
+
+    @logfire.instrument(
+        "AgentFeedbackRequestReminderHandler.handle", extract_args=False
+    )
+    async def handle(self, task: Task) -> None:
+        hctx = self._hctx
+        event: AgentFeedbackRequestReminderEvent = task.event
+
+        permalink_results = await asyncio.gather(
+            *[
+                hctx.app.client.chat_getPermalink(
+                    channel=t.channel, message_ts=t.message_ts
+                )
+                for t in event.threads
+            ]
+        )
+        thread_links = "\n".join(
+            f"• <{result.data.get('permalink')}|{t.label}>"
+            for t, result in zip(event.threads, permalink_results, strict=True)
+        )
+        await post_response(
+            client=hctx.app.client,
+            channel=event.user,
+            thread_ts=None,
+            text=f"Hey! Thanks for all your support today. When you get a chance, we'd love to hear your thoughts on these conversations:\n{thread_links}",
+        )
 
 
 class SalesforceCreateCaseHandler(TaskHandler):

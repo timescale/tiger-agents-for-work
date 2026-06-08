@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.salesforce.types import (
-    AgentFeedbackRatingEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
@@ -13,6 +12,8 @@ from tiger_agent.salesforce.types import (
     UserDefinedRuleMatch,
 )
 from tiger_agent.slack.types import (
+    AgentFeedbackRatingEvent,
+    AgentFeedbackRequestReminderEvent,
     BotInfo,
     SlackAppMentionEvent,
     SlackMessageEvent,
@@ -48,6 +49,7 @@ class AgentResponseContext(BaseModel):
         | SalesforceFeedItemEvent
         | SalesforceCaseStatusChangedEvent
         | AgentFeedbackRatingEvent
+        | AgentFeedbackRequestReminderEvent
         | UserDefinedRuleMatch
     )
     bot: BotInfo

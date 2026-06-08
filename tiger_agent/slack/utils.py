@@ -15,11 +15,13 @@ structured data models for Slack entities.
 import json
 import re
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import logfire
+import pytz
 from pydantic_ai.messages import (
     AgentStreamEvent,
     BaseToolCallPart,
@@ -175,6 +177,36 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
     except Exception:
         logfire.exception("Failed to fetch user info", user_id=user_id)
         return None
+
+
+async def fetch_end_of_day_for_user(client: AsyncWebClient, user_id: str) -> datetime:
+    """Gets the end of day for a given user (e.g. 5pm their timezone). If we are beyond their end of day,
+    return the next day at that time.
+
+    Args:
+        client (AsyncWebClient): _description_
+        user_id (str): The user's Slack ID
+
+    Raises:
+        Exception: Cannot find the user in the Slack API
+
+    Returns:
+        datetime: the end of day object
+    """
+    user_info = await fetch_user_info(client, user_id=user_id)
+
+    if not user_info:
+        raise Exception(f"Could not find user {user_id}")
+    now = datetime.now()
+    end_of_day = now.replace(hour=17, minute=0, second=0, microsecond=0)
+
+    # if we are past the end of day, set the end of day to be tomorrow
+    if now > end_of_day:
+        end_of_day + timedelta(days=1)
+
+    localized = pytz.timezone(user_info.tz).localize(end_of_day)
+
+    return localized
 
 
 @logfire.instrument(

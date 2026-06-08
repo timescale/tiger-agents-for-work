@@ -3,7 +3,6 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from tiger_agent.salesforce.types import (
-    AgentFeedbackRatingEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
@@ -11,6 +10,8 @@ from tiger_agent.salesforce.types import (
     UserDefinedRuleMatch,
 )
 from tiger_agent.slack.types import (
+    AgentFeedbackRatingEvent,
+    AgentFeedbackRequestReminderEvent,
     SlackAppMentionEvent,
     SlackMessageEvent,
     SlackSalesforceCaseThreadMessageEvent,
@@ -46,5 +47,6 @@ class Task(BaseModel):
         | SalesforceFeedItemEvent
         | SalesforceCaseStatusChangedEvent
         | AgentFeedbackRatingEvent
+        | AgentFeedbackRequestReminderEvent
         | UserDefinedRuleMatch
     )

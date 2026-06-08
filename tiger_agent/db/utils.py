@@ -1,6 +1,6 @@
 import logging
-from datetime import timedelta
-from typing import Any
+from datetime import datetime, timedelta
+from typing import Any, Literal
 
 import logfire
 from psycopg import AsyncConnection
@@ -14,6 +14,11 @@ from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
     SalesforceFeedItem,
     UserDefinedRule,
+)
+from tiger_agent.slack.types import (
+    AGENT_FEEDBACK_REQUEST_REMINDER,
+    AgentFeedbackRequestReminderEvent,
+    FeedbackReminderThread,
 )
 from tiger_agent.tasks.types import Task as Event
 
@@ -93,7 +98,11 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
 
 
 @logfire.instrument("insert_event", extract_args=False)
-async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None:
+async def insert_event(
+    pool: AsyncConnectionPool,
+    event: dict[str, Any],
+    vt: datetime | None = None,
+) -> None:
     """Insert a Slack/Salesforce event into the database work queue.
 
     Uses the agent.insert_event() database function to store the event
@@ -101,13 +110,17 @@ async def insert_event(pool: AsyncConnectionPool, event: dict[str, Any]) -> None
 
     Args:
         event: Raw Slack/Salesforce event payload as dictionary
+        vt: Manually set the visibility timestamp -- if None, will be now()
     """
     async with (
         pool.connection() as con,
         con.transaction() as _,
         con.cursor() as cur,
     ):
-        await cur.execute("select agent.insert_event(%s)", (Jsonb(event),))
+        await cur.execute(
+            "select agent.insert_event(%s, %s::timestamptz)",
+            [Jsonb(event), vt],
+        )
 
 
 @logfire.instrument("insert_handled_event", extract_args=False)
@@ -461,6 +474,71 @@ async def get_matching_user_defined_rules(
                 (event_type,),
             )
         return [UserDefinedRule(**row) for row in await cur.fetchall()]
+
+
+async def get_feedback_request_reminder(
+    pool: AsyncConnectionPool, user_id: str, vt: datetime
+) -> Event | None:
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """SELECT *
+                   FROM agent.event
+                   WHERE
+                        event->>'type' = %s
+                        AND event->>'user' = %s
+                        AND vt = %s
+                        """,
+            [AGENT_FEEDBACK_REQUEST_REMINDER, user_id, vt],
+        )
+        row = await cur.fetchone()
+
+        if row:
+            return Event(**row)
+        return None
+
+
+async def upsert_feedback_request_reminder(
+    pool: AsyncConnectionPool,
+    user_id: str,
+    thread: FeedbackReminderThread,
+    action: Literal["add", "remove"],
+    reminder_datetime: datetime,
+) -> None:
+    # agent.event has no unique constraint on (user, type, vt), so we use
+    # delete-then-insert as the upsert strategy.
+    existing = await get_feedback_request_reminder(
+        pool=pool, user_id=user_id, vt=reminder_datetime
+    )
+
+    new_event: AgentFeedbackRequestReminderEvent | None = None
+
+    if existing:
+        assert isinstance(existing.event, AgentFeedbackRequestReminderEvent)
+        # Always delete first — we re-insert below with the updated thread list.
+        await delete_event(pool=pool, event=existing)
+
+        if action == "add":
+            new_event = existing.event.model_copy(
+                update={"threads": existing.event.threads + [thread]}
+            )
+        elif action == "remove":
+            remaining = [
+                t
+                for t in existing.event.threads
+                if (t.channel != thread.channel and t.message_ts != thread.message_ts)
+            ]
+
+            if not remaining:
+                # No threads left — deletion above is sufficient.
+                return
+            new_event = existing.event.model_copy(update={"threads": remaining})
+    else:
+        new_event = AgentFeedbackRequestReminderEvent(user=user_id, threads=[thread])
+
+    if new_event:
+        await insert_event(
+            pool=pool, event=new_event.model_dump(), vt=reminder_datetime
+        )
 
 
 @logfire.instrument("insert_user_defined_rule", extract_args=False)

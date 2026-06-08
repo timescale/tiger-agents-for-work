@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, model_validator
@@ -236,7 +237,9 @@ class SlackAppMentionEvent(SlackBaseEvent):
     """Pydantic model for Slack app_mention events."""
 
     type: str = "app_mention"
-    event_description: ClassVar[str] = "A user directly @mentioned the bot in a Slack channel"
+    event_description: ClassVar[str] = (
+        "A user directly @mentioned the bot in a Slack channel"
+    )
 
 
 class SlackMessageEvent(SlackBaseEvent):
@@ -244,7 +247,9 @@ class SlackMessageEvent(SlackBaseEvent):
 
     type: str = "message"
     subtype: str | None = None
-    event_description: ClassVar[str] = "A message posted in a Slack channel the bot is monitoring"
+    event_description: ClassVar[str] = (
+        "A message posted in a Slack channel the bot is monitoring"
+    )
 
 
 class SlackSalesforceCaseThreadMessageEvent(SlackBaseEvent):
@@ -258,6 +263,43 @@ class SlackSalesforceCaseThreadMessageEvent(SlackBaseEvent):
     model_config = {"extra": "allow"}
 
     type: str = "slack_salesforce_case_thread_message"
-    event_description: ClassVar[str] = "A Slack message posted in a thread linked to a Salesforce case"
+    event_description: ClassVar[str] = (
+        "A Slack message posted in a thread linked to a Salesforce case"
+    )
 
     salesforce_case_id: str
+
+
+class AgentFeedbackRatingSubtype(StrEnum):
+    internal = "internal"
+    external = "external"
+
+
+class AgentFeedbackRatingEvent(BaseModel):
+    type: str = "agent_feedback_rating"
+    subtype: AgentFeedbackRatingSubtype = AgentFeedbackRatingSubtype.internal
+    event_description: ClassVar[str] = (
+        "A user submitted a feedback rating via the in-app feedback form"
+    )
+
+    # the agent message that was rated
+    message_ts: str | None = None
+    channel: str
+    rating: int | None = None
+    description: str | None = None
+    user: str | None = None
+
+
+class FeedbackReminderThread(BaseModel):
+    channel: str
+    message_ts: str
+    label: str
+
+
+AGENT_FEEDBACK_REQUEST_REMINDER = "agent_feedback_request_reminder"
+
+
+class AgentFeedbackRequestReminderEvent(BaseModel):
+    type: str = AGENT_FEEDBACK_REQUEST_REMINDER
+    user: str
+    threads: list[FeedbackReminderThread]

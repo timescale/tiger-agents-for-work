@@ -14,11 +14,10 @@ from tiger_agent.db.utils import (
     get_salesforce_case_thread_case_id,
     insert_event,
     insert_handled_event,
+    upsert_feedback_request_reminder,
 )
 from tiger_agent.listeners import Listener
 from tiger_agent.salesforce.types import (
-    AgentFeedbackRatingEvent,
-    AgentFeedbackRatingSubtype,
     SalesforceCreateNewCaseEvent,
 )
 from tiger_agent.salesforce.utils import (
@@ -38,13 +37,17 @@ from tiger_agent.slack.constants import (
     SLACK_APP_TOKEN,
 )
 from tiger_agent.slack.types import (
+    AgentFeedbackRatingEvent,
+    AgentFeedbackRatingSubtype,
     BotInfo,
+    FeedbackReminderThread,
     SlackCommand,
     SlackSalesforceCaseThreadMessageEvent,
     UserInfo,
 )
 from tiger_agent.slack.utils import (
     fetch_bot_info,
+    fetch_end_of_day_for_user,
     fetch_team_info,
     fetch_user_info,
     handle_new_salesforce_case_workflow_form_cancel,
@@ -375,6 +378,18 @@ class SlackListener(Listener):
                 },
             ],
             thread_ts=message_ts,
+        )
+
+        users_end_of_day = await fetch_end_of_day_for_user(
+            client=self._hctx.app.client, user_id=user_id
+        )
+
+        await upsert_feedback_request_reminder(
+            pool=self._hctx.pool,
+            user_id=user_id,
+            action="remove",
+            reminder_datetime=users_end_of_day,
+            thread=FeedbackReminderThread(channel=channel, message_ts=message_ts, label=""),
         )
 
     async def _handle_proactive_prompt(

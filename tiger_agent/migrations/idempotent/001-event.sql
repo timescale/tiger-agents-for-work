@@ -2,19 +2,20 @@
 
 -----------------------------------------------------------------------
 -- agent.insert_event
-create or replace function agent.insert_event(_event jsonb) returns void
+create or replace function agent.insert_event(_event jsonb, vt timestamptz = NULL) returns void
 as $func$
     insert into agent.event
     ( event_ts
     , event
+    , vt
     )
     select
       coalesce(agent.to_timestamptz((_event->>'event_ts')::numeric), now())
     , _event
+    , coalesce(vt, now())
     ;
 $func$ language sql volatile security invoker
 ;
-
 
 -----------------------------------------------------------------------
 -- agent.claim_event
