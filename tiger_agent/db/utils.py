@@ -477,7 +477,7 @@ async def get_matching_user_defined_rules(
 
 
 async def get_feedback_request_reminder(
-    pool: AsyncConnectionPool, user_id: str, vt: datetime | None = None
+    pool: AsyncConnectionPool, user_id: str, vt: datetime
 ) -> Event | None:
     async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
         await cur.execute(
@@ -486,9 +486,9 @@ async def get_feedback_request_reminder(
                    WHERE
                         event->>'type' = %s
                         AND event->>'user' = %s
-                        AND ((%s is NULL) or (vt = %s))
+                        AND vt = %s
                         """,
-            [AGENT_FEEDBACK_REQUEST_REMINDER, user_id, vt, vt],
+            [AGENT_FEEDBACK_REQUEST_REMINDER, user_id, vt],
         )
         row = await cur.fetchone()
 
