@@ -7,13 +7,13 @@ Each class in EVENT_TYPE_REGISTRY must have:
 """
 
 from tiger_agent.salesforce.types import (
-    AgentFeedbackRatingEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
 )
 from tiger_agent.slack.types import (
+    AgentFeedbackRatingEvent,
     SlackAppMentionEvent,
     SlackMessageEvent,
     SlackSalesforceCaseThreadMessageEvent,

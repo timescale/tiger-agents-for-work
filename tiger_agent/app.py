@@ -5,7 +5,6 @@ from pathlib import Path
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.salesforce.types import (
-    AgentFeedbackRatingEvent,
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
@@ -13,12 +12,15 @@ from tiger_agent.salesforce.types import (
     UserDefinedRuleMatch,
 )
 from tiger_agent.slack.types import (
+    AgentFeedbackRatingEvent,
+    AgentFeedbackRequestReminderEvent,
     SlackAppMentionEvent,
     SlackMessageEvent,
     SlackSalesforceCaseThreadMessageEvent,
 )
 from tiger_agent.tasks.handlers import (
     AgentFeedbackRatingHandler,
+    AgentFeedbackRequestReminderHandler,
     SalesforceAssignmentChangedHandler,
     SalesforceCaseStatusChangedHandler,
     SalesforceCreateCaseHandler,
@@ -127,8 +129,10 @@ class TigerApp:
             AgentFeedbackRatingEvent, AgentFeedbackRatingHandler(hctx=hctx)
         )
         processor.register(
-            UserDefinedRuleMatch, UserDefinedRuleMatchHandler(hctx=hctx)
+            AgentFeedbackRequestReminderEvent,
+            AgentFeedbackRequestReminderHandler(hctx=hctx),
         )
+        processor.register(UserDefinedRuleMatch, UserDefinedRuleMatchHandler(hctx=hctx))
 
         self._hctx = hctx
         self._listener_harness = ListenerHarness(hctx=hctx, task_processor=processor)
