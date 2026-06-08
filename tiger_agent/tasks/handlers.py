@@ -649,15 +649,27 @@ class UserDefinedRuleMatchHandler(TaskHandler):
                 text=message,
             )
 
+        async def _send_channel_message(channel_id: str, message: str) -> None:
+            await post_response(
+                client=hctx.app.client,
+                channel=channel_id,
+                thread_ts=None,
+                text=message,
+            )
+
         agent = Agent(
             model="anthropic:claude-haiku-4-5",
             system_prompt=(
                 "You are an automated action agent. A custom monitoring rule has matched an incoming "
                 "event and you must carry out the action described in the user prompt. "
-                "Use the send_dm tool to notify users. Act immediately — do not ask clarifying questions "
+                "Use the send_dm tool to notify users or send_channel_message to post to a channel. "
+                "Act immediately — do not ask clarifying questions "
                 "and do not add conversational framing."
             ),
-            tools=[Tool(_send_dm, takes_ctx=False, name="send_dm")],
+            tools=[
+                Tool(_send_dm, takes_ctx=False, name="send_dm"),
+                Tool(_send_channel_message, takes_ctx=False, name="send_channel_message"),
+            ],
         )
 
         user_prompt = (
