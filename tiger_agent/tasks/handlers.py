@@ -283,6 +283,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
         )
 
         if message_to_link_to and SALESFORCE_SLACK_THREAD_FIELD:
+            case_owner_user_id = response.output.case_owner_slack_user_id
             if event.update_link_to_thread:
                 result = await hctx.app.client.chat_getPermalink(
                     channel=message_to_link_to.channel_id,
@@ -668,7 +669,9 @@ class UserDefinedRuleMatchHandler(TaskHandler):
             ),
             tools=[
                 Tool(_send_dm, takes_ctx=False, name="send_dm"),
-                Tool(_send_channel_message, takes_ctx=False, name="send_channel_message"),
+                Tool(
+                    _send_channel_message, takes_ctx=False, name="send_channel_message"
+                ),
             ],
         )
 
