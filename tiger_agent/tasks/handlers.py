@@ -260,11 +260,13 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             if SALESFORCE_ENABLE_SPAM_FILTERING:
                 return
 
+        case_owner_user_id = response.output.case_owner_slack_user_id
+
         original_message = await post_response(
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
-            text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(response.output.case_owner_slack_user_id)}' if response.output.case_owner_slack_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
+            text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
         )
 
         message_to_link_to = SlackMessage(
@@ -272,7 +274,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             ts=original_message.data.get("ts"),
             text=response.output.message,
             thread_ts=None,
-            to_user_id=response.output.case_owner_slack_user_id,
+            to_user_id=case_owner_user_id,
         )
 
         await post_response(
@@ -668,7 +670,9 @@ class UserDefinedRuleMatchHandler(TaskHandler):
             ),
             tools=[
                 Tool(_send_dm, takes_ctx=False, name="send_dm"),
-                Tool(_send_channel_message, takes_ctx=False, name="send_channel_message"),
+                Tool(
+                    _send_channel_message, takes_ctx=False, name="send_channel_message"
+                ),
             ],
         )
 
