@@ -20,7 +20,7 @@ from tiger_agent.salesforce.types import (
     UserDefinedRuleMatch,
 )
 
-USER_DEFINED_RULE_JUDGE_MODEL = "anthropic:claude-haiku-4-5"
+USER_DEFINED_RULE_JUDGE_MODEL = "anthropic:claude-sonnet-4-6"
 
 # Build a lookup from (event_type, event_subtype) -> event_description
 _EVENT_DESCRIPTION_BY_TYPE: dict[tuple[str, str | None], str] = {}
@@ -90,7 +90,9 @@ async def evaluate_user_defined_rules(
     by the task queue.
     """
     event_subtype = event_dict.get("subtype")
-    matching_rules = await get_matching_user_defined_rules(pool, event_type, event_subtype)
+    matching_rules = await get_matching_user_defined_rules(
+        pool, event_type, event_subtype
+    )
     if not matching_rules:
         return
 

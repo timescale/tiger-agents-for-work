@@ -1,4 +1,7 @@
 {
+    "search.exclude": {
+        "**/build/**": true
+    },
     "editor.formatOnSave": true,
     "python.defaultInterpreterPath": "./.venv/bin/python",
     "[python]": {

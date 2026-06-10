@@ -1,4 +1,5 @@
 import asyncio
+import re
 from asyncio import TaskGroup
 from collections.abc import Callable, Coroutine
 from datetime import datetime
@@ -207,6 +208,18 @@ class SalesforceListener(Listener):
         if feed_item.CreatedDate:
             dt = datetime.fromisoformat(feed_item.CreatedDate)
             event_ts = str(dt.timestamp())
+
+        # strip off any of the replied-to emails (e.g. after Original Message)
+        if feed_item.Body:
+            feed_item = feed_item.model_copy(
+                update={
+                    "Body": re.split(
+                        r"-{5,}\s*Original Message\s*-{5,}",
+                        feed_item.Body,
+                        flags=re.IGNORECASE,
+                    )[0].strip()
+                }
+            )
 
         await insert_event(
             pool=self._pool,

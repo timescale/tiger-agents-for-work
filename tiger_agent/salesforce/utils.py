@@ -174,8 +174,8 @@ def should_ignore_new_case(case: CaseData) -> bool:
     return case.ContactEmail in IGNORED_CONTACT_EMAILS
 
 
-def create_case_url(case: CaseData) -> str:
-    return f"https://{SALESFORCE_DOMAIN}/lightning/r/Case/{case.Id}/view"
+def create_case_url(case_id: str) -> str:
+    return f"https://{SALESFORCE_DOMAIN}/lightning/r/Case/{case_id}/view"
 
 
 def create_case(

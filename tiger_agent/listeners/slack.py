@@ -389,7 +389,9 @@ class SlackListener(Listener):
             user_id=user_id,
             action="remove",
             reminder_datetime=users_end_of_day,
-            thread=FeedbackReminderThread(channel=channel, message_ts=message_ts, label=""),
+            thread=FeedbackReminderThread(
+                channel=channel, message_ts=message_ts, label=""
+            ),
         )
 
     async def _handle_proactive_prompt(
