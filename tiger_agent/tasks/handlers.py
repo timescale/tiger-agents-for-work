@@ -266,7 +266,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
-            text=f"*New Case* <{create_case_url(event.case)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
+            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
         )
 
         message_to_link_to = SlackMessage(
@@ -659,8 +659,13 @@ class UserDefinedRuleMatchHandler(TaskHandler):
                 text=message,
             )
 
+        def _get_case_url(case_id: str) -> str:
+            """Return the Salesforce URL for a case. The case_id can often be obtained
+            from a Salesforce object's ParentId field (e.g. on FeedItem, Task, etc.)."""
+            return create_case_url(case_id)
+
         agent = Agent(
-            model="anthropic:claude-haiku-4-5",
+            model="anthropic:claude-opus-4-7",
             system_prompt=(
                 "You are an automated action agent. A custom monitoring rule has matched an incoming "
                 "event and you must carry out the action described in the user prompt. "
@@ -670,9 +675,8 @@ class UserDefinedRuleMatchHandler(TaskHandler):
             ),
             tools=[
                 Tool(_send_dm, takes_ctx=False, name="send_dm"),
-                Tool(
-                    _send_channel_message, takes_ctx=False, name="send_channel_message"
-                ),
+                Tool(_send_channel_message, takes_ctx=False, name="send_channel_message"),
+                Tool(_get_case_url, takes_ctx=False, name="get_case_url"),
             ],
         )
 
