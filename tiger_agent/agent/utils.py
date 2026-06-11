@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic_ai import Agent, BinaryContent, Tool
 from pydantic_ai.messages import UserContent
+from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
 
 from tiger_agent.agent.types import (
@@ -52,6 +53,34 @@ if TYPE_CHECKING:
 # need it; on these older models the header bills requests over 200K input
 # tokens at premium long-context rates, so only send it where it does something.
 LONG_CONTEXT_BETA_MODELS = ("claude-sonnet-4-5", "claude-sonnet-4-2025")
+
+
+def build_model_settings(
+    model: Model | str | None,
+    anthropic_cache_ttl: Literal["5m", "1h"] | None,
+) -> dict[str, Any] | None:
+    """Assemble Anthropic-specific model settings (prompt caching, 1M beta header)."""
+    is_anthropic = (
+        isinstance(model, str) and model.startswith("anthropic:")
+    ) or isinstance(model, AnthropicModel)
+    if not is_anthropic:
+        return None
+
+    model_settings: dict[str, Any] = {}
+    if anthropic_cache_ttl is not None:
+        # Cache tool definitions, system prompt, and message history so
+        # each iteration of the agentic loop re-reads them at ~0.1x input
+        # price instead of full price (5m writes cost 1.25x, so caching
+        # pays for itself after a single read).
+        model_settings.update(
+            anthropic_cache_tool_definitions=anthropic_cache_ttl,
+            anthropic_cache_instructions=anthropic_cache_ttl,
+            anthropic_cache_messages=anthropic_cache_ttl,
+        )
+    model_name = model if isinstance(model, str) else model.model_name
+    if any(model in model_name for model in LONG_CONTEXT_BETA_MODELS):
+        model_settings["extra_headers"] = {"anthropic-beta": "context-1m-2025-08-07"}
+    return model_settings or None
 
 
 @dataclass
@@ -258,32 +287,6 @@ async def create_agent_and_context(
             )
         )
 
-    is_anthropic = (
-        isinstance(agent.model, str) and agent.model.startswith("anthropic:")
-    ) or isinstance(agent.model, AnthropicModel)
-
-    model_settings: dict[str, Any] | None = None
-    if is_anthropic:
-        model_settings = {}
-        if agent.anthropic_cache_ttl is not None:
-            # Cache tool definitions, system prompt, and message history so
-            # each iteration of the agentic loop re-reads them at ~0.1x input
-            # price instead of full price (5m writes cost 1.25x, so caching
-            # pays for itself after a single read).
-            model_settings.update(
-                anthropic_cache_tool_definitions=agent.anthropic_cache_ttl,
-                anthropic_cache_instructions=agent.anthropic_cache_ttl,
-                anthropic_cache_messages=agent.anthropic_cache_ttl,
-            )
-        model_name = (
-            agent.model if isinstance(agent.model, str) else agent.model.model_name
-        )
-        if any(model in model_name for model in LONG_CONTEXT_BETA_MODELS):
-            model_settings["extra_headers"] = {
-                "anthropic-beta": "context-1m-2025-08-07"
-            }
-        model_settings = model_settings or None
-
     pydantic_agent = Agent(
         model=agent.model,
         deps_type=dict[str, Any],
@@ -293,7 +296,7 @@ async def create_agent_and_context(
         else str,
         tools=tools,
         toolsets=toolsets,
-        model_settings=model_settings,
+        model_settings=build_model_settings(agent.model, agent.anthropic_cache_ttl),
     )
 
     return AgentAndContext(
