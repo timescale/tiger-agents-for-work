@@ -12,7 +12,7 @@ import re
 from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import logfire
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
@@ -57,6 +57,9 @@ class TigerAgent:
         max_attempts: Maximum retry attempts for failed tasks (defaults to 3)
         rate_limit_allowed_requests: Maximum requests allowed per interval for rate limiting
         rate_limit_interval: Time interval for rate limiting (defaults to 1 minute)
+        anthropic_cache_ttl: Prompt cache TTL applied to tool definitions, system
+            prompt, and message history on Anthropic models ("5m" or "1h", defaults
+            to "5m"). Pass None to disable prompt caching.
 
     Raises:
         ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
@@ -71,6 +74,7 @@ class TigerAgent:
         max_attempts: int = 3,
         rate_limit_allowed_requests: int | None = None,
         rate_limit_interval: timedelta = timedelta(minutes=1),
+        anthropic_cache_ttl: Literal["5m", "1h"] | None = "5m",
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
@@ -118,6 +122,7 @@ class TigerAgent:
         self.max_attempts = max_attempts
         self.rate_limit_allowed_requests = rate_limit_allowed_requests
         self.rate_limit_interval = rate_limit_interval
+        self.anthropic_cache_ttl = anthropic_cache_ttl
 
     async def render_prompts(
         self,

@@ -47,6 +47,12 @@ from tiger_agent.utils import (
 if TYPE_CHECKING:
     from tiger_agent.agent.tiger_agent import TigerAgent
 
+# Models that only get the 1M context window via the beta header. Newer models
+# (Sonnet 4.6+, Opus 4.6+) include 1M context at standard pricing and don't
+# need it; on these older models the header bills requests over 200K input
+# tokens at premium long-context rates, so only send it where it does something.
+LONG_CONTEXT_BETA_MODELS = ("claude-sonnet-4-5", "claude-sonnet-4-2025")
+
 
 @dataclass
 class AgentAndContext:
@@ -250,6 +256,32 @@ async def create_agent_and_context(
             )
         )
 
+    is_anthropic = (
+        isinstance(agent.model, str) and agent.model.startswith("anthropic:")
+    ) or isinstance(agent.model, AnthropicModel)
+
+    model_settings: dict[str, Any] | None = None
+    if is_anthropic:
+        model_settings = {}
+        if agent.anthropic_cache_ttl is not None:
+            # Cache tool definitions, system prompt, and message history so
+            # each iteration of the agentic loop re-reads them at ~0.1x input
+            # price instead of full price (5m writes cost 1.25x, so caching
+            # pays for itself after a single read).
+            model_settings.update(
+                anthropic_cache_tool_definitions=agent.anthropic_cache_ttl,
+                anthropic_cache_instructions=agent.anthropic_cache_ttl,
+                anthropic_cache_messages=agent.anthropic_cache_ttl,
+            )
+        model_name = (
+            agent.model if isinstance(agent.model, str) else agent.model.model_name
+        )
+        if any(model in model_name for model in LONG_CONTEXT_BETA_MODELS):
+            model_settings["extra_headers"] = {
+                "anthropic-beta": "context-1m-2025-08-07"
+            }
+        model_settings = model_settings or None
+
     pydantic_agent = Agent(
         model=agent.model,
         deps_type=dict[str, Any],
@@ -259,10 +291,7 @@ async def create_agent_and_context(
         else str,
         tools=tools,
         toolsets=toolsets,
-        model_settings={"extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}}
-        if (isinstance(agent.model, str) and agent.model.startswith("anthropic:"))
-        or isinstance(agent.model, AnthropicModel)
-        else None,
+        model_settings=model_settings,
     )
 
     return AgentAndContext(
