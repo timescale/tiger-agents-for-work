@@ -82,7 +82,9 @@ async def create_agent_and_context(
         channel_id=channel_to_respond,
     )
 
-    wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
+    wrap_mcp_servers_with_exception_handling(
+        mcp_servers=mcp_servers, compress_tool_results=agent.compress_tool_results
+    )
 
     ctx = AgentResponseContext(
         task=task,

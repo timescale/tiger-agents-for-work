@@ -60,6 +60,10 @@ class TigerAgent:
         anthropic_cache_ttl: Prompt cache TTL applied to tool definitions, system
             prompt, and message history on Anthropic models ("5m" or "1h", defaults
             to "5m"). Pass None to disable prompt caching.
+        compress_tool_results: Compact oversized JSON tool results before they
+            reach the model by rendering arrays of similar objects as tables with
+            constant fields factored out (defaults to True). No items are dropped;
+            see tiger_agent.compression for thresholds.
 
     Raises:
         ValueError: If jinja_env is provided but not async-enabled, or if both jinja_env and prompt_config are provided
@@ -75,6 +79,7 @@ class TigerAgent:
         rate_limit_allowed_requests: int | None = None,
         rate_limit_interval: timedelta = timedelta(minutes=1),
         anthropic_cache_ttl: Literal["5m", "1h"] | None = "5m",
+        compress_tool_results: bool = True,
     ):
         self.bot_info: BotInfo | None = None
         self.model = model
@@ -123,6 +128,7 @@ class TigerAgent:
         self.rate_limit_allowed_requests = rate_limit_allowed_requests
         self.rate_limit_interval = rate_limit_interval
         self.anthropic_cache_ttl = anthropic_cache_ttl
+        self.compress_tool_results = compress_tool_results
 
     async def render_prompts(
         self,

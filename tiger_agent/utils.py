@@ -30,6 +30,7 @@ from slack_bolt.async_app import AsyncApp
 
 from tiger_agent import __version__
 from tiger_agent.agent.types import AgentResponseContext
+from tiger_agent.compression import compress_tool_result
 from tiger_agent.db.utils import create_default_pool
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.salesforce.clients import get_salesforce_api_client
@@ -117,6 +118,7 @@ def setup_logging(service_name: str = "tiger-agent") -> None:
 
 def create_wrapped_process_tool_call(
     existing_func: ProcessToolCallback | None,
+    compress_results: bool = False,
 ) -> ProcessToolCallback:
     async def process_tool_call(
         ctx: RunContext[AgentResponseContext],
@@ -126,27 +128,33 @@ def create_wrapped_process_tool_call(
     ):
         try:
             if existing_func is not None:
-                return await existing_func(ctx, call_tool, name, tool_args)
-
-            return await call_tool(name, tool_args, None)
+                result = await existing_func(ctx, call_tool, name, tool_args)
+            else:
+                result = await call_tool(name, tool_args, None)
+            return compress_tool_result(result) if compress_results else result
         except Exception as ex:
             logfire.exception(
                 "Exception occurred during tool call", name=name, tool_args=tool_args
             )
-            message = f"Tool call failed, could not retrieve information. Error: {ex.message or ex}"
+            message = f"Tool call failed, could not retrieve information. Error: {getattr(ex, 'message', None) or ex}"
             return message
 
     return process_tool_call
 
 
-def wrap_mcp_servers_with_exception_handling(mcp_servers: MCPDict) -> MCPDict:
+def wrap_mcp_servers_with_exception_handling(
+    mcp_servers: MCPDict, compress_tool_results: bool = False
+) -> MCPDict:
     """Wrap MCP servers with exception handling for tool calls.
 
     Creates wrapper functions around existing process_tool_call methods
-    to add consistent error handling and logging.
+    to add consistent error handling and logging, and optionally compact
+    oversized tool results before they reach the model.
 
     Args:
         mcp_servers: Dictionary of MCP server configurations
+        compress_tool_results: Compact large JSON tool results (see
+            tiger_agent.compression)
 
     Returns:
         Modified dictionary with wrapped process_tool_call functions
@@ -155,7 +163,7 @@ def wrap_mcp_servers_with_exception_handling(mcp_servers: MCPDict) -> MCPDict:
         existing_process_tool_call = value.mcp_server.process_tool_call
 
         value.mcp_server.process_tool_call = create_wrapped_process_tool_call(
-            existing_process_tool_call
+            existing_process_tool_call, compress_results=compress_tool_results
         )
 
     return mcp_servers
@@ -215,7 +223,9 @@ def _to_yaml(value: Any, indent: int = 0) -> str:
                 lines.append(f"{pad}{k}: {rendered}")
         return "\n".join(lines)
     if isinstance(value, list):
-        items = [f"{pad}- {_to_yaml(v, indent + 1).lstrip()}" for v in value if v is not None]
+        items = [
+            f"{pad}- {_to_yaml(v, indent + 1).lstrip()}" for v in value if v is not None
+        ]
         return "\n".join(items)
     return str(value)
 
