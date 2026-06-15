@@ -229,26 +229,28 @@ async def create_agent_and_context(
                         "criteria_examples are optional but improve matching accuracy."
                     ),
                 ),
+                *(
+                    [
+                        Tool(
+                            _get_tool_calls_for_event,
+                            takes_ctx=False,
+                            name="get_tool_calls_for_event",
+                            description=(
+                                "Retrieve all tool calls made by the agent in response to the current Slack event. "
+                                "Returns a JSON list of tool calls with their names, arguments, and responses. "
+                                'Use when the user asks things like "what tools did you call?", '
+                                '"what did you look up?", or "show me what you did last time".'
+                            ),
+                        ),
+                    ]
+                    if LOGFIRE_READ_TOKEN
+                    else []
+                ),
             ]
             if isinstance(event, SlackBaseEvent)
             else []
         ),
     ]
-
-    if LOGFIRE_READ_TOKEN:
-        tools.append(
-            Tool(
-                _get_tool_calls_for_event,
-                takes_ctx=False,
-                name="get_tool_calls_for_event",
-                description=(
-                    "Retrieve all tool calls made by the agent in response to the current Slack event. "
-                    "Returns a JSON list of tool calls with their names, arguments, and responses. "
-                    'Use when the user asks things like "what tools did you call?", '
-                    '"what did you look up?", or "show me what you did last time".'
-                ),
-            )
-        )
 
     pydantic_agent = Agent(
         model=agent.model,
