@@ -62,7 +62,7 @@ async def filter_unresponsive_mcp_servers(mcp_servers: MCPDict) -> MCPDict:
             await mcp_config.mcp_server.list_tools()
             filtered_mcp_servers[name] = mcp_config
         except Exception:
-            logfire.error(
+            logfire.exception(
                 "MCP server is unresponsive, removing from available servers",
                 server_name=name,
                 server_url=mcp_config.mcp_server.url,
