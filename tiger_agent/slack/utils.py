@@ -180,7 +180,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
 
 
 async def fetch_end_of_day_for_user(client: AsyncWebClient, user_id: str) -> datetime:
-    """Gets the end of day for a given user (e.g. 5pm their timezone). If we are beyond their end of day,
+    """Gets the end of day for a given user (e.g. 3pm their timezone). If we are beyond their end of day,
     return the next day at that time.
 
     Args:
@@ -198,7 +198,7 @@ async def fetch_end_of_day_for_user(client: AsyncWebClient, user_id: str) -> dat
     if not user_info:
         raise Exception(f"Could not find user {user_id}")
     now = datetime.now()
-    end_of_day = now.replace(hour=17, minute=0, second=0, microsecond=0)
+    end_of_day = now.replace(hour=15, minute=0, second=0, microsecond=0)
 
     # if we are past the end of day, set the end of day to be tomorrow
     if now > end_of_day:
