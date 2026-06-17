@@ -78,7 +78,7 @@ def build_model_settings(
             anthropic_cache_messages=anthropic_cache_ttl,
         )
     model_name = model if isinstance(model, str) else model.model_name
-    if any(model in model_name for model in LONG_CONTEXT_BETA_MODELS):
+    if any(family in model_name for family in LONG_CONTEXT_BETA_MODELS):
         model_settings["extra_headers"] = {"anthropic-beta": "context-1m-2025-08-07"}
     return model_settings or None
 

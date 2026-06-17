@@ -80,6 +80,17 @@ def test_missing_keys_marked_absent():
     assert "<absent>" in compacted
 
 
+def test_pipe_in_value_stays_quoted():
+    # The column separator is " | ", so a value containing pipes could be
+    # mistaken for column boundaries. Cells are JSON-encoded, so the value
+    # stays wrapped in quotes and a row remains recoverable by tracking quotes
+    # rather than naively splitting on the separator.
+    items = make_items()
+    items[5]["title"] = "this | has | pipes"
+    compacted = compress_tool_result(json.dumps(items))
+    assert '"this | has | pipes"' in compacted
+
+
 def test_irregular_array_passes_through():
     payload = json.dumps(["just a string", *make_items()])
     assert compress_tool_result(payload) is payload
