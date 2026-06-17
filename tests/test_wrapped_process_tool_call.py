@@ -7,8 +7,8 @@ from tiger_agent.utils import create_wrapped_process_tool_call
 
 LARGE_PAYLOAD = json.dumps(
     [
-        {"id": i, "status": "open", "description": "x" * 400, "title": f"Issue {i}"}
-        for i in range(20)
+        {"id": i, "status": "open", "score": i * 7 % 100, "title": f"Issue {i}"}
+        for i in range(80)
     ]
 )
 

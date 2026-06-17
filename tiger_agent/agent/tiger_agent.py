@@ -61,8 +61,9 @@ class TigerAgent:
             prompt, and message history on Anthropic models ("5m" or "1h", defaults
             to "5m"). Pass None to disable prompt caching.
         compress_tool_results: Compact oversized JSON tool results before they
-            reach the model by rendering arrays of similar objects as tables with
-            constant fields factored out (defaults to True). No items are dropped;
+            reach the model by re-encoding them as TOON, which factors per-row
+            object keys out of uniform arrays (defaults to True). Encoding is
+            lossless and only applied when meaningfully smaller than the original;
             see tiger_agent.compression for thresholds.
 
     Raises:
