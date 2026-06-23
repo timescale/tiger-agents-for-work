@@ -1,6 +1,27 @@
 {
     "version": "0.2.0",
+    "inputs": [
+        {
+            "id": "accountId",
+            "type": "promptString",
+            "description": "Salesforce Account ID"
+        }
+    ],
     "configurations": [
+        {
+            "name": "Salesforce: Get Services & Projects for Account",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tiger_agent.salesforce.utils",
+            "args": [
+                "${input:accountId}"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "justMyCode": false
+        },
         {
             "name": "Debug Tiger Agent",
             "type": "debugpy",
@@ -8,6 +29,10 @@
             "module": "tiger_agent.main",
             "args": [
                 "run",
+                "--mcp-config",
+                "../tiger-eon-internal/mcp_config.json",
+                "--proactive-prompt-channels",
+                "C09DL0P0XGS"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
