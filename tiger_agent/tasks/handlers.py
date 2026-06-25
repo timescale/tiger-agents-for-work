@@ -195,21 +195,22 @@ class SlackTaskHandler(TaskHandler):
         )
         slack_stream = None
 
-        async for stream_event in agent_and_ctx.agent.run_stream_events(
+        async with agent_and_ctx.agent.run_stream_events(
             user_prompt=agent_and_ctx.user_prompt,
             deps=agent_and_ctx.ctx,
             usage_limits=UsageLimits(output_tokens_limit=9_000),
-        ):
-            slack_stream = await stream_response_to_mention(
-                client=hctx.app.client,
-                slack_stream=slack_stream,
-                stream_event=stream_event,
-                channel_id=event.channel,
-                recipient_user_id=event.user,
-                recipient_team_id=hctx.bot_info.team_id,
-                ts=event.ts,
-                thread_ts=event.thread_ts,
-            )
+        ) as stream_events:
+            async for stream_event in stream_events:
+                slack_stream = await stream_response_to_mention(
+                    client=hctx.app.client,
+                    slack_stream=slack_stream,
+                    stream_event=stream_event,
+                    channel_id=event.channel,
+                    recipient_user_id=event.user,
+                    recipient_team_id=hctx.bot_info.team_id,
+                    ts=event.ts,
+                    thread_ts=event.thread_ts,
+                )
 
         if slack_stream is not None and slack_stream._state != "completed":
             rest = await slack_stream.stop()
