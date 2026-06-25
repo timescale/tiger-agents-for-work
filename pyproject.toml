@@ -23,6 +23,7 @@ dependencies = [
     "slack-bolt>=1.26.0",
     "tzdata>=2025.2",
     "websockets>=15.0.1",
+    "pydantic-ai-slim[openrouter]>=1.70.0",
 ]
 
 [project.scripts]
