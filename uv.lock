@@ -2058,6 +2058,9 @@ openai = [
     { name = "openai" },
     { name = "tiktoken" },
 ]
+openrouter = [
+    { name = "openai" },
+]
 retries = [
     { name = "tenacity" },
 ]
@@ -2720,6 +2723,7 @@ dependencies = [
     { name = "logfire", extra = ["httpx", "psycopg", "system-metrics"] },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic-ai" },
+    { name = "pydantic-ai-slim", extra = ["openrouter"] },
     { name = "python-dotenv", extra = ["cli"] },
     { name = "schedule" },
     { name = "semver" },
@@ -2743,6 +2747,7 @@ requires-dist = [
     { name = "logfire", extras = ["httpx", "psycopg", "system-metrics"], specifier = ">=4.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.10" },
     { name = "pydantic-ai", specifier = ">=1.28.0" },
+    { name = "pydantic-ai-slim", extras = ["openrouter"], specifier = ">=1.70.0" },
     { name = "python-dotenv", extras = ["cli"], specifier = ">=1.1.1" },
     { name = "schedule", specifier = ">=1.2.2" },
     { name = "semver", specifier = ">=3.0.4" },

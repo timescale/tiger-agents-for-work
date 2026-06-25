@@ -29,6 +29,8 @@
             "module": "tiger_agent.main",
             "args": [
                 "run",
+                "--model",
+                "openrouter:anthropic/claude-opus-4-7",
                 "--mcp-config",
                 "../tiger-eon-internal/mcp_config.json",
                 "--proactive-prompt-channels",
