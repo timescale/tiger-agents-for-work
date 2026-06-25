@@ -128,13 +128,12 @@ def create_wrapped_process_tool_call(
             if existing_func is not None:
                 return await existing_func(ctx, call_tool, name, tool_args)
 
-            return await call_tool(name, tool_args, None)
+            return await call_tool(name, tool_args)
         except Exception as ex:
             logfire.exception(
                 "Exception occurred during tool call", name=name, tool_args=tool_args
             )
-            message = f"Tool call failed, could not retrieve information. Error: {ex.message or ex}"
-            return message
+            return f"Tool call failed, could not retrieve information. Error: {ex}"
 
     return process_tool_call
 

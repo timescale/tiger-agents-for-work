@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING, Any
 from pydantic_ai import Agent, BinaryContent, Tool
 from pydantic_ai.messages import UserContent
 from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.toolsets.abstract import AbstractToolset
 
 from tiger_agent.agent.types import (
     AgentResponseContext,
     AgentSalesforceResponse,
     ExtraContextDict,
 )
+from tiger_agent.mcp.types import McpConfig
 from tiger_agent.db.utils import (
     delete_user_defined_rule,
     insert_user_defined_rule,
@@ -46,6 +48,17 @@ from tiger_agent.utils import (
 
 if TYPE_CHECKING:
     from tiger_agent.agent.tiger_agent import TigerAgent
+
+
+def _build_toolset(mcp_config: McpConfig) -> AbstractToolset:
+    """Wrap an McpConfig's toolset with tool-name filtering and prefixing."""
+    toolset: AbstractToolset = mcp_config.mcp_server
+    if mcp_config.allowed_tools:
+        allowed = set(mcp_config.allowed_tools)
+        toolset = toolset.filtered(lambda _ctx, tool_def: tool_def.name in allowed)
+    if mcp_config.tool_prefix:
+        toolset = toolset.prefixed(mcp_config.tool_prefix)
+    return toolset
 
 
 @dataclass
@@ -85,7 +98,6 @@ async def create_agent_and_context(
         user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
         if not isinstance(event, SalesforceBaseEvent)
         else None,
-        mcp_servers=mcp_servers,
     )
 
     extra_ctx: ExtraContextDict = {}
@@ -103,7 +115,7 @@ async def create_agent_and_context(
     system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
     user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
 
-    toolsets = [mcp_config.mcp_server for mcp_config in mcp_servers.values()]
+    toolsets = [_build_toolset(mcp_config) for mcp_config in mcp_servers.values()]
 
     async def _download_slack_hosted_file(
         file: SlackFile,

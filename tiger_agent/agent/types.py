@@ -3,7 +3,6 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
-from tiger_agent.mcp.types import MCPDict
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
@@ -36,7 +35,6 @@ class AgentResponseContext(BaseModel):
         bot: Information about the bot user (display name, user ID, etc.)
         user: Slack user information including timezone, or None if unavailable
         local_time: Event timestamp converted to user's local timezone, set automatically
-        mcp_servers: Dictionary of mcp servers that the Agent has as its disposal
     """
 
     task: Task
@@ -55,7 +53,6 @@ class AgentResponseContext(BaseModel):
     bot: BotInfo
     user: UserInfo | None = None
     local_time: datetime | None = None
-    mcp_servers: MCPDict | None = None
 
     def model_post_init(self, __context):
         """Automatically compute derived fields after model initialization.
