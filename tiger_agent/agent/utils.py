@@ -101,7 +101,9 @@ async def create_agent_and_context(
     )
 
     extra_ctx: ExtraContextDict = {}
-    await agent.augment_context(ctx=ctx, extra_ctx=extra_ctx)
+    await agent.augment_context(
+        ctx=ctx, extra_ctx=extra_ctx, mcp_servers=mcp_servers
+    )
 
     if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and hctx.bot_info:
         thread_messages = await fetch_thread_messages(
