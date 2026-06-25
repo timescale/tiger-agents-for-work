@@ -212,7 +212,10 @@ class TigerAgent:
         """
 
     async def augment_context(
-        self, ctx: AgentResponseContext, extra_ctx: ExtraContextDict
+        self,
+        ctx: AgentResponseContext,
+        extra_ctx: ExtraContextDict,
+        mcp_servers: MCPDict,
     ) -> None:
         """Hook to augment context with additional BaseModel objects.
 
