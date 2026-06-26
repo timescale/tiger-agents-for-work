@@ -69,20 +69,20 @@ async def get_tool_calls_for_traces(
     if not trace_ids:
         return ""
 
-    # Step 2: find all 'running tool' spans in those traces
+    # Step 2: find all tool-execution spans in those traces
     find_tool_calls_sql = f"""
 SELECT
     start_timestamp,
     attributes->>'gen_ai.tool.name' AS tool_name,
     attributes->>'gen_ai.tool.call.id' AS tool_call_id,
-    attributes->'tool_arguments' AS tool_arguments,
-    attributes->'tool_response' AS tool_response,
+    attributes->'gen_ai.tool.call.arguments' AS tool_arguments,
+    attributes->'gen_ai.tool.call.result' AS tool_response,
     is_exception,
     otel_status_message
 FROM records
 WHERE
     trace_id IN ({",".join(f"'{trace_id}'" for trace_id in trace_ids)})
-    AND span_name = 'running tool'
+    AND span_name LIKE 'execute_tool%'
 ORDER BY start_timestamp ASC
 """
     return await query_logfire_spans(
