@@ -202,7 +202,7 @@ class SalesforceListener(Listener):
             self._upsert_case_push_topic_definition(
                 topic_name=topic_name,
                 fields=fields,
-                notifyOnCreate=notify_on != "update",
+                notifyOnCreate=notify_on == "create",
                 notifyOnUpdate=notify_on == "update",
             )
             await subscribe_to_topic(
