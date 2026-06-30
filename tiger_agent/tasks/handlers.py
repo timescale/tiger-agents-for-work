@@ -370,12 +370,13 @@ class SalesforceCaseCreatedHandler(TaskHandler):
             extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
         )
 
+        subject = (event.case.Subject or "").replace("-", "‑")
         original_message = await post_response(
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
             use_mrkdwn=True,
-            text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_",
+            text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{subject}_",
         )
 
         message_to_link_to = SlackMessage(
