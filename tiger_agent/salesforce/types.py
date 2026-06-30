@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -61,7 +61,7 @@ class SalesforceCreateNewCaseEvent(SalesforceBaseEvent):
     """Pydantic model for Salesforce new case event."""
 
     type: str = "salesforce_event"
-    subtype: str = "create_new_case"
+    subtype: Literal["create_new_case"] = "create_new_case"
     event_description: ClassVar[str] = (
         "A user submitted a request to open a new Salesforce support case (the case has not yet been created)"
     )
@@ -78,12 +78,23 @@ class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
     """Pydantic model for Salesforce new case event."""
 
     type: str = "salesforce_event"
-    subtype: str = "new_assignee"
+    subtype: Literal["new_assignee"] = "new_assignee"
     event_description: ClassVar[str] = (
         "A new Salesforce support case has been created — use this to monitor for new cases"
     )
     case: CaseData
     update_link_to_thread: bool = True
+
+
+class SalesforceCaseCreatedEvent(SalesforceBaseEvent):
+    """Pydantic model for Salesforce new case event."""
+
+    type: str = "salesforce_event"
+    subtype: Literal["case_created"] = "case_created"
+    event_description: ClassVar[str] = (
+        "A new Salesforce support case has been created, but not assigned —  do not use this to monitor for new cases"
+    )
+    case: CaseData
 
 
 class SalesforceFeedItemCreatedBy(BaseModel):
@@ -121,7 +132,7 @@ class SalesforceFeedItemEvent(SalesforceBaseEvent):
     """Pydantic model for a new Salesforce FeedItem (Chatter post) on a case."""
 
     type: str = "salesforce_event"
-    subtype: str = "new_feed_item"
+    subtype: Literal["new_feed_item"] = "new_feed_item"
     event_description: ClassVar[str] = (
         "A new message posted to a Salesforce case feed (e.g. a customer reply or engineer response)"
     )
@@ -132,7 +143,7 @@ class SalesforceCaseStatusChangedEvent(SalesforceBaseEvent):
     """Pydantic model for a Salesforce case closed event."""
 
     type: str = "salesforce_event"
-    subtype: str = "case_status_changed"
+    subtype: Literal["case_status_changed"] = "case_status_changed"
     event_description: ClassVar[str] = (
         "A Salesforce case status changed (e.g. New → In Progress → Closed)"
     )

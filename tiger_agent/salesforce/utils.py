@@ -373,6 +373,26 @@ def add_case_email_comment(
         )
 
 
+def add_internal_case_post(
+    salesforce_client: Salesforce,
+    case_id: str,
+    body: str,
+) -> None:
+    result = salesforce_client.FeedItem.create(
+        {
+            "ParentId": case_id,
+            "Body": body,
+            "Visibility": "InternalUsers",
+            "IsRichText": False,
+        }
+    )
+    if not result["success"] or not result["id"]:
+        logfire.error(
+            "Could not add internal post to Salesforce case",
+            extra={"case_id": case_id},
+        )
+
+
 def get_case_feed_items(
     salesforce_client: Salesforce,
     case_id: str | None = None,

@@ -36,6 +36,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceBaseEvent,
+    SalesforceCaseCreatedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
@@ -43,6 +44,7 @@ from tiger_agent.salesforce.types import (
 )
 from tiger_agent.salesforce.utils import (
     add_case_email_comment,
+    add_internal_case_post,
     build_email_attachments_from_slack_files,
     create_case,
     create_case_url,
@@ -70,7 +72,7 @@ from tiger_agent.slack.utils import (
     get_channel_link,
     get_handle_link,
     post_response,
-    send_feedback_button,
+    request_feedback,
     set_status,
     stream_response_to_mention,
     user_is_external,
@@ -267,6 +269,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
+            use_mrkdwn=True,
             text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
         )
 
@@ -319,19 +322,95 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
                     reminder_datetime=users_end_of_day,
                 )
 
-            async def _delayed_feedback(client, channel, message_ts):
-                await asyncio.sleep(10)
-                await send_feedback_button(
-                    client=client, channel=channel, thread_ts=message_ts
-                )
-
-            asyncio.create_task(
-                _delayed_feedback(
-                    hctx.app.client,
-                    channel=message_to_link_to.channel_id,
-                    message_ts=message_to_link_to.ts,
-                )
+            request_feedback(
+                hctx.app.client,
+                channel=message_to_link_to.channel_id,
+                thread_ts=message_to_link_to.ts,
             )
+
+
+class SalesforceCaseCreatedHandler(TaskHandler):
+    """
+    Runs the agent to determine if the case is spam.
+    We handle legitimate new cases with the SalesforceAssignmentChangedHandler
+    as, at that point we have a assignee and spam should have been filtered out
+    So this handler is strictly to detect spam cases
+    """
+
+    def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
+        super().__init__(hctx)
+        self._agent = agent
+
+    @logfire.instrument("SalesforceCaseCreatedHandler.handle", extract_args=False)
+    async def handle(self, task: Task) -> None:
+        hctx = self._hctx
+        event: SalesforceCaseCreatedEvent = task.event
+
+        if not SALESFORCE_ENABLE_SPAM_FILTERING:
+            return
+
+        agent_and_ctx = await create_agent_and_context(
+            hctx=hctx,
+            task=task,
+            agent=self._agent,
+            channel_to_respond=SALESFORCE_CASE_CHANNEL,
+        )
+
+        response = await agent_and_ctx.agent.run(
+            user_prompt=agent_and_ctx.user_prompt,
+            deps=agent_and_ctx.ctx,
+            usage_limits=UsageLimits(output_tokens_limit=9_000),
+        )
+
+        if not response.output.is_spam:
+            return
+
+        logfire.info(
+            "Salesforce case identified as spam",
+            extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
+        )
+
+        original_message = await post_response(
+            client=hctx.app.client,
+            channel=SALESFORCE_CASE_CHANNEL,
+            thread_ts=None,
+            use_mrkdwn=True,
+            text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_",
+        )
+
+        message_to_link_to = SlackMessage(
+            channel_id=SALESFORCE_CASE_CHANNEL,
+            ts=original_message.data.get("ts"),
+            text=response.output.message,
+            thread_ts=None,
+        )
+
+        if message_to_link_to and SALESFORCE_SLACK_THREAD_FIELD:
+            result = await hctx.app.client.chat_getPermalink(
+                channel=message_to_link_to.channel_id,
+                message_ts=message_to_link_to.ts,
+            )
+            permalink = result.data.get("permalink")
+            hctx.salesforce_client.Case.update(
+                event.case.Id,
+                {SALESFORCE_SLACK_THREAD_FIELD: permalink},
+                headers={"Sforce-Auto-Assign": "false"},
+            )
+            logfire.info(
+                "Updated Salesforce case to include the thread link",
+                extra={"permalink": permalink},
+            )
+
+        add_internal_case_post(
+            salesforce_client=hctx.salesforce_client,
+            case_id=event.case.Id,
+            body=response.output.short_description_of_case,
+        )
+        request_feedback(
+            hctx.app.client,
+            channel=message_to_link_to.channel_id,
+            thread_ts=message_to_link_to.ts,
+        )
 
 
 class AgentFeedbackRequestReminderHandler(TaskHandler):
@@ -676,7 +755,9 @@ class UserDefinedRuleMatchHandler(TaskHandler):
             ),
             tools=[
                 Tool(_send_dm, takes_ctx=False, name="send_dm"),
-                Tool(_send_channel_message, takes_ctx=False, name="send_channel_message"),
+                Tool(
+                    _send_channel_message, takes_ctx=False, name="send_channel_message"
+                ),
                 Tool(_get_case_url, takes_ctx=False, name="get_case_url"),
             ],
         )

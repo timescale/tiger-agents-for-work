@@ -3,7 +3,7 @@ import re
 from asyncio import TaskGroup
 from collections.abc import Callable, Coroutine
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import logfire
 import schedule
@@ -25,6 +25,7 @@ from tiger_agent.salesforce.new_case_poller import SalesforceNewCasePoller
 from tiger_agent.salesforce.types import (
     CaseData,
     SalesforceAssignmentChangedEvent,
+    SalesforceCaseCreatedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceFeedItem,
     SalesforceFeedItemEvent,
@@ -37,6 +38,7 @@ from tiger_agent.types import HarnessContext
 
 CASE_OWNER_CHANGED_TOPIC = "CaseOwnerChangedTopic"
 CASE_STATUS_CHANGED_TOPIC = "CaseStatusChangedTopic"
+CASE_CREATED_TOPIC = "CaseCreatedTopic"
 
 
 class SalesforceListener(Listener):
@@ -68,6 +70,14 @@ class SalesforceListener(Listener):
                 CASE_OWNER_CHANGED_TOPIC,
                 [CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
                 self.handle_updated_case_assignee,
+            )
+        )
+        tasks.create_task(
+            self._subscribe_to_event(
+                CASE_CREATED_TOPIC,
+                [CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
+                self.handle_case_created,
+                "create",
             )
         )
         tasks.create_task(
@@ -159,18 +169,41 @@ class SalesforceListener(Listener):
 
         await self._trigger.put(True)
 
+    @logfire.instrument("handle_case_created", extract_args=["case"])
+    async def handle_case_created(self, case: CaseData):
+        if not SALESFORCE_CASE_CHANNEL:
+            logfire.warn(
+                "A new case was created, but no Slack channel configured",
+                extra={"case": case.model_dump_json()},
+            )
+            return
+
+        if should_ignore_new_case(case):
+            logfire.info("Ignoring case")
+            return
+
+        full_case_data = self._salesforce_client.Case.get(case.Id)
+
+        await insert_event(
+            pool=self._pool,
+            event=SalesforceCaseCreatedEvent(case=full_case_data).model_dump(),
+        )
+
+        await self._trigger.put(True)
+
     async def _subscribe_to_event(
         self,
         topic_name: str,
         fields: list[str],
         handler: Callable[[CaseData], Coroutine[Any, Any, None]],
+        notify_on: Literal["update", "create"] | None = "update",
     ):
         try:
             self._upsert_case_push_topic_definition(
                 topic_name=topic_name,
                 fields=fields,
-                notifyOnCreate=False,
-                notifyOnUpdate=True,
+                notifyOnCreate=notify_on == "create",
+                notifyOnUpdate=notify_on == "update",
             )
             await subscribe_to_topic(
                 salesforce_client=self._salesforce_client,

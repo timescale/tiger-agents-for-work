@@ -12,6 +12,7 @@ All functions are designed to be resilient, gracefully handling API errors and p
 structured data models for Slack entities.
 """
 
+import asyncio
 import json
 import re
 from collections.abc import Sequence
@@ -1140,3 +1141,17 @@ async def get_a_href_link_to_user_profile(
         return f'<a href="{user_profile_url}">@{user_info.name}</a>'
 
     return f"@{user_info.name}"
+
+
+def request_feedback(client: AsyncWebClient, channel: str, thread_ts: str) -> None:
+    async def _delayed_feedback(client, channel, message_ts):
+        await asyncio.sleep(10)
+        await send_feedback_button(client=client, channel=channel, thread_ts=message_ts)
+
+    asyncio.create_task(
+        _delayed_feedback(
+            client,
+            channel=channel,
+            message_ts=thread_ts,
+        )
+    )

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
+    SalesforceCaseCreatedEvent,
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
@@ -44,6 +45,7 @@ class AgentResponseContext(BaseModel):
         | SlackSalesforceCaseThreadMessageEvent
         | SalesforceCreateNewCaseEvent
         | SalesforceAssignmentChangedEvent
+        | SalesforceCaseCreatedEvent
         | SalesforceFeedItemEvent
         | SalesforceCaseStatusChangedEvent
         | AgentFeedbackRatingEvent
