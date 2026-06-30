@@ -51,6 +51,7 @@ from tiger_agent.salesforce.utils import (
     download_feed_attachment,
     get_feed_attachment_ids,
     replace_all_slack_mentions_with_links_to_profile,
+    slack_safe_subject,
 )
 from tiger_agent.slack.constants import AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL
 from tiger_agent.slack.types import (
@@ -270,7 +271,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
             use_mrkdwn=True,
-            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
+            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{slack_safe_subject(event.case.Subject)}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
         )
 
         message_to_link_to = SlackMessage(
@@ -375,7 +376,7 @@ class SalesforceCaseCreatedHandler(TaskHandler):
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
             use_mrkdwn=True,
-            text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_",
+            text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{slack_safe_subject(event.case.Subject)}_",
         )
 
         message_to_link_to = SlackMessage(
