@@ -270,7 +270,6 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
-            use_mrkdwn=True,
             text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{slack_safe_subject(event.case.Subject)}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
         )
 
@@ -375,7 +374,6 @@ class SalesforceCaseCreatedHandler(TaskHandler):
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
-            use_mrkdwn=True,
             text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{slack_safe_subject(event.case.Subject)}_",
         )
 
