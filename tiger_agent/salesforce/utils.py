@@ -19,6 +19,7 @@ from tiger_agent.salesforce.clients import (
 from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
     SALESFORCE_DOMAIN,
+    SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX,
 )
 from tiger_agent.salesforce.types import (
     CaseData,
@@ -44,6 +45,7 @@ IGNORED_CONTACT_EMAILS = set(
     .replace(" ", "")
     .split(",")
 )
+IGNORED_CONTACT_EMAIL_PATTERN = re.compile(SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX)
 
 EXT_TO_MIME = {
     "png": "image/png",
@@ -171,7 +173,9 @@ async def subscribe_to_case_comment_topic(
 def should_ignore_new_case(case: CaseData) -> bool:
     if not case.ContactEmail:
         return False
-    return case.ContactEmail in IGNORED_CONTACT_EMAILS
+    if case.ContactEmail in IGNORED_CONTACT_EMAILS:
+        return True
+    return bool(IGNORED_CONTACT_EMAIL_PATTERN.search(case.ContactEmail))
 
 
 def create_case_url(case_id: str) -> str:

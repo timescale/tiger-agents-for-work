@@ -45,3 +45,7 @@ SALESFORCE_CASE_SUPPORT_EMAIL = os.environ.get(
 SALESFORCE_INTERNAL_FROM_NAME_SUFFIX = os.environ.get(
     "SALESFORCE_INTERNAL_FROM_NAME_SUFFIX", "TigerData"
 )
+SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX = os.environ.get(
+    "SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX",
+    r"(?i)@(tigerdata|timescale)\.com$",
+)
