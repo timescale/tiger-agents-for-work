@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 
 import logfire
 from htmlslacker import HTMLSlacker
-from pydantic_ai import Agent, Tool, UsageLimits
+from pydantic_ai import Agent, Tool, UsageLimitExceeded, UsageLimits
 
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.utils import create_agent_and_context
@@ -125,6 +125,21 @@ class TaskProcessor:
             return
         try:
             await handler.handle(task)
+        except UsageLimitExceeded as e:
+            # The request was too large to answer within the agent's usage
+            # limits (e.g. too many lookups in one message). Retrying the same
+            # task would just hit the limit again, so ack it and tell the user
+            # to split the request instead of requeueing.
+            logger.warning("handler hit usage limit", exc_info=e)
+            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch)):
+                await add_reaction(hctx.app.client, event.channel, event.ts, "x")
+                await post_response(
+                    client=hctx.app.client,
+                    channel=event.channel,
+                    thread_ts=event.thread_ts if event.thread_ts else event.ts,
+                    text="That request is too large for me to handle in one go. Please split it into smaller batches (for example, fewer items per message) and try again.",
+                )
+            return
         except Exception as e:
             logger.exception("handler failed", exc_info=e)
             if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch)):
