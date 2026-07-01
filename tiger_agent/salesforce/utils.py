@@ -373,10 +373,6 @@ def add_case_email_comment(
         )
 
 
-def slack_safe_subject(subject: str | None) -> str:
-    return (subject or "").replace("-", "‑")
-
-
 def add_internal_case_post(
     salesforce_client: Salesforce,
     case_id: str,
