@@ -14,7 +14,7 @@ dependencies = [
     "logfire[httpx,psycopg,system-metrics]>=4.10.0",
     "html-slacker",
     "psycopg[binary,pool]>=3.2.10",
-    "pydantic-ai>=1.28.0",
+    "pydantic-ai>=2.0.0",
     "python-dotenv[cli]>=1.1.1",
     "aiosfstream-ng>=0.5.1",
     "semver>=3.0.4",
@@ -23,7 +23,8 @@ dependencies = [
     "slack-bolt>=1.26.0",
     "tzdata>=2025.2",
     "websockets>=15.0.1",
-    "pydantic-ai-slim[openrouter]>=1.70.0",
+    "pydantic-ai-slim[openrouter]>=2.0.0",
+    "summarization-pydantic-ai>=0.1.10",
 ]
 
 [project.scripts]

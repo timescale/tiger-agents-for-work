@@ -2284,6 +2284,18 @@ wheels = [
 ]
 
 [[package]]
+name = "summarization-pydantic-ai"
+version = "0.1.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic-ai-slim" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d3/3a/22a3cd65f7cd17463e895d71de443629804b0aed085ced12f40bdc06ff2b/summarization_pydantic_ai-0.1.10.tar.gz", hash = "sha256:a4ff914bdd93bba126a954a29a3c98907a94b2c49a26cc99e4e2d50b47bee924", size = 173021, upload-time = "2026-06-25T21:39:05.958Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e0/23/9443585a57dedfe1db912ff5e86c8653f2f7409f9ec2da8ebcaa2d56301f/summarization_pydantic_ai-0.1.10-py3-none-any.whl", hash = "sha256:d9e123595bae90e721c2637d873947ecfe13e0c281132bcc003333e49792b250", size = 29581, upload-time = "2026-06-25T21:39:04.578Z" },
+]
+
+[[package]]
 name = "tenacity"
 version = "9.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2309,6 +2321,7 @@ dependencies = [
     { name = "semver" },
     { name = "simple-salesforce" },
     { name = "slack-bolt" },
+    { name = "summarization-pydantic-ai" },
     { name = "tzdata" },
     { name = "websockets" },
 ]
@@ -2326,13 +2339,14 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "logfire", extras = ["httpx", "psycopg", "system-metrics"], specifier = ">=4.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2.10" },
-    { name = "pydantic-ai", specifier = ">=1.28.0" },
-    { name = "pydantic-ai-slim", extras = ["openrouter"], specifier = ">=1.70.0" },
+    { name = "pydantic-ai", specifier = ">=2.0.0" },
+    { name = "pydantic-ai-slim", extras = ["openrouter"], specifier = ">=2.0.0" },
     { name = "python-dotenv", extras = ["cli"], specifier = ">=1.1.1" },
     { name = "schedule", specifier = ">=1.2.2" },
     { name = "semver", specifier = ">=3.0.4" },
     { name = "simple-salesforce", specifier = ">=1.12.9" },
     { name = "slack-bolt", specifier = ">=1.26.0" },
+    { name = "summarization-pydantic-ai", specifier = ">=0.1.10" },
     { name = "tzdata", specifier = ">=2025.2" },
     { name = "websockets", specifier = ">=15.0.1" },
 ]

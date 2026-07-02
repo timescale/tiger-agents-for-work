@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic_ai import Agent, BinaryContent, Tool
 from pydantic_ai.messages import UserContent
-from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.toolsets.abstract import AbstractToolset
+from pydantic_ai_summarization import ContextManagerCapability
 
+from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.types import (
     AgentResponseContext,
     AgentSalesforceResponse,
     ExtraContextDict,
 )
-from tiger_agent.mcp.types import McpConfig
 from tiger_agent.db.utils import (
     delete_user_defined_rule,
     insert_user_defined_rule,
@@ -23,6 +23,7 @@ from tiger_agent.db.utils import (
 from tiger_agent.events import EVENT_TYPE_REGISTRY
 from tiger_agent.logfire.constants import LOGFIRE_READ_TOKEN
 from tiger_agent.logfire.utils import get_tool_calls_for_event
+from tiger_agent.mcp.types import McpConfig
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
@@ -45,9 +46,6 @@ from tiger_agent.utils import (
     pretty_print_models,
     wrap_mcp_servers_with_exception_handling,
 )
-
-if TYPE_CHECKING:
-    from tiger_agent.agent.tiger_agent import TigerAgent
 
 
 def _build_toolset(mcp_config: McpConfig) -> AbstractToolset:
@@ -101,9 +99,7 @@ async def create_agent_and_context(
     )
 
     extra_ctx: ExtraContextDict = {}
-    await agent.augment_context(
-        ctx=ctx, extra_ctx=extra_ctx, mcp_servers=mcp_servers
-    )
+    await agent.augment_context(ctx=ctx, extra_ctx=extra_ctx, mcp_servers=mcp_servers)
 
     if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and hctx.bot_info:
         thread_messages = await fetch_thread_messages(
@@ -267,6 +263,7 @@ async def create_agent_and_context(
     ]
 
     pydantic_agent = Agent(
+        capabilities=[ContextManagerCapability(max_tokens=950_000)],
         model=agent.model,
         deps_type=dict[str, Any],
         system_prompt=system_prompt,
@@ -275,10 +272,6 @@ async def create_agent_and_context(
         else str,
         tools=tools,
         toolsets=toolsets,
-        model_settings={"extra_headers": {"anthropic-beta": "context-1m-2025-08-07"}}
-        if (isinstance(agent.model, str) and agent.model.startswith("anthropic:"))
-        or isinstance(agent.model, AnthropicModel)
-        else None,
     )
 
     return AgentAndContext(
