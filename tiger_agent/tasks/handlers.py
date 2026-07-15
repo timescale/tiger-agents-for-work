@@ -425,6 +425,12 @@ class SalesforceCaseCreatedHandler(TaskHandler):
             thread_ts=message_to_link_to.ts,
         )
 
+        hctx.salesforce_client.Case.update(
+            event.case.id,
+            {"Status": "Spam", "Type": "Spam"},
+            headers={"Sforce-Auto-Assign": "false"},
+        )
+
 
 class AgentFeedbackRequestReminderHandler(TaskHandler):
     """
