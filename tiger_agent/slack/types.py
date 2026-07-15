@@ -216,6 +216,7 @@ class SlackBaseEvent(BaseModel):
         blocks: Slack Block Kit blocks if present
         channel: Channel ID where the mention occurred
         event_ts: Event timestamp from Slack
+        user_team: The sender's home workspace
     """
 
     model_config = {"extra": "allow"}
@@ -231,6 +232,7 @@ class SlackBaseEvent(BaseModel):
     channel: str
     event_ts: str
     files: list[SlackFile] | None = None
+    user_team: str | None = None
 
 
 class SlackAppMentionEvent(SlackBaseEvent):

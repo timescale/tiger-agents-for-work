@@ -224,7 +224,7 @@ class SlackTaskHandler(TaskHandler):
                     stream_event=stream_event,
                     channel_id=event.channel,
                     recipient_user_id=event.user,
-                    recipient_team_id=hctx.bot_info.team_id,
+                    recipient_team_id=event.user_team or hctx.bot_info.team_id,
                     ts=event.ts,
                     thread_ts=event.thread_ts,
                 )
