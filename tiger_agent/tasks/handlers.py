@@ -51,6 +51,7 @@ from tiger_agent.salesforce.utils import (
     download_feed_attachment,
     get_feed_attachment_ids,
     replace_all_slack_mentions_with_links_to_profile,
+    update_case,
 )
 from tiger_agent.slack.constants import AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL
 from tiger_agent.slack.types import (
@@ -309,10 +310,10 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
                     message_ts=message_to_link_to.ts,
                 )
                 permalink = result.data.get("permalink")
-                hctx.salesforce_client.Case.update(
+                update_case(
+                    hctx.salesforce_client,
                     event.case.Id,
                     {SALESFORCE_SLACK_THREAD_FIELD: permalink},
-                    headers={"Sforce-Auto-Assign": "false"},
                 )
                 logfire.info(
                     "Updated Salesforce case to include the thread link",
@@ -404,11 +405,12 @@ class SalesforceCaseCreatedHandler(TaskHandler):
                 message_ts=message_to_link_to.ts,
             )
             permalink = result.data.get("permalink")
-            hctx.salesforce_client.Case.update(
+            update_case(
+                hctx.salesforce_client,
                 event.case.Id,
                 {SALESFORCE_SLACK_THREAD_FIELD: permalink},
-                headers={"Sforce-Auto-Assign": "false"},
             )
+
             logfire.info(
                 "Updated Salesforce case to include the thread link",
                 extra={"permalink": permalink},
@@ -423,6 +425,12 @@ class SalesforceCaseCreatedHandler(TaskHandler):
             hctx.app.client,
             channel=message_to_link_to.channel_id,
             thread_ts=message_to_link_to.ts,
+        )
+
+        update_case(
+            hctx.salesforce_client,
+            event.case.Id,
+            {"Status": "Spam", "Type": "Spam"},
         )
 
 
@@ -546,11 +554,13 @@ class SalesforceCreateCaseHandler(TaskHandler):
             message_ts=new_case_thread_ts,
         )
         permalink = result.data.get("permalink")
-        hctx.salesforce_client.Case.update(
+
+        update_case(
+            hctx.salesforce_client,
             new_case.Id,
             {SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD: permalink},
-            headers={"Sforce-Auto-Assign": "false"},
         )
+
         logfire.info(
             "Updated Salesforce case to include the customer thread link",
             extra={"permalink": permalink},
