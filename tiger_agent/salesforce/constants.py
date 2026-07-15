@@ -1,4 +1,5 @@
 import os
+from types import MappingProxyType
 
 CASE_ID_FIELD = "Id"
 CASE_OWNER_ID_FIELD = "OwnerId"
@@ -48,4 +49,7 @@ SALESFORCE_INTERNAL_FROM_NAME_SUFFIX = os.environ.get(
 SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX = os.environ.get(
     "SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX",
     r"(?i)@(tigerdata|timescale)\.com$",
+)
+SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS = MappingProxyType(
+    {"Sforce-Auto-Assign": "FALSE"}
 )

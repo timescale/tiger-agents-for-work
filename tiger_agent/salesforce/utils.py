@@ -20,6 +20,7 @@ from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
     SALESFORCE_DOMAIN,
     SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX,
+    SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS,
 )
 from tiger_agent.salesforce.types import (
     CaseData,
@@ -204,7 +205,10 @@ def create_case(
         payload["Cloud_Service_ID__c"] = service_id
     if origin:
         payload["Origin"] = origin
-    result = salesforce_client.Case.create(payload)
+
+    result = salesforce_client.Case.create(
+        payload, headers=SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS
+    )
     if not result["success"] or not result["id"]:
         logfire.error("Could not create a new salesforce case")
         return
@@ -672,5 +676,5 @@ def update_case(
     client.Case.update(
         case_id,
         fields_to_update,
-        headers={"Sforce-Auto-Assign": "false"},
+        headers=SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS,
     )
