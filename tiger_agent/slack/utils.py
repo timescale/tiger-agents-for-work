@@ -581,6 +581,16 @@ async def append_message_to_stream(
         raise error
 
 
+@logfire.instrument(
+    "stream_response_to_mention",
+    extract_args=[
+        "channel_id",
+        "ts",
+        "thread_ts",
+        "recipient_user_id",
+        "recipient_team_id",
+    ],
+)
 async def stream_response_to_mention(
     client: AsyncWebClient,
     slack_stream: AsyncChatStream | None,
