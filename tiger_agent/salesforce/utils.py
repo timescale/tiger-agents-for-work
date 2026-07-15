@@ -663,3 +663,14 @@ async def replace_all_slack_mentions_with_links_to_profile(
         non_html = non_html.replace(f"<@{match}>", f"@{user_info.name}")
 
     return (html, non_html)
+
+
+def update_case(
+    client: Salesforce, case_id: str, fields_to_update: dict[str, Any]
+) -> None:
+    """Update a Salesforce case, bypassing auto-assignment rules."""
+    client.Case.update(
+        case_id,
+        fields_to_update,
+        headers={"Sforce-Auto-Assign": "false"},
+    )
