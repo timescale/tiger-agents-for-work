@@ -206,9 +206,7 @@ def create_case(
     if origin:
         payload["Origin"] = origin
 
-    result = salesforce_client.Case.create(
-        payload, headers=SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS
-    )
+    result = salesforce_client.Case.create(payload)
     if not result["success"] or not result["id"]:
         logfire.error("Could not create a new salesforce case")
         return
