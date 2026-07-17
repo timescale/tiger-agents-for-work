@@ -84,6 +84,8 @@ from tiger_agent.types import HarnessContext
 
 logger = logging.getLogger(__name__)
 
+AGENT_USAGE_LIMITS = UsageLimits(output_tokens_limit=40_000, request_limit=150)
+
 
 class TaskHandler(ABC):
     """Abstract base class for event handlers registered with TaskProcessor."""
@@ -216,7 +218,7 @@ class SlackTaskHandler(TaskHandler):
         async with agent_and_ctx.agent.run_stream_events(
             user_prompt=agent_and_ctx.user_prompt,
             deps=agent_and_ctx.ctx,
-            usage_limits=UsageLimits(output_tokens_limit=9_000),
+            usage_limits=AGENT_USAGE_LIMITS,
         ) as stream_events:
             async for stream_event in stream_events:
                 slack_stream = await stream_response_to_mention(
@@ -268,7 +270,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
         response = await agent_and_ctx.agent.run(
             user_prompt=agent_and_ctx.user_prompt,
             deps=agent_and_ctx.ctx,
-            usage_limits=UsageLimits(output_tokens_limit=9_000),
+            usage_limits=AGENT_USAGE_LIMITS,
         )
 
         if response.output.is_spam:
@@ -374,7 +376,7 @@ class SalesforceCaseCreatedHandler(TaskHandler):
         response = await agent_and_ctx.agent.run(
             user_prompt=agent_and_ctx.user_prompt,
             deps=agent_and_ctx.ctx,
-            usage_limits=UsageLimits(output_tokens_limit=9_000),
+            usage_limits=AGENT_USAGE_LIMITS,
         )
 
         if not response.output.is_spam:
@@ -793,5 +795,5 @@ class UserDefinedRuleMatchHandler(TaskHandler):
 
         await agent.run(
             user_prompt=user_prompt,
-            usage_limits=UsageLimits(output_tokens_limit=9_000),
+            usage_limits=AGENT_USAGE_LIMITS,
         )
