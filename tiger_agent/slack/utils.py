@@ -148,6 +148,27 @@ async def get_user_ids_in_user_group(
         return f"Could not retrieve users list {str(e)}"
 
 
+@logfire.instrument("get_user_ids_in_channel", extract_args=["channel_id"])
+async def get_user_ids_in_channel(
+    client: AsyncWebClient, channel_id: str
+) -> list[str] | str:
+    try:
+        members: list[str] = []
+        cursor: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {"channel": channel_id, "limit": 1000}
+            if cursor:
+                kwargs["cursor"] = cursor
+            response = await client.conversations_members(**kwargs)
+            members.extend(response.data.get("members", []))
+            cursor = response.data.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+        return members
+    except SlackApiError as e:
+        return f"Could not retrieve channel members {str(e)}"
+
+
 @logfire.instrument("get_user_group_id", extract_args=["user_group_name"])
 async def find_user_group(
     client: AsyncWebClient, user_group_name: str
