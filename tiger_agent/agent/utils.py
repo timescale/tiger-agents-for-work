@@ -26,6 +26,7 @@ from tiger_agent.logfire.constants import LOGFIRE_READ_TOKEN
 from tiger_agent.logfire.utils import get_tool_calls_for_event
 from tiger_agent.mcp.types import McpConfig
 from tiger_agent.mcp.utils import filter_mcp_servers
+from tiger_agent.org_calendar.utils import get_calender_events
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
     UserDefinedRule,
@@ -236,6 +237,33 @@ async def create_agent_and_context(
                 "Download a Salesforce-hosted file by its relative URL and filename. "
                 "Use this for inline images in EmailMessage HtmlBody (e.g. <img src='/sfc/servlet.shepherd/version/download/<id>' alt='filename.png'>). "
                 "Pass the src as url and the alt attribute value as filename."
+            ),
+        ),
+        Tool(
+            get_calender_events,
+            takes_ctx=False,
+            name="get_org_calendar_events",
+            description=(
+                "Fetch events from the organization's shared calendar (Justworks feed) "
+                "between two datetimes. Returns a list of CalenderEvent objects with "
+                "`summary`, `start`, `end`, and `type` fields.\n\n"
+                "The `type` field is one of:\n"
+                "- 'payday' — company paydays / payroll dates\n"
+                "- 'pto' — an employee is out of office (vacation, sick, personal, etc.)\n\n"
+                "Use the optional `events_to_filter` argument to restrict results to "
+                "one or more of those types. Examples:\n"
+                "- 'when is the next payday?' → events_to_filter=['payday']\n"
+                "- 'who is out next week?' or 'who is on PTO on Friday?' → events_to_filter=['pto']\n"
+                "- 'what's on the company calendar this week?' → omit events_to_filter to get everything.\n\n"
+                "Pass timezone-aware `start` and `end` datetimes bounding the window you "
+                "want to search. Note: PTO events are typically all-day, so widen the "
+                "window if you're checking a specific day.\n\n"
+                "The calendar is cached between calls. Only set `force_refresh=True` "
+                "if the user explicitly asks to refresh, reload, or bypass the cache "
+                "(e.g. 'refresh the calendar', 'pull the latest calendar data', "
+                "'the calendar looks stale, re-check'). Leave it False (the default) "
+                "for every other request — even if the user is asking about 'today' "
+                "or 'right now'."
             ),
         ),
         *(
