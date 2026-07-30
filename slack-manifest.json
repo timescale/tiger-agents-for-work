@@ -40,7 +40,8 @@
         "im:read",
         "files:read",
         "files:write",
-        "team:read"
+        "team:read",
+        "usergroups:read"
       ]
     }
   },

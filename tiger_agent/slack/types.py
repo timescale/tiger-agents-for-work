@@ -154,6 +154,34 @@ class TeamInfo(BaseModel):
     enterprise_name: str | None = None
 
 
+class UserGroupInfo(BaseModel):
+    """Pydantic model for a Slack user group (@handle).
+
+    Represents a Slack user group as returned by `usergroups.list`. Used to
+    resolve a human-readable group name/handle to its ID for downstream
+    membership lookups.
+
+    Attributes:
+        id: Unique user group identifier (e.g. 'S012345')
+        team_id: Team/workspace identifier
+        name: Display name of the group (e.g. 'Engineering')
+        handle: The @handle for the group (e.g. 'eng')
+        description: Optional description
+        is_usergroup: Always true for user groups
+        date_delete: Non-zero if the group has been disabled
+    """
+
+    model_config = {"extra": "allow"}
+
+    id: str
+    team_id: str | None = None
+    name: str
+    handle: str | None = None
+    description: str | None = None
+    is_usergroup: bool | None = None
+    date_delete: int | None = None
+
+
 @dataclass
 class SlackUrlParts:
     channel_id: str

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +41,9 @@ from tiger_agent.slack.utils import (
     fetch_bot_info,
     fetch_thread_messages,
     fetch_user_info,
+    find_user_group,
+    get_user_ids_in_channel,
+    get_user_ids_in_user_group,
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -177,6 +181,35 @@ async def create_agent_and_context(
             criteria_examples=criteria_examples,
         )
 
+    async def _get_user_ids_in_user_group(group_name_or_id: str) -> list[str] | str:
+        is_group_id = re.match(r"^S[0-9A-Z]{10}$", group_name_or_id)
+
+        group_id: str | None = group_name_or_id if is_group_id else None
+
+        if not is_group_id:
+            group = await find_user_group(
+                client=hctx.app.client, user_group_name=group_name_or_id
+            )
+
+            if not group:
+                return f"Could not find group matching [{group_name_or_id}]"
+
+            group_id = group.id
+
+        return await get_user_ids_in_user_group(
+            client=hctx.app.client, user_group_id=group_id
+        )
+
+    async def _get_user_ids_in_channel(channel_id: str) -> list[str] | str:
+        if not re.fullmatch(r"C[0-9A-Z]{10}", channel_id):
+            return (
+                f"Invalid channel id [{channel_id}]. Expected format: "
+                "'C' followed by 10 uppercase alphanumeric characters (e.g. 'C0123456789')."
+            )
+        return await get_user_ids_in_channel(
+            client=hctx.app.client, channel_id=channel_id
+        )
+
     # just a wrapper so we can pass the event in closure
     async def _get_tool_calls_for_event(
         lookback_hours: float = 24.0,
@@ -265,6 +298,48 @@ async def create_agent_and_context(
                         "Infer all parameters from the user's request.\n"
                         f"event_type must be one of:\n{event_type_options}\n"
                         "criteria_examples are optional but improve matching accuracy."
+                    ),
+                ),
+                Tool(
+                    _get_user_ids_in_user_group,
+                    takes_ctx=False,
+                    name="get_user_ids_in_user_group",
+                    description=(
+                        "Look up the Slack user IDs of the members of a Slack user group "
+                        "(a.k.a. an @-mentionable group like @eng or @support-oncall).\n\n"
+                        "The `group_name_or_id` argument accepts any of:\n"
+                        "- A group ID (starts with 'S' followed by 10 uppercase alphanumerics, "
+                        "e.g. 'S0123456789'). Slack often surfaces the raw ID inline in messages "
+                        "that reference a group — pass it through directly if you already have it.\n"
+                        "- A group handle (e.g. 'eng' or '@eng' — the leading @ is optional).\n"
+                        "- A group display name (e.g. 'Engineering'). Matching is case-insensitive.\n\n"
+                        "Returns a list of Slack user IDs, or an error string if the group could "
+                        "not be found or the lookup failed.\n\n"
+                        'Use when the user asks things like "who is in the @eng group?", '
+                        '"list members of the on-call rotation", or "who is on the design team?". '
+                        "The returned IDs can be passed to other tools (e.g. fetch_user_info) "
+                        "to get names, emails, or other details for each member."
+                    ),
+                ),
+                Tool(
+                    _get_user_ids_in_channel,
+                    takes_ctx=False,
+                    name="get_user_ids_in_channel",
+                    description=(
+                        "List the Slack user IDs of every member of a Slack channel.\n\n"
+                        "The `channel_id` argument must be a Slack channel ID: the letter 'C' "
+                        "followed by 10 uppercase alphanumeric characters (e.g. 'C0123456789'). "
+                        "Channel names ('#general', 'general') and links are NOT accepted — "
+                        "if the user references a channel by name, resolve it to an ID first "
+                        "using the appropriate lookup tool.\n\n"
+                        "Returns a list of Slack user IDs, or an error string if the channel "
+                        "could not be read (e.g. the bot is not a member, the ID is invalid, "
+                        "or the channel is private and inaccessible). Results are automatically "
+                        "paginated across large channels.\n\n"
+                        'Use when the user asks things like "who is in this channel?", '
+                        '"list the members of C0123456789", or "get everyone in the channel". '
+                        "The returned IDs can be passed to other tools (e.g. fetch_user_info) "
+                        "to get names, emails, or other details for each member."
                     ),
                 ),
                 *(

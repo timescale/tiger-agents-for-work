@@ -60,6 +60,7 @@ from tiger_agent.slack.types import (
     SlackMessageEvent,
     SlackUrlParts,
     TeamInfo,
+    UserGroupInfo,
     UserInfo,
 )
 from tiger_agent.types import HarnessContext
@@ -136,6 +137,58 @@ async def add_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: str
         pass
 
 
+@logfire.instrument("get_users_in_user_group", extract_args=["user_group_id"])
+async def get_user_ids_in_user_group(
+    client: AsyncWebClient, user_group_id: str
+) -> list[str] | str:
+    try:
+        users = await client.usergroups_users_list(usergroup=user_group_id)
+        return users.data["users"]
+    except SlackApiError as e:
+        return f"Could not retrieve users list {str(e)}"
+
+
+@logfire.instrument("get_user_ids_in_channel", extract_args=["channel_id"])
+async def get_user_ids_in_channel(
+    client: AsyncWebClient, channel_id: str
+) -> list[str] | str:
+    try:
+        members: list[str] = []
+        cursor: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {"channel": channel_id, "limit": 1000}
+            if cursor:
+                kwargs["cursor"] = cursor
+            response = await client.conversations_members(**kwargs)
+            members.extend(response.data.get("members", []))
+            cursor = response.data.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+        return members
+    except SlackApiError as e:
+        return f"Could not retrieve channel members {str(e)}"
+
+
+@logfire.instrument("get_user_group_id", extract_args=["user_group_name"])
+async def find_user_group(
+    client: AsyncWebClient, user_group_name: str
+) -> UserGroupInfo | None:
+    try:
+        response = await client.usergroups_list()
+        groups = [UserGroupInfo(**g) for g in response.get("usergroups", [])]
+        needle = user_group_name.lower().lstrip("@")
+        for group in groups:
+            if group.date_delete:
+                continue
+            if group.name.lower() == needle or (
+                group.handle and group.handle.lower() == needle
+            ):
+                return group
+        return None
+    except SlackApiError as e:
+        return f"Could not retrieve user group {str(e)}"
+
+
 @logfire.instrument("remove_reaction", extract_args=["channel", "ts", "emoji"])
 async def remove_reaction(client: AsyncWebClient, channel: str, ts: str, emoji: str):
     """Remove an emoji reaction from a Slack message.
@@ -172,6 +225,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
     """
     try:
         resp = await client.users_info(user=user_id, include_locale=True)
+
         assert isinstance(resp.data, dict)
         assert resp.data["ok"]
         return UserInfo(**(resp.data["user"]))
