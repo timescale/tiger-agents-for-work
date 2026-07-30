@@ -25,6 +25,9 @@ dependencies = [
     "websockets>=15.0.1",
     "pydantic-ai-slim[openrouter]>=2.0.0",
     "summarization-pydantic-ai>=0.1.10",
+    "icalendar>=7.2.2",
+    "recurring-ical-events>=3.8.2",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
