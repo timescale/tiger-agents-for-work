@@ -160,7 +160,7 @@ class SalesforceListener(Listener):
             logfire.info("Ignoring case event as owner has not changed")
             return
 
-        full_case_data = self._salesforce_client.Case.get(case.Id)
+        full_case_data = CaseData(**self._salesforce_client.Case.get(case.Id))
 
         await insert_event(
             pool=self._pool,
@@ -182,7 +182,7 @@ class SalesforceListener(Listener):
             logfire.info("Ignoring case")
             return
 
-        full_case_data = self._salesforce_client.Case.get(case.Id)
+        full_case_data = CaseData(**self._salesforce_client.Case.get(case.Id))
 
         await insert_event(
             pool=self._pool,
