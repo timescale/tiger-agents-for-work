@@ -366,6 +366,10 @@ class SalesforceCaseCreatedHandler(TaskHandler):
         if not SALESFORCE_ENABLE_SPAM_FILTERING:
             return
 
+        # at this time we only care about filtering email messages
+        if task.event.case.Origin.lower() != "email":
+            return
+
         agent_and_ctx = await create_agent_and_context(
             hctx=hctx,
             task=task,
