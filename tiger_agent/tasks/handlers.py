@@ -15,7 +15,7 @@ from htmlslacker import HTMLSlacker
 from pydantic_ai import Agent, Tool, UsageLimitExceeded, UsageLimits
 
 from tiger_agent.agent.tiger_agent import TigerAgent
-from tiger_agent.agent.utils import create_agent_and_context
+from tiger_agent.agent.utils import create_agent_and_context, summarize_new_case
 from tiger_agent.db.utils import (
     add_salesforce_case_thread,
     get_salesforce_account_id_for_channel,
@@ -287,7 +287,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
-            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description_of_case}\n```",
+            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description}\n```",
         )
 
         message_to_link_to = SlackMessage(
@@ -425,7 +425,7 @@ class SalesforceCaseCreatedHandler(TaskHandler):
         add_internal_case_post(
             salesforce_client=hctx.salesforce_client,
             case_id=event.case.Id,
-            body=response.output.short_description_of_case,
+            body=response.output.short_description,
         )
         request_feedback(
             hctx.app.client,
@@ -509,6 +509,10 @@ class SalesforceCreateCaseHandler(TaskHandler):
             service_id=event.service_id,
             origin="Slack",
         )
+        subject = new_case.Subject or ""
+        short_description = await summarize_new_case(
+            subject=subject, description=new_case.Description or ""
+        )
         response = await post_response(
             client=hctx.app.client,
             channel=channel_to_respond,
@@ -518,7 +522,7 @@ class SalesforceCreateCaseHandler(TaskHandler):
                     "*Support Case Created*",
                     f"_Submitter:_ {get_handle_link(event.user)}",
                     f"_Case Number:_ `{new_case.CaseNumber}`",
-                    f"_Subject:_ `{new_case.Subject}`",
+                    f"_Subject:_ `{subject[0:1000]}`",
                     *(
                         [f"_Project Id:_: `{new_case.Cloud_Project_ID__c}`"]
                         if new_case.Cloud_Project_ID__c
@@ -530,7 +534,7 @@ class SalesforceCreateCaseHandler(TaskHandler):
                         else []
                     ),
                     "_Description:_",
-                    add_quote_block(new_case.Description),
+                    add_quote_block(short_description),
                 ]
             ),
             use_mrkdwn=True,

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import logfire
 from pydantic_ai import Agent, BinaryContent, Tool
 from pydantic_ai.messages import UserContent
 from pydantic_ai.toolsets.abstract import AbstractToolset
@@ -14,6 +15,7 @@ from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.types import (
     AgentResponseContext,
     AgentSalesforceResponse,
+    CaseSummary,
     ExtraContextDict,
 )
 from tiger_agent.db.utils import (
@@ -51,6 +53,24 @@ from tiger_agent.utils import (
     pretty_print_models,
     wrap_mcp_servers_with_exception_handling,
 )
+
+
+CASE_SUMMARY_MODEL = "anthropic:claude-sonnet-4-6"
+
+
+@logfire.instrument("summarize_new_case", extract_args=False)
+async def summarize_new_case(subject: str, description: str) -> str:
+    agent = Agent(
+        model=CASE_SUMMARY_MODEL,
+        output_type=CaseSummary,
+        system_prompt=(
+            "You summarize customer-submitted support case descriptions into a brief, "
+            "neutral 1-2 sentence summary of the issue. Do not add speculation, "
+            "greetings, or next steps."
+        ),
+    )
+    result = await agent.run(f"Subject: {subject}\n\nDescription: {description}")
+    return result.output.short_description
 
 
 def _build_toolset(mcp_config: McpConfig) -> AbstractToolset:

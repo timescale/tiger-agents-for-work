@@ -67,14 +67,17 @@ class AgentResponseContext(BaseModel):
             self.local_time = self.task.event_ts.astimezone(ZoneInfo(self.user.tz))
 
 
-class AgentSalesforceResponse(BaseModel):
+class CaseSummary(BaseModel):
+    short_description: str = Field(
+        description="A brief 1-2 sentence summary of the support case issue."
+    )
+
+
+class AgentSalesforceResponse(CaseSummary):
     """Structured response for Salesforce case events."""
 
     is_spam: bool
     message: str
-    short_description_of_case: str = Field(
-        description="A brief 1-2 sentence summary of the support case issue."
-    )
     case_owner_slack_user_id: str | None = Field(
         default=None,
         description="The Slack user ID of the case owner (e.g. 'U012AB3CD'). Null if the Slack user ID cannot be determined for the case owner.",
