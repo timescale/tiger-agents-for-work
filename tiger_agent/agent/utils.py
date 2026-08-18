@@ -54,7 +54,6 @@ from tiger_agent.utils import (
     wrap_mcp_servers_with_exception_handling,
 )
 
-
 CASE_SUMMARY_MODEL = "anthropic:claude-sonnet-4-6"
 
 
