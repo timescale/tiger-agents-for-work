@@ -1062,6 +1062,7 @@ async def send_new_salesforce_case_workflow_form(
                     "type": "plain_text",
                     "text": "Detailed description of the issue",
                 },
+                "max_length": 30000,
             },
         },
         *([service_block] if service_block else []),
