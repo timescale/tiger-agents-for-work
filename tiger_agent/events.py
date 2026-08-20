@@ -29,3 +29,11 @@ EVENT_TYPE_REGISTRY: list[type] = [
     SalesforceCaseStatusChangedEvent,
     AgentFeedbackRatingEvent,
 ]
+
+EVENT_TYPES_BY_NAME: dict[str, type] = {
+    cls.__name__: cls for cls in EVENT_TYPE_REGISTRY
+}
+
+EVENT_TYPE_OPTIONS = "\n".join(
+    f"- {cls.__name__}: {cls.event_description}" for cls in EVENT_TYPE_REGISTRY
+)
