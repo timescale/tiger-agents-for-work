@@ -56,6 +56,25 @@ def create_tools(hctx: HarnessContext, task: Task) -> list[Tool]:
             pool=hctx.pool, rule_id=rule_id, owner_slack_id=event.user
         )
 
+    async def _attach_file(filename: str, content: str | bytes) -> None:
+        thread_ts = event.thread_ts or event.ts
+        if isinstance(content, str):
+            res = await hctx.app.client.files_upload_v2(
+                filename=filename,
+                content=content,
+                channel=event.channel,
+                thread_ts=thread_ts,
+            )
+
+            print(str(res))
+        if isinstance(content, bytes):
+            res = await hctx.app.client.files_upload_v2(
+                filename=filename,
+                file=content,
+                channel=event.channel,
+                thread_ts=thread_ts,
+            )
+
     async def _create_user_defined_rule(
         name: str,
         event_type: str,
@@ -178,6 +197,12 @@ def create_tools(hctx: HarnessContext, task: Task) -> list[Tool]:
                         'Use when the user asks things like "show me my rules", '
                         '"what rules do I have set up?", or "list my custom rules".'
                     ),
+                ),
+                Tool(
+                    _attach_file,
+                    takes_ctx=False,
+                    name="attach_file_to_slack_thread",
+                    description="Attach a snippet or attachment to the current thread. If the content type is a string, will be attached as a snippet, if the content type is a byte array, will be attached as a file.",
                 ),
                 Tool(
                     _delete_user_defined_rule,
