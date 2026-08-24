@@ -122,7 +122,12 @@ async def create_agent_and_context(
     tools = create_tools(hctx=hctx, task=task)
 
     pydantic_agent = Agent(
-        capabilities=[ContextManagerCapability(max_tokens=950_000)],
+        capabilities=[
+            ContextManagerCapability(
+                max_tokens=800_000,
+                max_tool_output_tokens=50_000,
+            )
+        ],
         model=agent.model,
         deps_type=dict[str, Any],
         system_prompt=system_prompt,
