@@ -601,9 +601,28 @@ async def delete_user_defined_rule(
     pool: AsyncConnectionPool, rule_id: int, owner_slack_id: str
 ) -> bool:
     """Delete a custom rule. Returns True if a row was deleted."""
+    should_filter_on_user = not (await user_is_admin(pool=pool, user_id=owner_slack_id))
     async with pool.connection() as con:
         result = await con.execute(
-            "DELETE FROM agent.user_defined_rules WHERE id = %s AND owner_slack_id = %s",
-            (rule_id, owner_slack_id),
+            f"""DELETE FROM agent.user_defined_rules
+               WHERE id = %s
+               {"AND owner_slack_id = %s" if should_filter_on_user else ""}""",
+            (rule_id, owner_slack_id) if should_filter_on_user else (rule_id,),
+        )
+        return result.rowcount > 0
+
+
+async def toggle_user_defined_rule(
+    pool: AsyncConnectionPool, rule_id: int, owner_slack_id: str, enabled: bool
+) -> bool:
+    """Enable or disable a custom rule. Returns True if a row was updated."""
+    should_filter_on_user = not (await user_is_admin(pool=pool, user_id=owner_slack_id))
+    async with pool.connection() as con:
+        result = await con.execute(
+            f"""UPDATE agent.user_defined_rules
+               SET enabled = %s
+               WHERE id = %s
+               {"AND owner_slack_id = %s" if should_filter_on_user else ""}""",
+            (enabled, rule_id, owner_slack_id) if should_filter_on_user else (enabled, rule_id),
         )
         return result.rowcount > 0
