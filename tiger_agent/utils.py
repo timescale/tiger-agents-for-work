@@ -12,6 +12,7 @@ The logging setup is designed to work both in development (without Logfire) and
 production (with full Logfire observability) environments.
 """
 
+import json
 import logging
 import os
 from asyncio import Queue
@@ -32,8 +33,9 @@ from tiger_agent import __version__
 from tiger_agent.agent.types import AgentResponseContext
 from tiger_agent.db.utils import create_default_pool
 from tiger_agent.mcp.types import MCPDict
-from tiger_agent.salesforce.clients import get_salesforce_api_client
 from tiger_agent.types import HarnessContext
+
+MAX_TOOL_RESULT_CHARS = 200_000
 
 
 def setup_logging(service_name: str = "tiger-agent") -> None:
@@ -115,6 +117,52 @@ def setup_logging(service_name: str = "tiger-agent") -> None:
         )
 
 
+def _truncate_tool_result(name: str, result: Any) -> Any:
+    """Cap MCP tool results at MAX_TOOL_RESULT_CHARS so a single oversized
+    payload (e.g. an unbounded thanos_range) can't blow the model's context.
+
+    ContextManagerCapability.after_tool_execute only truncates plain strings
+    and ToolReturns — MCP structured_content comes back as dict/list and slips
+    through, so we truncate here at the source.
+
+    The truncated payload is wrapped in explicit sentinel markers and prefaced
+    with guidance so the model knows the response is incomplete and can
+    narrow its next query rather than hallucinating that the JSON is complete.
+    """
+    try:
+        serialized = result if isinstance(result, str) else json.dumps(result, default=str)
+    except (TypeError, ValueError):
+        return result
+
+    if len(serialized) <= MAX_TOOL_RESULT_CHARS:
+        return result
+
+    keep = MAX_TOOL_RESULT_CHARS // 2
+    omitted = len(serialized) - 2 * keep
+    truncated = (
+        f"[TOOL_RESULT_TRUNCATED tool={name} original_chars={len(serialized)} "
+        f"kept_chars={2 * keep} omitted_chars={omitted}]\n"
+        "The tool returned more data than fits in context. The response below "
+        "has been split: the first half of the raw payload, a truncation "
+        "marker, then the last half. Any JSON/structure spanning the middle is "
+        "incomplete. Do NOT treat the visible content as the full result — "
+        "re-run the tool with tighter filters (narrower time range, label "
+        "selectors, smaller limit) to get a complete answer.\n"
+        "--- BEGIN TRUNCATED PAYLOAD ---\n"
+        f"{serialized[:keep]}\n"
+        f"[... {omitted} characters omitted ...]\n"
+        f"{serialized[-keep:]}\n"
+        "--- END TRUNCATED PAYLOAD ---"
+    )
+    logfire.warning(
+        "Truncated oversized MCP tool result",
+        name=name,
+        original_chars=len(serialized),
+        kept_chars=len(truncated),
+    )
+    return truncated
+
+
 def create_wrapped_process_tool_call(
     existing_func: ProcessToolCallback | None,
 ) -> ProcessToolCallback:
@@ -126,9 +174,10 @@ def create_wrapped_process_tool_call(
     ):
         try:
             if existing_func is not None:
-                return await existing_func(ctx, call_tool, name, tool_args)
-
-            return await call_tool(name, tool_args)
+                result = await existing_func(ctx, call_tool, name, tool_args)
+            else:
+                result = await call_tool(name, tool_args)
+            return _truncate_tool_result(name, result)
         except Exception as ex:
             logfire.exception(
                 "Exception occurred during tool call", name=name, tool_args=tool_args
@@ -188,7 +237,7 @@ def get_harness_ctx(
         ),
         pool=create_default_pool(num_workers),
         trigger=Queue(),
-        salesforce_client=get_salesforce_api_client(),
+        # salesforce_client=get_salesforce_api_client(),
         proactive_prompt_channels=proactive_prompt_channels,
         num_workers=num_workers,
         worker_sleep_seconds=worker_sleep_seconds,
@@ -214,7 +263,9 @@ def _to_yaml(value: Any, indent: int = 0) -> str:
                 lines.append(f"{pad}{k}: {rendered}")
         return "\n".join(lines)
     if isinstance(value, list):
-        items = [f"{pad}- {_to_yaml(v, indent + 1).lstrip()}" for v in value if v is not None]
+        items = [
+            f"{pad}- {_to_yaml(v, indent + 1).lstrip()}" for v in value if v is not None
+        ]
         return "\n".join(items)
     return str(value)
 
