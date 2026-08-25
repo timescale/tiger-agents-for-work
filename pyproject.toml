@@ -28,6 +28,7 @@ dependencies = [
     "icalendar>=7.2.2",
     "recurring-ical-events>=3.8.2",
     "httpx>=0.28.1",
+    "pydantic-ai-harness[anthropic]>=0.21.0",
 ]
 
 [project.scripts]
