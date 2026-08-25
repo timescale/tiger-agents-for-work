@@ -8,7 +8,7 @@ import logfire
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserContent
 from pydantic_ai.toolsets.abstract import AbstractToolset
-from pydantic_ai_harness import ClearToolResults, SubAgent, SubAgents
+from pydantic_ai_harness import SubAgent, SubAgents
 from pydantic_ai_summarization import ContextManagerCapability
 
 from tiger_agent.agent.tiger_agent import INVESTIGATOR_SYSTEM_PROMPT_REGEX, TigerAgent
@@ -146,7 +146,6 @@ async def create_agent_and_context(
                     max_tokens=800_000,
                     max_tool_output_tokens=50_000,
                 ),
-                ClearToolResults(),
             ],
         )
     )
