@@ -33,6 +33,7 @@ from tiger_agent import __version__
 from tiger_agent.agent.types import AgentResponseContext
 from tiger_agent.db.utils import create_default_pool
 from tiger_agent.mcp.types import MCPDict
+from tiger_agent.salesforce.clients import get_salesforce_api_client
 from tiger_agent.types import HarnessContext
 
 MAX_TOOL_RESULT_CHARS = 200_000
@@ -130,7 +131,9 @@ def _truncate_tool_result(name: str, result: Any) -> Any:
     narrow its next query rather than hallucinating that the JSON is complete.
     """
     try:
-        serialized = result if isinstance(result, str) else json.dumps(result, default=str)
+        serialized = (
+            result if isinstance(result, str) else json.dumps(result, default=str)
+        )
     except (TypeError, ValueError):
         return result
 
@@ -237,7 +240,7 @@ def get_harness_ctx(
         ),
         pool=create_default_pool(num_workers),
         trigger=Queue(),
-        # salesforce_client=get_salesforce_api_client(),
+        salesforce_client=get_salesforce_api_client(),
         proactive_prompt_channels=proactive_prompt_channels,
         num_workers=num_workers,
         worker_sleep_seconds=worker_sleep_seconds,
