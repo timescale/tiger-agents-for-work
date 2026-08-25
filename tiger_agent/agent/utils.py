@@ -8,9 +8,10 @@ import logfire
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserContent
 from pydantic_ai.toolsets.abstract import AbstractToolset
+from pydantic_ai_harness import ClearToolResults, SubAgent, SubAgents
 from pydantic_ai_summarization import ContextManagerCapability
 
-from tiger_agent.agent.tiger_agent import TigerAgent
+from tiger_agent.agent.tiger_agent import INVESTIGATOR_SYSTEM_PROMPT_REGEX, TigerAgent
 from tiger_agent.agent.tools import create_tools
 from tiger_agent.agent.types import (
     AgentResponseContext,
@@ -117,16 +118,49 @@ async def create_agent_and_context(
 
     system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
     user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
+    investigator_prompt = await agent.render_prompts(
+        ctx=ctx, extra_ctx=extra_ctx, regex=INVESTIGATOR_SYSTEM_PROMPT_REGEX
+    )
 
     toolsets = [_build_toolset(mcp_config) for mcp_config in mcp_servers.values()]
     tools = create_tools(hctx=hctx, task=task)
+
+    investigator = SubAgent(
+        Agent(
+            model=agent.model,
+            name="investigator",
+            description=(
+                "Delegate a self-contained investigation question. Use this when "
+                "answering would require multiple tool calls that would otherwise "
+                "clutter your own context — metric probing, log searches, query "
+                "analytics, schema discovery, historical lookups. Phrase the task "
+                "as a single specific question and include any identifiers the "
+                "investigator will need (service_id, project_id, case number, "
+                "user email, time window). The investigator returns a distilled "
+                "answer with evidence, not raw tool output."
+            ),
+            deps_type=dict[str, Any],
+            system_prompt=investigator_prompt,
+            capabilities=[
+                ContextManagerCapability(
+                    max_tokens=800_000,
+                    max_tool_output_tokens=50_000,
+                ),
+                ClearToolResults(),
+            ],
+        )
+    )
 
     pydantic_agent = Agent(
         capabilities=[
             ContextManagerCapability(
                 max_tokens=800_000,
                 max_tool_output_tokens=50_000,
-            )
+            ),
+            SubAgents(
+                agents=[investigator],
+                inherit_tools=True,
+            ),
         ],
         model=agent.model,
         deps_type=dict[str, Any],
