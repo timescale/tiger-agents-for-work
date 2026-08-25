@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT_REGEX = r"^system_prompt.*\.md$"
 USER_PROMPT_REGEX = r"^user_prompt.*\.md$"
+INVESTIGATOR_SYSTEM_PROMPT_REGEX = r"^investigator_system_prompt.*\.md$"
 
 
 class TigerAgent:
