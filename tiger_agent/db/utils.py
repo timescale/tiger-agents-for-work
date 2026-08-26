@@ -391,6 +391,20 @@ async def get_salesforce_account_id_for_channel(
         return row[0] if row else None
 
 
+async def get_slack_channel_for_salesforce_account_id(
+    pool: AsyncConnectionPool, account_id: str
+) -> str | None:
+    async with pool.connection() as con:
+        # at present, it is possible that at an account be linked to several channels as channel_id is the PK,
+        # but, in practice, this should never happen
+        result = await con.execute(
+            "SELECT channel_id FROM agent.customer_channel_salesforce_link WHERE salesforce_account_id = %s LIMIT 1",
+            (account_id,),
+        )
+        row = await result.fetchone()
+        return row[0] if row else None
+
+
 async def upsert_salesforce_account_id_for_channel(
     pool: AsyncConnectionPool, channel_id: str, salesforce_account_id: str
 ) -> None:
@@ -623,6 +637,8 @@ async def toggle_user_defined_rule(
                SET enabled = %s
                WHERE id = %s
                {"AND owner_slack_id = %s" if should_filter_on_user else ""}""",
-            (enabled, rule_id, owner_slack_id) if should_filter_on_user else (enabled, rule_id),
+            (enabled, rule_id, owner_slack_id)
+            if should_filter_on_user
+            else (enabled, rule_id),
         )
         return result.rowcount > 0

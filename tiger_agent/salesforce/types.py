@@ -29,13 +29,16 @@ class CaseData(BaseModel):
 
     model_config = {"extra": "allow"}
 
+    AccountId: str
     Id: str
     CaseNumber: str | None = None
     Cloud_Impact__c: str | None = None
     ContactEmail: str | None = None
+    SuppliedName: str | None = None
+    SuppliedEmail: str | None = None
     Customer_Slack_Thread__c: str | None = None
     Subject: str | None = None
-    Origin: str | None = None
+    Origin: str = ""
     Description: str | None = None
     Owner: SalesforceUser | None = None
     Status: str | None = None

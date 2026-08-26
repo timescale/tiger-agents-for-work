@@ -7,6 +7,7 @@ CASE_STATUS_FIELD = "Status"
 DEV_HELP_LINKS_FIELD = "Dev_Help_Links__c"
 
 CASE_FIELDS = [
+    "AccountId",
     CASE_ID_FIELD,
     "CaseNumber",
     CASE_OWNER_ID_FIELD,
@@ -19,6 +20,8 @@ CASE_FIELDS = [
     "ContactEmail",
     "Severity__c",
     "Subject",
+    "SuppliedName",
+    "SuppliedEmail",
     "Status",
     "Priority",
     "CreatedDate",

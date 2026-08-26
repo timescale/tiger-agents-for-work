@@ -30,7 +30,9 @@ async def create_slack_thread_for_case(
     short_description = await summarize_new_case(
         subject=subject, description=case.Description or ""
     )
-    submitter = submitter or case.ContactEmail
+    submitter = (
+        submitter or case.SuppliedName or case.SuppliedEmail or case.ContactEmail
+    )
     response = await post_response(
         client=hctx.app.client,
         channel=channel,
