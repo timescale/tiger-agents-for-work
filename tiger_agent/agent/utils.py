@@ -36,7 +36,7 @@ from tiger_agent.utils import (
     wrap_mcp_servers_with_exception_handling,
 )
 
-CASE_SUMMARY_MODEL = "anthropic:claude-sonnet-4-6"
+CASE_SUMMARY_MODEL = "openrouter:anthropic/claude-sonnet-4-5"
 
 
 @logfire.instrument("summarize_new_case", extract_args=False)
