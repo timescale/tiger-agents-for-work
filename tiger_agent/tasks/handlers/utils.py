@@ -99,7 +99,7 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
     event: SalesforceCaseCreatedEvent = task.event
 
     # at this time we only care about filtering email messages
-    if event.case.Origin.lower() != "email":
+    if (event.case.Origin or "").lower() != "email":
         return
 
     agent_and_ctx = await create_agent_and_context(

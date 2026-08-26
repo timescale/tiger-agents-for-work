@@ -38,7 +38,7 @@ class CaseData(BaseModel):
     SuppliedEmail: str | None = None
     Customer_Slack_Thread__c: str | None = None
     Subject: str | None = None
-    Origin: str = ""
+    Origin: str | None = None
     Description: str | None = None
     Owner: SalesforceUser | None = None
     Status: str | None = None
