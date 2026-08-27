@@ -7,6 +7,7 @@ the task in its handle() method.
 
 import logging
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 import logfire
 from pydantic_ai import UsageLimitExceeded, UsageLimits
@@ -27,10 +28,17 @@ AGENT_USAGE_LIMITS = UsageLimits(output_tokens_limit=40_000, request_limit=150)
 
 
 class TaskHandler(ABC):
-    """Abstract base class for event handlers registered with TaskProcessor."""
+    """Abstract base class for event handlers registered with TaskProcessor.
 
-    def __init__(self, hctx: HarnessContext) -> None:
+    Subclasses declare the event types they handle via ``EVENT_TYPES`` so the
+    app can auto-register them without hard-coding the mapping.
+    """
+
+    EVENT_TYPES: ClassVar[list[type]]
+
+    def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
         self._hctx = hctx
+        self._agent = agent
 
     @abstractmethod
     async def handle(self, task: Task) -> None: ...

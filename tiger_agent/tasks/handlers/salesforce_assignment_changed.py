@@ -1,6 +1,5 @@
 import logfire
 
-from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import upsert_feedback_request_reminder
 from tiger_agent.salesforce.constants import (
@@ -19,7 +18,6 @@ from tiger_agent.slack.utils import (
 )
 from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS, TaskHandler
 from tiger_agent.tasks.types import Task
-from tiger_agent.types import HarnessContext
 
 
 class SalesforceAssignmentChangedHandler(TaskHandler):
@@ -28,9 +26,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
     case channel. Updates the Salesforce case with the Slack thread permalink.
     """
 
-    def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
-        super().__init__(hctx)
-        self._agent = agent
+    EVENT_TYPES = [SalesforceAssignmentChangedEvent]
 
     @logfire.instrument("SalesforceAssignmentChangedHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:

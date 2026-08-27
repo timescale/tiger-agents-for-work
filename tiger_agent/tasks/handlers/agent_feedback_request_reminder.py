@@ -17,6 +17,8 @@ class AgentFeedbackRequestReminderHandler(TaskHandler):
     schedules the reminder for the future (e.g. at the end of the support engineer's day)
     """
 
+    EVENT_TYPES = [AgentFeedbackRequestReminderEvent]
+
     @logfire.instrument(
         "AgentFeedbackRequestReminderHandler.handle", extract_args=False
     )

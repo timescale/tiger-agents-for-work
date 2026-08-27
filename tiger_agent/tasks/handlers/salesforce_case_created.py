@@ -1,6 +1,5 @@
 import logfire
 
-from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.db.utils import get_slack_channel_for_salesforce_account_id
 from tiger_agent.salesforce.constants import (
     SALESFORCE_ENABLE_SPAM_FILTERING,
@@ -12,7 +11,6 @@ from tiger_agent.tasks.handlers.utils import (
     detect_spam_case,
 )
 from tiger_agent.tasks.types import Task
-from tiger_agent.types import HarnessContext
 
 
 class SalesforceCaseCreatedHandler(TaskHandler):
@@ -23,9 +21,7 @@ class SalesforceCaseCreatedHandler(TaskHandler):
     So this handler is strictly to detect spam cases
     """
 
-    def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
-        super().__init__(hctx)
-        self._agent = agent
+    EVENT_TYPES = [SalesforceCaseCreatedEvent]
 
     @logfire.instrument("SalesforceCaseCreatedHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:

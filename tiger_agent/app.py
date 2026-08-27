@@ -4,21 +4,6 @@ from pathlib import Path
 
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
-from tiger_agent.salesforce.types import (
-    SalesforceAssignmentChangedEvent,
-    SalesforceCaseCreatedEvent,
-    SalesforceCaseStatusChangedEvent,
-    SalesforceCreateNewCaseEvent,
-    SalesforceFeedItemEvent,
-    UserDefinedRuleMatch,
-)
-from tiger_agent.slack.types import (
-    AgentFeedbackRatingEvent,
-    AgentFeedbackRequestReminderEvent,
-    SlackAppMentionEvent,
-    SlackMessageEvent,
-    SlackSalesforceCaseThreadMessageEvent,
-)
 from tiger_agent.tasks.handlers import (
     AgentFeedbackRatingHandler,
     AgentFeedbackRequestReminderHandler,
@@ -29,11 +14,25 @@ from tiger_agent.tasks.handlers import (
     SalesforceFeedItemHandler,
     SlackSalesforceCaseThreadMessageHandler,
     SlackTaskHandler,
+    TaskHandler,
     TaskProcessor,
     UserDefinedRuleMatchHandler,
 )
 from tiger_agent.tasks.harness import TaskHarness
 from tiger_agent.types import HarnessContext
+
+_HANDLERS: list[type[TaskHandler]] = [
+    SlackTaskHandler,
+    SalesforceCaseCreatedHandler,
+    SalesforceAssignmentChangedHandler,
+    SalesforceCreateCaseHandler,
+    SalesforceFeedItemHandler,
+    SlackSalesforceCaseThreadMessageHandler,
+    SalesforceCaseStatusChangedHandler,
+    AgentFeedbackRatingHandler,
+    AgentFeedbackRequestReminderHandler,
+    UserDefinedRuleMatchHandler,
+]
 
 
 class TigerApp:
@@ -83,40 +82,10 @@ class TigerApp:
             )
 
         processor = TaskProcessor(hctx=hctx, agent=agent)
-        processor.register(
-            [SlackAppMentionEvent, SlackMessageEvent],
-            SlackTaskHandler(hctx=hctx, agent=agent),
-        )
-        processor.register(
-            SalesforceCaseCreatedEvent,
-            SalesforceCaseCreatedHandler(hctx=hctx, agent=agent),
-        )
-        processor.register(
-            SalesforceAssignmentChangedEvent,
-            SalesforceAssignmentChangedHandler(hctx=hctx, agent=agent),
-        )
-        processor.register(
-            SalesforceCreateNewCaseEvent, SalesforceCreateCaseHandler(hctx=hctx)
-        )
-        processor.register(
-            SalesforceFeedItemEvent, SalesforceFeedItemHandler(hctx=hctx)
-        )
-        processor.register(
-            SlackSalesforceCaseThreadMessageEvent,
-            SlackSalesforceCaseThreadMessageHandler(hctx=hctx),
-        )
-        processor.register(
-            SalesforceCaseStatusChangedEvent,
-            SalesforceCaseStatusChangedHandler(hctx=hctx),
-        )
-        processor.register(
-            AgentFeedbackRatingEvent, AgentFeedbackRatingHandler(hctx=hctx)
-        )
-        processor.register(
-            AgentFeedbackRequestReminderEvent,
-            AgentFeedbackRequestReminderHandler(hctx=hctx),
-        )
-        processor.register(UserDefinedRuleMatch, UserDefinedRuleMatchHandler(hctx=hctx))
+        for handler_cls in _HANDLERS:
+            processor.register(
+                handler_cls.EVENT_TYPES, handler_cls(hctx=hctx, agent=agent)
+            )
 
         self._hctx = hctx
         self._listener_harness = ListenerHarness(hctx=hctx, task_processor=processor)

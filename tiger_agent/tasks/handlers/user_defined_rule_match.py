@@ -8,12 +8,10 @@ from tiger_agent.salesforce.utils import create_case_url
 from tiger_agent.slack.utils import post_response
 from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS, TaskHandler
 from tiger_agent.tasks.types import Task
-from tiger_agent.types import HarnessContext
 
 
 class UserDefinedRuleMatchHandler(TaskHandler):
-    def __init__(self, hctx: HarnessContext) -> None:
-        super().__init__(hctx)
+    EVENT_TYPES = [UserDefinedRuleMatch]
 
     @logfire.instrument("UserDefinedRuleMatchHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:
