@@ -17,6 +17,8 @@ class SalesforceFeedItemHandler(TaskHandler):
     Syncs a Salesforce post on a case to the linked Slack thread.
     """
 
+    EVENT_TYPES = [SalesforceFeedItemEvent]
+
     @logfire.instrument("SalesforceFeedItemHandler.handle", extract_args=["task"])
     async def handle(self, task: Task) -> None:
         hctx = self._hctx

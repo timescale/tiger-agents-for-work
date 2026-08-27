@@ -26,6 +26,8 @@ class SlackSalesforceCaseThreadMessageHandler(TaskHandler):
     Salesforce case as an email comment, including any file attachments.
     """
 
+    EVENT_TYPES = [SlackSalesforceCaseThreadMessageEvent]
+
     @logfire.instrument(
         "SlackSalesforceCaseThreadMessageHandler.handle", extract_args=False
     )

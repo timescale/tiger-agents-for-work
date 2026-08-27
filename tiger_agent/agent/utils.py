@@ -25,7 +25,6 @@ from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
 )
 from tiger_agent.slack.utils import (
-    fetch_bot_info,
     fetch_thread_messages,
     fetch_user_info,
 )
@@ -81,9 +80,6 @@ async def create_agent_and_context(
 ) -> AgentAndContext:
     event = task.event
 
-    if not hctx.bot_info:
-        hctx.bot_info = await fetch_bot_info(hctx.app.client)
-
     all_mcp_servers = agent.mcp_loader()
     agent.augment_mcp_servers(all_mcp_servers)
 
@@ -125,49 +121,49 @@ async def create_agent_and_context(
     toolsets = [_build_toolset(mcp_config) for mcp_config in mcp_servers.values()]
     tools = create_tools(hctx=hctx, task=task)
 
-    investigator = SubAgent(
-        Agent(
-            model=agent.model,
-            name="investigator",
-            description=(
-                "Delegate a self-contained investigation that would require "
-                "3+ tool calls, iterative probing, or any tool whose parameters "
-                "are open-ended query DSLs (PromQL/Thanos metric queries, "
-                "Elasticsearch/log-search queries, SQL against catalog or "
-                "analytics, savannah_client::* tools, hybrid Slack search) — "
-                "these iterate on syntax and return large payloads that will "
-                "clutter your context. Also delegate skill workflows with "
-                "independent sections (fan them out in parallel, one "
-                "delegate_task per section). DO NOT delegate: a single "
-                "structured lookup by known ID (get_case_details, "
-                "get_account_details, get_releases, fetch by permalink), "
-                "one-shot searches whose result is your final answer, or "
-                "questions already answered by data in your context. Phrase "
-                "the task as one specific question and include every "
-                "identifier the investigator will need (service_id, "
-                "project_id, case_id/number, account_id, user email, time "
-                "window). The investigator returns a distilled answer with "
-                "evidence, not raw tool output."
-            ),
-            deps_type=dict[str, Any],
-            system_prompt=investigator_prompt,
-            capabilities=[
-                ContextManagerCapability(
-                    max_tokens=800_000,
-                    max_tool_output_tokens=50_000,
-                ),
-            ],
-        )
-    )
-
-    pydantic_agent = Agent(
+    agent = Agent(
         capabilities=[
             ContextManagerCapability(
                 max_tokens=800_000,
                 max_tool_output_tokens=50_000,
             ),
             SubAgents(
-                agents=[investigator],
+                agents=[
+                    SubAgent(
+                        Agent(
+                            model=agent.model,
+                            name="investigator",
+                            description=(
+                                "Delegate a self-contained investigation that would require "
+                                "3+ tool calls, iterative probing, or any tool whose parameters "
+                                "are open-ended query DSLs (PromQL/Thanos metric queries, "
+                                "Elasticsearch/log-search queries, SQL against catalog or "
+                                "analytics, savannah_client::* tools, hybrid Slack search) — "
+                                "these iterate on syntax and return large payloads that will "
+                                "clutter your context. Also delegate skill workflows with "
+                                "independent sections (fan them out in parallel, one "
+                                "delegate_task per section). DO NOT delegate: a single "
+                                "structured lookup by known ID (get_case_details, "
+                                "get_account_details, get_releases, fetch by permalink), "
+                                "one-shot searches whose result is your final answer, or "
+                                "questions already answered by data in your context. Phrase "
+                                "the task as one specific question and include every "
+                                "identifier the investigator will need (service_id, "
+                                "project_id, case_id/number, account_id, user email, time "
+                                "window). The investigator returns a distilled answer with "
+                                "evidence, not raw tool output."
+                            ),
+                            deps_type=dict[str, Any],
+                            system_prompt=investigator_prompt,
+                            capabilities=[
+                                ContextManagerCapability(
+                                    max_tokens=800_000,
+                                    max_tool_output_tokens=50_000,
+                                ),
+                            ],
+                        )
+                    )
+                ],
                 inherit_tools=True,
             ),
         ],
@@ -182,7 +178,7 @@ async def create_agent_and_context(
     )
 
     return AgentAndContext(
-        agent=pydantic_agent,
+        agent=agent,
         user_prompt=user_prompt,
         ctx=ctx,
         channel_to_respond=channel_to_respond,

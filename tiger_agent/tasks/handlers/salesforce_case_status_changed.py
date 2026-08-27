@@ -11,6 +11,8 @@ class SalesforceCaseStatusChangedHandler(TaskHandler):
     Called when a Salesforce case status changes.
     """
 
+    EVENT_TYPES = [SalesforceCaseStatusChangedEvent]
+
     @logfire.instrument("SalesforceCaseStatusChangedHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:
         hctx = self._hctx

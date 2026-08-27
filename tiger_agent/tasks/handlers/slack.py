@@ -1,6 +1,5 @@
 import logfire
 
-from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import usage_limit_reached, user_ignored
 from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
@@ -12,13 +11,10 @@ from tiger_agent.slack.utils import (
 )
 from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS, TaskHandler
 from tiger_agent.tasks.types import Task
-from tiger_agent.types import HarnessContext
 
 
 class SlackTaskHandler(TaskHandler):
-    def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
-        super().__init__(hctx)
-        self._agent = agent
+    EVENT_TYPES = [SlackAppMentionEvent, SlackMessageEvent]
 
     @logfire.instrument("SlackTaskHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:

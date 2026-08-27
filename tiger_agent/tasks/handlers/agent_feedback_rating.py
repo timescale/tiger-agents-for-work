@@ -15,6 +15,8 @@ class AgentFeedbackRatingHandler(TaskHandler):
     Called when a Salesforce case status changes.
     """
 
+    EVENT_TYPES = [AgentFeedbackRatingEvent]
+
     @logfire.instrument("AgentFeedbackRatingHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:
         hctx = self._hctx

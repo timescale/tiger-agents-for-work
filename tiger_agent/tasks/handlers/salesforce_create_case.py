@@ -17,6 +17,8 @@ class SalesforceCreateCaseHandler(TaskHandler):
     a confirmation message to the originating channel.
     """
 
+    EVENT_TYPES = [SalesforceCreateNewCaseEvent]
+
     @logfire.instrument("SalesforceCreateCaseHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:
         hctx = self._hctx
