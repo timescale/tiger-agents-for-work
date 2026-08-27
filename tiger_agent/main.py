@@ -114,23 +114,25 @@ def run(
     load_dotenv(dotenv_path=env if env else find_dotenv(usecwd=True))
     setup_logging()
 
-    app = TigerApp(
-        model=model,
-        mcp_config_path=mcp_config,
-        prompt_config=[prompts] if prompts is not None else None,
-        rate_limit_allowed_requests=rate_limit_allowed_requests,
-        rate_limit_interval=timedelta(minutes=rate_limit_interval),
-        num_workers=num_workers,
-        proactive_prompt_channels=proactive_prompt_channels,
-        worker_sleep_seconds=worker_sleep_seconds,
-        worker_min_jitter_seconds=worker_min_jitter_seconds,
-        worker_max_jitter_seconds=worker_max_jitter_seconds,
-        max_attempts=max_attempts,
-        max_age_minutes=max_age_minutes,
-        invisibility_minutes=invisibility_minutes,
-    )
+    async def _run() -> None:
+        app = await TigerApp.create(
+            model=model,
+            mcp_config_path=mcp_config,
+            prompt_config=[prompts] if prompts is not None else None,
+            rate_limit_allowed_requests=rate_limit_allowed_requests,
+            rate_limit_interval=timedelta(minutes=rate_limit_interval),
+            num_workers=num_workers,
+            proactive_prompt_channels=proactive_prompt_channels,
+            worker_sleep_seconds=worker_sleep_seconds,
+            worker_min_jitter_seconds=worker_min_jitter_seconds,
+            worker_max_jitter_seconds=worker_max_jitter_seconds,
+            max_attempts=max_attempts,
+            max_age_minutes=max_age_minutes,
+            invisibility_minutes=invisibility_minutes,
+        )
+        await app.run()
 
-    asyncio.run(app.run())
+    asyncio.run(_run())
 
 
 @cli.command()

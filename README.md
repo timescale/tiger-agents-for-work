@@ -156,9 +156,12 @@ You can embed Tiger Agent directly in your own application instead of using the 
 import asyncio
 from tiger_agent import TigerApp
 
-# Zero config — reads SLACK_BOT_TOKEN and ANTHROPIC_API_KEY from environment
-app = TigerApp()
-asyncio.run(app.run())
+async def main():
+    # Zero config — reads SLACK_BOT_TOKEN and ANTHROPIC_API_KEY from environment
+    app = await TigerApp.create()
+    await app.run()
+
+asyncio.run(main())
 ```
 
 Pass a custom `TigerAgent` subclass to override prompts or add custom logic:
@@ -172,37 +175,45 @@ class MyCoolAgent(TigerAgent):
         base = await super().make_system_prompt(ctx)
         return [base, "Always respond like a playful pirate."]
 
-app = TigerApp(agent=MyCoolAgent(model="anthropic:claude-sonnet-4-5-20250929"))
-asyncio.run(app.run())
+async def main():
+    app = await TigerApp.create(
+        agent=MyCoolAgent(model="anthropic:claude-sonnet-4-5-20250929")
+    )
+    await app.run()
+
+asyncio.run(main())
 ```
 
-Worker configuration is passed directly to `TigerApp`:
+Worker configuration is passed directly to `TigerApp.create()`:
 
 ```python
-app = TigerApp(
-    num_workers=10,
-    max_attempts=5,
-    worker_sleep_seconds=30,
-)
-asyncio.run(app.run())
+async def main():
+    app = await TigerApp.create(
+        num_workers=10,
+        max_attempts=5,
+        worker_sleep_seconds=30,
+    )
+    await app.run()
+
+asyncio.run(main())
 ```
 
 ##### Option 2: TigerAgent + Harnesses (advanced)
 
 For full control — custom `HarnessContext`, integrating with an existing event loop, or wiring up your own `TaskProcessor` function — use the lower-level building blocks directly:
 
-* **`get_harness_ctx`** — creates the shared `HarnessContext` (Slack app, database pool, trigger queue, worker config, and optional Salesforce client)
+* **`HarnessContext.create()`** — builds the shared `HarnessContext` (Slack app, database pool, trigger queue, worker config, and optional Salesforce client)
 * **`ListenerHarness`** — receives external events (Slack mentions, Salesforce cases) and enqueues them as tasks
 * **`TaskHarness`** — drives the worker pool that processes queued tasks
 
 ```python
 import asyncio
-from tiger_agent import get_harness_ctx, TaskHarness, TigerAgent
+from tiger_agent import HarnessContext, TaskHarness, TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
 
 async def main():
     # Worker config lives on HarnessContext
-    hctx = get_harness_ctx(num_workers=5)
+    hctx = await HarnessContext.create(num_workers=5)
     agent = TigerAgent(model="anthropic:claude-sonnet-4-5-20250929")
 
     listener_harness = ListenerHarness(hctx=hctx, task_processor=agent)
@@ -220,7 +231,7 @@ You can also pass a plain `async` function as your `TaskProcessor` instead of a 
 
 ```python
 import asyncio
-from tiger_agent import get_harness_ctx, HarnessContext, Task, TaskHarness
+from tiger_agent import HarnessContext, Task, TaskHarness
 from tiger_agent.listeners.harness import ListenerHarness
 
 async def my_handler(hctx: HarnessContext, task: Task):
@@ -231,7 +242,7 @@ async def my_handler(hctx: HarnessContext, task: Task):
     )
 
 async def main():
-    hctx = get_harness_ctx(num_workers=2)
+    hctx = await HarnessContext.create(num_workers=2)
     listener_harness = ListenerHarness(hctx=hctx, task_processor=my_handler)
     task_harness = TaskHarness(my_handler, hctx=hctx)
 
