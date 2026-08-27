@@ -29,7 +29,7 @@ class CaseData(BaseModel):
 
     model_config = {"extra": "allow"}
 
-    AccountId: str
+    AccountId: str | None = None
     Id: str
     CaseNumber: str | None = None
     Cloud_Impact__c: str | None = None
