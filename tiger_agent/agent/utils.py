@@ -130,14 +130,24 @@ async def create_agent_and_context(
             model=agent.model,
             name="investigator",
             description=(
-                "Delegate a self-contained investigation question. Use this when "
-                "answering would require multiple tool calls that would otherwise "
-                "clutter your own context — metric probing, log searches, query "
-                "analytics, schema discovery, historical lookups. Phrase the task "
-                "as a single specific question and include any identifiers the "
-                "investigator will need (service_id, project_id, case number, "
-                "user email, time window). The investigator returns a distilled "
-                "answer with evidence, not raw tool output."
+                "Delegate a self-contained investigation that would require "
+                "3+ tool calls, iterative probing, or any tool whose parameters "
+                "are open-ended query DSLs (PromQL/Thanos metric queries, "
+                "Elasticsearch/log-search queries, SQL against catalog or "
+                "analytics, savannah_client::* tools, hybrid Slack search) — "
+                "these iterate on syntax and return large payloads that will "
+                "clutter your context. Also delegate skill workflows with "
+                "independent sections (fan them out in parallel, one "
+                "delegate_task per section). DO NOT delegate: a single "
+                "structured lookup by known ID (get_case_details, "
+                "get_account_details, get_releases, fetch by permalink), "
+                "one-shot searches whose result is your final answer, or "
+                "questions already answered by data in your context. Phrase "
+                "the task as one specific question and include every "
+                "identifier the investigator will need (service_id, "
+                "project_id, case_id/number, account_id, user email, time "
+                "window). The investigator returns a distilled answer with "
+                "evidence, not raw tool output."
             ),
             deps_type=dict[str, Any],
             system_prompt=investigator_prompt,
