@@ -36,10 +36,12 @@ Designed for customization through subclassing, allowing developers to override 
 ### Core Components
 
 #### **Prompt System**
-TigerAgent uses a two template for generating prompts:
+TigerAgent generates prompts from Jinja2 templates discovered by regex. Two templates are required:
 
 - **system_prompt.md**: Defines the AI's role, capabilities, and behavior patterns
 - **user_prompt.md**: Contains the user's request with relevant context
+
+Additional templates can supplement each prompt: any file matching `^(system_prompt|shared_system_prompt).*\.md$` is stitched into the system prompt, and any file matching `^user_prompt.*\.md$` is stitched into the user prompt. TigerAgent also loads `^(investigator_system_prompt|shared_system_prompt).*\.md$` into an investigator sub-agent used for delegated investigations. Files named `shared_system_prompt.<tag>.md` are shared across the main agent and the investigator. See [Prompt Templates](prompt_templates.md) for full details.
 
 Templates have access to a rich context object containing:
 - `event`: Complete Event object with processing metadata
@@ -140,7 +142,7 @@ See [MCP Server Configuration](mcp_config.md) for detailed configuration instruc
 
 #### Template Configuration
 
-Templates are loaded from the filesystem using Jinja2. Tiger Agent requires two templates: `system_prompt.md` and `user_prompt.md`.
+Templates are loaded from the filesystem using Jinja2. Tiger Agent requires two templates (`system_prompt.md` and `user_prompt.md`) and discovers any additional templates matching the system/user/investigator regex patterns.
 See [Prompt Templates](prompt_templates.md) for detailed configuration and customization instructions.
 
 ### Implementation Patterns

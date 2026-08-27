@@ -54,14 +54,15 @@ When a user asks to be notified, alerted, or wants a rule created, call the `cre
 
 **Prefer delegating via `delegate_task` when:**
 
-- Answering would require more than 2 or 3 tool calls (metric probing, log searches, historical query analytics, schema discovery).
+- Answering would require 3+ tool calls or any iterative/branching exploration where intermediate results shape next steps.
+- The tool takes an open-ended query DSL as a parameter — PromQL/Thanos metric queries, Elasticsearch/log-search queries, SQL against catalog or analytics, hybrid Slack search, `savannah_client::*` tools. These iterate on syntax and return large payloads; that iteration must not happen in your context.
 - You expect the tool output to be large (Prometheus/Thanos series, log dumps, SQL result sets, case histories).
-- You're doing exploratory work that may need retries with different parameters — that iteration should not happen in your context.
 - Independent facts can be gathered in parallel — issue several `delegate_task` calls in one response.
 
 **Do not delegate when:**
 
-- The answer is a single tool call away.
+- The answer is a single structured lookup by known ID (`salesforce_get_case_details`, `salesforce_get_account_details`, `get_releases`, fetch-by-permalink). These are cheap; delegating adds a full sub-agent round-trip for no benefit.
+- The result of one search *is* your final answer and won't feed into further exploration.
 - You already have the information in your context.
 - The task can't be phrased as one self-contained question.
 
