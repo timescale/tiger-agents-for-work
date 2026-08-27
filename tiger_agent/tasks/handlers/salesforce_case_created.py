@@ -30,7 +30,7 @@ class SalesforceCaseCreatedHandler(TaskHandler):
     @logfire.instrument("SalesforceCaseCreatedHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:
         event: SalesforceCaseCreatedEvent = task.event
-        if (event.case.Origin or "").lower() != "slack":
+        if (event.case.Origin or "").lower() != "slack" and event.case.AccountId:
             channel_id_for_account = await get_slack_channel_for_salesforce_account_id(
                 pool=self._hctx.pool, account_id=event.case.AccountId
             )
