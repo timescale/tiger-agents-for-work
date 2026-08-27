@@ -23,9 +23,6 @@ from tiger_agent.salesforce.types import (
 from tiger_agent.salesforce.utils import (
     get_services_for_account,
 )
-from tiger_agent.slack.commands import (
-    handle_command,
-)
 from tiger_agent.slack.constants import (
     CONFIRM_PROACTIVE_PROMPT,
     FEEDBACK_FORM_SUBMIT,
@@ -35,6 +32,9 @@ from tiger_agent.slack.constants import (
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
     SLACK_APP_TOKEN,
+)
+from tiger_agent.slack.slash_commands import (
+    handle_command,
 )
 from tiger_agent.slack.types import (
     AgentFeedbackRatingEvent,
