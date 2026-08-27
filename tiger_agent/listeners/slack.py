@@ -23,7 +23,7 @@ from tiger_agent.salesforce.types import (
 from tiger_agent.salesforce.utils import (
     get_services_for_account,
 )
-from tiger_agent.slack.commands import (
+from tiger_agent.slack.slash_commands import (
     handle_command,
 )
 from tiger_agent.slack.constants import (
