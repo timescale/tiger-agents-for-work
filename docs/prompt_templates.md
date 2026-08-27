@@ -11,6 +11,26 @@ The prompt system uses two required templates:
 
 Templates have access to a rich context object containing event details, user information, bot capabilities, and temporal data.
 
+## How templates are discovered
+
+Templates are discovered by regex, not by exact filename. Any `.md` file whose name matches the corresponding regex is loaded, rendered, and passed to the agent as a **sequence of prompts**. This means you can split a prompt across multiple files, and downstream packages can *supplement* (not just override) the base prompts.
+
+| Regex | Matches | Consumer |
+| --- | --- | --- |
+| `^(system_prompt\|shared_system_prompt).*\.md$` | `system_prompt.md`, `system_prompt_identity.md`, `shared_system_prompt.tigerlabs.md`, … | Main agent's system prompt |
+| `^user_prompt.*\.md$` | `user_prompt.md`, `user_prompt_extra.md`, … | Main agent's user prompt |
+| `^(investigator_system_prompt\|shared_system_prompt).*\.md$` | `investigator_system_prompt.md`, `shared_system_prompt.tigerlabs.md`, … | Investigator sub-agent's system prompt |
+
+Matched templates are rendered in order of **shortest filename first**, then alphabetically. So `system_prompt.md` renders before `system_prompt_identity.md`, which renders before `shared_system_prompt.tigerlabs.md`. Design your filenames with this ordering in mind if the sequence matters.
+
+### `shared_system_prompt.<tag>.md` — cross-agent prompts
+
+Any file named `shared_system_prompt.<tag>.md` (e.g. `shared_system_prompt.tigerlabs.md`) is loaded by **both** the main agent and the investigator sub-agent. Use this pattern for guidance that applies to every agent in the system — for example, "how to discover tools available through a shared MCP proxy" — so you only maintain one file. Prompts that should apply to only one agent stay in their agent-specific file (`system_prompt*.md` or `investigator_system_prompt*.md`).
+
+### `investigator_system_prompt*.md` — the investigator sub-agent
+
+Tiger Agent exposes an `investigator` sub-agent for delegating focused investigations that would otherwise clutter the main agent's context (e.g. iterative log searches, PromQL queries, multi-step lookups). Files matching `^investigator_system_prompt.*\.md$` are loaded into that sub-agent's system prompt and rendered with the same context object as the main agent's prompts.
+
 ## Template Files
 
 ### `system_prompt.md`

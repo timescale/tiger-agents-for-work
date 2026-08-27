@@ -110,7 +110,13 @@ To make your Tiger Agent powerful, you'll need to customize it.
 For light customization, you can use [Jinja2](https://jinja.palletsprojects.com/en/stable/) templates to customize the system and user prompts.
 You can give your Tiger Agent custom superpowers by configuring one or more MCP servers. See the [CLI docs](/docs/cli.md) for more information.
 
-Tiger Agent supports overriding prompts and/or supplementing prompts by supplying a path to a directory containing prompts with the `--prompts` CLI argument. If you wish to override the default prompt, provide a `system_prompt.md` or `user_prompt.md` markdown file. However, if you want to supplment the default prompts, supply markdown files that have follow the regex pattern of `^system_prompt.*\.md$` or `^user_prompt.*\.md$`. Prompts will be sorted alphabetically when added to the agent.
+Tiger Agent supports overriding prompts and/or supplementing prompts by supplying a path to a directory containing prompts with the `--prompts` CLI argument. If you wish to override the default prompt, provide a `system_prompt.md` or `user_prompt.md` markdown file. However, if you want to supplement the default prompts, supply markdown files matching one of these regex patterns:
+
+* `^(system_prompt|shared_system_prompt).*\.md$` — main agent's system prompt
+* `^user_prompt.*\.md$` — main agent's user prompt
+* `^(investigator_system_prompt|shared_system_prompt).*\.md$` — investigator sub-agent's system prompt
+
+Prompts matching a pattern are stitched together as a sequence, sorted shortest filename first then alphabetically. Files named `shared_system_prompt.<tag>.md` are loaded by both the main agent and the investigator sub-agent — use this pattern for cross-agent guidance. See [Prompt Templates](/docs/prompt_templates.md) for details.
 
 For heavy customization, you can subclass the TigerAgent class or implement a TaskProcessor from scratch. This strategy, also, supports overriding and/or supplementing the base prompts. Consider this example:
 
