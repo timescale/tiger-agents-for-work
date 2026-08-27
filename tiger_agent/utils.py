@@ -233,11 +233,11 @@ def get_harness_ctx(
     max_age_minutes: int = 60,
     invisibility_minutes: int = 10,
 ) -> HarnessContext:
-
+    app = AsyncApp(
+        token=os.environ["SLACK_BOT_TOKEN"], ignoring_self_events_enabled=False
+    )
     return HarnessContext(
-        app=AsyncApp(
-            token=os.environ["SLACK_BOT_TOKEN"], ignoring_self_events_enabled=False
-        ),
+        app=app,
         pool=create_default_pool(num_workers),
         trigger=Queue(),
         salesforce_client=get_salesforce_api_client(),

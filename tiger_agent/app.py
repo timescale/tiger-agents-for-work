@@ -19,6 +19,7 @@ from tiger_agent.slack.types import (
     SlackMessageEvent,
     SlackSalesforceCaseThreadMessageEvent,
 )
+from tiger_agent.slack.utils import fetch_bot_info
 from tiger_agent.tasks.handlers import (
     AgentFeedbackRatingHandler,
     AgentFeedbackRequestReminderHandler,
@@ -146,6 +147,7 @@ class TigerApp:
 
     async def run(self) -> None:
         await self._hctx.pool.open(wait=True)
+        self._hctx.bot_info = await fetch_bot_info(self._hctx.app.client)
         async with asyncio.TaskGroup() as tasks:
             await self._task_harness.run(tasks)
             await self._listener_harness.start(tasks)

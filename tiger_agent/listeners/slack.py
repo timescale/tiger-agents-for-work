@@ -46,7 +46,6 @@ from tiger_agent.slack.types import (
     UserInfo,
 )
 from tiger_agent.slack.utils import (
-    fetch_bot_info,
     fetch_end_of_day_for_user,
     fetch_team_info,
     fetch_user_info,
@@ -89,11 +88,10 @@ class SlackListener(Listener):
             if hctx.proactive_prompt_channels
             else None
         )
-        self._bot_info: BotInfo | None = None
+        self._bot_info: BotInfo = hctx.bot_info
 
     async def start(self, tasks: TaskGroup):
-        self._bot_info = await fetch_bot_info(self._app.client)
-        self._hctx.bot_info = self._bot_info
+
         self._app.action(CONFIRM_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
         self._app.action(REJECT_PROACTIVE_PROMPT)(self._handle_proactive_prompt)
 
