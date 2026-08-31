@@ -1,0 +1,3 @@
+import os
+
+USER_DEFINED_EVENTS_ENABLED = os.environ.get("USER_DEFINED_EVENTS_ENABLED", False)

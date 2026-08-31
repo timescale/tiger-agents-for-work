@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.app import _HANDLERS, TigerApp
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
@@ -46,7 +47,11 @@ EXPECTED_EVENT_ROUTES: dict[type, type[TaskHandler]] = {
     SalesforceCaseStatusChangedEvent: SalesforceCaseStatusChangedHandler,
     AgentFeedbackRatingEvent: AgentFeedbackRatingHandler,
     AgentFeedbackRequestReminderEvent: AgentFeedbackRequestReminderHandler,
-    UserDefinedRuleMatch: UserDefinedRuleMatchHandler,
+    **(
+        {UserDefinedRuleMatch: UserDefinedRuleMatchHandler}
+        if USER_DEFINED_EVENTS_ENABLED
+        else {}
+    ),
 }
 
 

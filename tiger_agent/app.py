@@ -2,6 +2,7 @@ import asyncio
 from datetime import timedelta
 from pathlib import Path
 
+from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.tasks.handlers import (
@@ -31,7 +32,7 @@ _HANDLERS: list[type[TaskHandler]] = [
     SalesforceCaseStatusChangedHandler,
     AgentFeedbackRatingHandler,
     AgentFeedbackRequestReminderHandler,
-    UserDefinedRuleMatchHandler,
+    *([UserDefinedRuleMatchHandler] if USER_DEFINED_EVENTS_ENABLED else []),
 ]
 
 
