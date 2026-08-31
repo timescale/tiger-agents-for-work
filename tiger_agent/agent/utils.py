@@ -175,6 +175,7 @@ async def create_agent_and_context(
         else str,
         tools=tools,
         toolsets=toolsets,
+        retries=5,
     )
 
     return AgentAndContext(
