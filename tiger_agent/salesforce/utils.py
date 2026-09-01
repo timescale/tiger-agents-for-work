@@ -460,7 +460,7 @@ def get_case_email_messages(
         )
         result = salesforce_client.query(query)
 
-        logfire.info("Quering case emails", extra={"query": query})
+        logfire.info("Querying case emails", extra={"query": query})
 
         return [
             SalesforceEmailMessage(
