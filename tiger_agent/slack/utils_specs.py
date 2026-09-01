@@ -76,7 +76,7 @@ class TestPostMessage:
     ):
         # 15 characters per line * 1000 = 15k, exceeds the max length for markdown
         # in a single message
-        text = "## Heading" + "this is a line\n" * 1000
+        text = "## Heading" + "\nthis is a line\n\n" * 1000
 
         client = make_async_web_client_mock()
         await post_response(
