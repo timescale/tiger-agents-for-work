@@ -430,9 +430,6 @@ def get_case_feed_items(
         return []
 
 
-@logfire.instrument(
-    "get_case_email_messages",
-)
 def get_case_email_messages(
     salesforce_client: Salesforce,
     case_id: str | None = None,
@@ -459,8 +456,6 @@ def get_case_email_messages(
             f" ORDER BY MessageDate ASC"
         )
         result = salesforce_client.query(query)
-
-        logfire.info("Querying case emails", extra={"query": query})
 
         return [
             SalesforceEmailMessage(
