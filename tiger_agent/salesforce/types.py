@@ -127,6 +127,7 @@ class SalesforceEmailMessage(SalesforceFeedItem):
     HasAttachment: bool | None = None
     Type: str | None = "EmailMessage"
     HtmlBody: str | None = None
+    Status: str | None = None
 
 
 # at present, we are using these to synchronize
