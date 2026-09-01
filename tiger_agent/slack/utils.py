@@ -47,6 +47,7 @@ from tiger_agent.slack.constants import (
     CONFIRM_PROACTIVE_PROMPT,
     FEEDBACK_FORM_SUBMIT,
     FEEDBACK_FORM_TRIGGER,
+    MAXIMUM_LENGTH_OF_MARKDOWN_BLOCK,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
@@ -64,7 +65,7 @@ from tiger_agent.slack.types import (
     UserInfo,
 )
 from tiger_agent.types import HarnessContext
-from tiger_agent.utils import file_type_supported
+from tiger_agent.utils import file_type_supported, split_markdown_text_into_blocks
 
 
 def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
@@ -321,15 +322,28 @@ async def fetch_thread_messages(
         return []
 
 
+def looks_like_commonmark(text: str) -> bool:
+    # ATX headings at line start
+    if re.search(r"^#{1,6}\s", text, re.MULTILINE):
+        return True
+    # CommonMark bold **x** (mrkdwn uses single *)
+    if re.search(r"\*\*[^*\n]+\*\*", text):
+        return True
+    # CommonMark link syntax [x](y) (mrkdwn uses <y|x>)
+    if re.search(r"\[[^\]]+\]\([^)]+\)", text):
+        return True
+    # Pipe tables
+    return bool(re.search(r"^\s*\|.*\|\s*$", text, re.MULTILINE))
+
+
 @logfire.instrument("post_response", extract_args=["channel", "thread_ts", "text"])
 async def post_response(
     client: AsyncWebClient,
     channel: str,
     thread_ts: str | None,
     text: str,
-    use_mrkdwn: bool = False,
     file_attachments: list[FileAttachment] | None = None,
-) -> AsyncSlackResponse:
+) -> AsyncSlackResponse | None:
     """Post a response message to Slack with rich formatting.
 
     Posts a message to a specific thread (or creates a new thread if thread_ts
@@ -341,21 +355,40 @@ async def post_response(
         channel: Slack channel ID to post in
         thread_ts: Thread timestamp to reply to (or message ts to start thread)
         text: Message content with markdown formatting support
-        image_attachments: Optional image files to upload and attach as image blocks
+        file_attachments: Optional files to upload and attach as image blocks
 
     Raises:
         SlackApiError: If message posting fails (not caught, allows caller to handle)
     """
-    response = await client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=text,
-        blocks=[{"type": "markdown", "text": text}]
-        if not use_mrkdwn
-        else [{"type": "section", "fields": [{"type": "mrkdwn", "text": text}]}],
-        unfurl_links=False,
-        unfurl_media=False,
-    )
+
+    use_markdown = looks_like_commonmark(text)
+    response: AsyncSlackResponse | None = None
+
+    if use_markdown:
+        sent_preview_text = False
+        messages = split_markdown_text_into_blocks(
+            text=text, max_string_length=MAXIMUM_LENGTH_OF_MARKDOWN_BLOCK
+        )
+
+        for message in messages:
+            response = await client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text=message if not sent_preview_text else "",
+                blocks=[{"type": "markdown", "text": message}],
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+            sent_preview_text = True
+
+    else:
+        response = await client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=text,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
 
     for attachment in file_attachments or []:
         await client.files_upload_v2(
