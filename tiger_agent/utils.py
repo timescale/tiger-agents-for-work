@@ -244,3 +244,41 @@ def pretty_print_models(models: list[BaseModel]) -> str:
     for model in models:
         parts.append(f"---\n{_to_yaml(model.model_dump())}")
     return "\n\n".join(parts)
+
+
+def split_markdown_text_into_blocks(text: str, max_string_length: int) -> list[str]:
+    """
+    This is a simple string chunker. That takes a string and returns an array of chunks
+    """
+
+    if not text:
+        return []
+
+    chunks: list[str] = []
+    current_chunk_length = 0
+    current_chunk: str = ""
+
+    # let's split sections by splitting on empty lines
+    splits = text.split("\n\n")
+
+    # then iterate over each of the sections
+    for section in splits:
+        padding = "\n\n" if current_chunk else ""
+        section_length = len(section) + len(padding)
+
+        # if we can add this section to the current chunk, do it
+        if current_chunk_length + section_length <= max_string_length:
+            current_chunk += padding + section
+            current_chunk_length += section_length
+
+        # otherwise, make a new chunk
+        else:
+            if current_chunk:
+                chunks.append(current_chunk)
+            current_chunk = section
+            current_chunk_length = len(section)
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks

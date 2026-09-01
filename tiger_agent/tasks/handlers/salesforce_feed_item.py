@@ -51,6 +51,5 @@ class SalesforceFeedItemHandler(TaskHandler):
             channel=channel_id,
             thread_ts=thread_ts,
             text=text,
-            use_mrkdwn=True,
             file_attachments=file_attachments,
         )

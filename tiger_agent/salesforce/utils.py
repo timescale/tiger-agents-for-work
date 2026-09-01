@@ -449,12 +449,14 @@ def get_case_email_messages(
         if case_id:
             conditions.append(f"Parent.Id = '{case_id}'")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-        result = salesforce_client.query(
+        query = (
             f"SELECT Id, Status, ParentId, TextBody, Subject, MessageDate, CreatedById,"
             f" FromName, FromAddress, Incoming, HasAttachment, HtmlBody"
             f" FROM EmailMessage{where}"
             f" ORDER BY MessageDate ASC"
         )
+        result = salesforce_client.query(query)
+
         return [
             SalesforceEmailMessage(
                 Id=r["Id"],

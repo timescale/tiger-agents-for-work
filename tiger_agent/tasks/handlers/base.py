@@ -12,6 +12,7 @@ from typing import ClassVar
 import logfire
 from pydantic_ai import UsageLimitExceeded, UsageLimits
 
+from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
@@ -105,7 +106,7 @@ class TaskProcessor:
             raise
 
         # skip rule evaluation for match events themselves to avoid loops
-        if not isinstance(event, UserDefinedRuleMatch):
+        if USER_DEFINED_EVENTS_ENABLED and not isinstance(event, UserDefinedRuleMatch):
             await evaluate_user_defined_rules(
                 pool=hctx.pool,
                 event_type=event.type,

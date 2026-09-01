@@ -33,7 +33,6 @@ class AgentFeedbackRatingHandler(TaskHandler):
                 client=hctx.app.client,
                 channel=AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL,
                 thread_ts=None,
-                use_mrkdwn=True,
                 text="\n".join(
                     [
                         "*Feedback Received*",
