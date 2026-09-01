@@ -60,8 +60,10 @@ class SalesforceCaseFeedItemPoller:
 
     async def _poll(self) -> None:
         # TODO: can improve the fallback by doing a query on the last feed item event in the db
-        since = self._last_poll or (
-            datetime.now(UTC) - timedelta(hours=INITIAL_LOOKBACK_IN_HOURS)
+        since = (
+            (self._last_poll - timedelta(seconds=self._poll_interval_seconds))
+            if self._last_poll
+            else (datetime.now(UTC) - timedelta(hours=INITIAL_LOOKBACK_IN_HOURS))
         )
         self._last_poll = datetime.now(UTC)
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
