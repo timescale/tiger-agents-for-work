@@ -67,6 +67,10 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{output.short_description}\n```",
         )
 
+        if not original_message:
+            logfire.error("Failed to post message, aborting")
+            return
+
         message_to_link_to = SlackMessage(
             channel_id=SALESFORCE_CASE_CHANNEL,
             ts=original_message.data.get("ts"),

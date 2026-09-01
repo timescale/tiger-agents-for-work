@@ -62,6 +62,10 @@ async def create_slack_thread_for_case(
         ),
     )
 
+    if not response:
+        logfire.error("Failed to post message, aborting")
+        return
+
     new_case_thread_ts = response.data.get("ts", None)
     if not new_case_thread_ts:
         raise Exception(
@@ -131,6 +135,10 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
         thread_ts=None,
         text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_",
     )
+
+    if not original_message:
+        logfire.error("Failed to post message, aborting")
+        return
 
     message_thread = original_message.data.get("ts")
     if not message_thread:
