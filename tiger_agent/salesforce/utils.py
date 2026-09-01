@@ -422,7 +422,7 @@ def get_case_feed_items(
             f"SELECT Id, ParentId, Body, Type, CreatedDate, CreatedById,"
             f" CreatedBy.Name, CreatedBy.Email, Visibility"
             f" FROM FeedItem{where}"
-            f" ORDER BY CreatedDate DESC"
+            f" ORDER BY CreatedDate ASC"
         )
         return [SalesforceFeedItem(**r) for r in result.get("records", [])]
     except Exception:
@@ -453,7 +453,7 @@ def get_case_email_messages(
             f"SELECT Id, Status, ParentId, TextBody, Subject, MessageDate, CreatedById,"
             f" FromName, FromAddress, Incoming, HasAttachment, HtmlBody"
             f" FROM EmailMessage{where}"
-            f" ORDER BY MessageDate DESC"
+            f" ORDER BY MessageDate ASC"
         )
         return [
             SalesforceEmailMessage(
