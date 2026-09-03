@@ -1,6 +1,6 @@
 import os
-from asyncio import Queue
-from dataclasses import dataclass
+from asyncio import Event, Queue
+from dataclasses import dataclass, field
 
 from psycopg_pool import AsyncConnectionPool
 from simple_salesforce.api import Salesforce
@@ -20,6 +20,8 @@ class HarnessContext:
         app: Slack Bolt AsyncApp for making Slack API calls
         pool: Database connection pool for PostgreSQL operations
         trigger: Queue used to wake workers when new tasks are enqueued
+        shutdown: Event set when a soft shutdown has been requested; workers stop
+            claiming new tasks and listeners disconnect once it is set
         bot_info: Bot profile information
         salesforce_client: Optional Salesforce API client
         proactive_prompt_channels: Channel IDs where proactive prompts are sent without mentions
@@ -45,6 +47,7 @@ class HarnessContext:
     max_attempts: int = 3
     max_age_minutes: int = 60
     invisibility_minutes: int = 10
+    shutdown: Event = field(default_factory=Event)
 
     @classmethod
     async def create(
