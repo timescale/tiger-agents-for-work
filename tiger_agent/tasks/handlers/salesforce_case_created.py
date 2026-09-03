@@ -15,10 +15,13 @@ from tiger_agent.tasks.types import Task
 
 class SalesforceCaseCreatedHandler(TaskHandler):
     """
-    Runs the agent to determine if the case is spam.
-    We handle legitimate new cases with the SalesforceAssignmentChangedHandler
-    as, at that point we have a assignee and spam should have been filtered out
-    So this handler is strictly to detect spam cases
+    Determines whether a newly created case is spam.
+
+    Legitimate new cases are handled by SalesforceAssignmentChangedHandler once
+    an assignee exists, so this handler is strictly spam triage. It runs a small
+    tool-free agent (see ``assess_case_for_spam``) rather than the full Eon
+    agent -- deciding that an email is a vendor solicitation does not warrant a
+    case investigation.
     """
 
     EVENT_TYPES = [SalesforceCaseCreatedEvent]

@@ -7,7 +7,6 @@ from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import upsert_feedback_request_reminder
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
-    SALESFORCE_ENABLE_SPAM_FILTERING,
     SALESFORCE_SLACK_THREAD_FIELD,
 )
 from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
@@ -49,14 +48,6 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             usage_limits=AGENT_USAGE_LIMITS,
         )
         output = cast(AgentSalesforceResponse, response.output)
-
-        if output.is_spam:
-            logfire.info(
-                "Salesforce case identified as spam",
-                extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
-            )
-            if SALESFORCE_ENABLE_SPAM_FILTERING:
-                return
 
         case_owner_user_id = output.case_owner_slack_user_id
 

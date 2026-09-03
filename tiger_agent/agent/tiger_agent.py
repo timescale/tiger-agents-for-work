@@ -39,6 +39,9 @@ USER_PROMPT_REGEX = r"^user_prompt.*\.md$"
 INVESTIGATOR_SYSTEM_PROMPT_REGEX = (
     r"^(investigator_system_prompt|shared_system_prompt).*\.md$"
 )
+# Deliberately excluded from SYSTEM_PROMPT_REGEX: spam triage runs as its own
+# small agent and must not inherit the main agent's instructions.
+SPAM_DETECTION_PROMPT_REGEX = r"^spam_detection_prompt.*\.md$"
 
 
 class TigerAgent:
