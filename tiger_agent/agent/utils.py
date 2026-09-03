@@ -37,11 +37,22 @@ from tiger_agent.utils import (
 
 CASE_SUMMARY_MODEL = "openrouter:anthropic/claude-sonnet-5"
 
+# Only the settings matching the active model's provider prefix are read; the rest are
+# ignored, so it's safe to set both Anthropic's and OpenRouter's cache keys regardless of
+# whether `model` is an `anthropic:` or `openrouter:` model string.
+PROMPT_CACHE_MODEL_SETTINGS: dict[str, Any] = {
+    "anthropic_cache_instructions": True,
+    "anthropic_cache_tool_definitions": True,
+    "openrouter_cache_instructions": True,
+    "openrouter_cache_tool_definitions": True,
+}
+
 
 @logfire.instrument("summarize_new_case", extract_args=False)
 async def summarize_new_case(subject: str, description: str) -> str:
     agent = Agent(
         model=CASE_SUMMARY_MODEL,
+        model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         output_type=CaseSummary,
         system_prompt=(
             "You summarize customer-submitted support case descriptions into a brief, "
@@ -132,6 +143,7 @@ async def create_agent_and_context(
                     SubAgent(
                         Agent(
                             model=agent.model,
+                            model_settings=PROMPT_CACHE_MODEL_SETTINGS,
                             name="investigator",
                             description=(
                                 "Delegate a self-contained investigation that would require "
@@ -168,6 +180,7 @@ async def create_agent_and_context(
             ),
         ],
         model=agent.model,
+        model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         deps_type=dict[str, Any],
         system_prompt=system_prompt,
         output_type=AgentSalesforceResponse
