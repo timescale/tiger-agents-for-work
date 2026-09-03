@@ -193,6 +193,27 @@ Database function uses `ORDER BY random()` to prevent head-of-line blocking.
 - **invisibility_minutes**: Claim duration (default: 10)
 - **worker_sleep_seconds**: Polling interval (default: 60)
 - **worker_min/max_jitter_seconds**: Adds random jitter to worker sleep
+- **shutdown_grace_seconds**: How long in-flight tasks may run after a shutdown signal (default: 840)
+
+### Soft Shutdown
+
+`TigerApp.run()` handles `SIGTERM` and `SIGINT` so a Kubernetes rollout or node
+upgrade does not kill agents mid-response:
+
+1. The first signal sets `HarnessContext.shutdown`. Workers stop claiming new
+   tasks and exit once their current task finishes. The Slack Socket Mode
+   connection is closed so Slack routes new events to the remaining pods, and
+   Salesforce streaming loops are cancelled.
+2. Once every worker and listener has stopped, the connection pool is closed
+   and the process exits.
+3. If in-flight tasks are still running after `shutdown_grace_seconds`, or a
+   second signal arrives, they are cancelled. Their events remain claimed in
+   `agent.event` and become visible to other workers again after
+   `invisibility_minutes`, so the work is retried rather than lost.
+
+The default grace period (840s) is chosen to sit under the 900s
+`terminationGracePeriodSeconds` used in `tiger-agents-deploy`, so cancellation
+and cleanup happen before Kubernetes sends `SIGKILL`.
 
 ## Monitoring & Observability
 

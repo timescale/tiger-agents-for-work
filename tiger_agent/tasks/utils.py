@@ -52,6 +52,9 @@ async def process_tasks(
     """
     # while we are finding tasks to claim, keep working for a bit but not forever
     for _ in range(20):
+        if hctx.shutdown.is_set():
+            # soft shutdown in progress: leave remaining tasks for other instances
+            return
         task = await claim_event(
             pool=hctx.pool,
             max_attempts=max_attempts,

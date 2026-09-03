@@ -34,6 +34,7 @@ from tiger_agent.salesforce.utils import (
     should_ignore_new_case,
     subscribe_to_topic,
 )
+from tiger_agent.shutdown import cancel_on_shutdown
 from tiger_agent.types import HarnessContext
 
 CASE_OWNER_CHANGED_TOPIC = "CaseOwnerChangedTopic"
@@ -47,6 +48,7 @@ class SalesforceListener(Listener):
         self._salesforce_client = hctx.salesforce_client
         self._pool = hctx.pool
         self._trigger = hctx.trigger
+        self._shutdown = hctx.shutdown
         self._new_case_poller: SalesforceNewCasePoller | None
         self._feed_item_poller: SalesforceCaseFeedItemPoller | None
 
@@ -65,29 +67,39 @@ class SalesforceListener(Listener):
             handler=self.handle_new_feed_item,
         )
 
+        # these loops never exit on their own; cancel them on soft shutdown
         tasks.create_task(
-            self._subscribe_to_event(
-                CASE_OWNER_CHANGED_TOPIC,
-                [CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
-                self.handle_updated_case_assignee,
+            cancel_on_shutdown(
+                self._shutdown,
+                self._subscribe_to_event(
+                    CASE_OWNER_CHANGED_TOPIC,
+                    [CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
+                    self.handle_updated_case_assignee,
+                ),
             )
         )
         tasks.create_task(
-            self._subscribe_to_event(
-                CASE_CREATED_TOPIC,
-                [CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
-                self.handle_case_created,
-                "create",
+            cancel_on_shutdown(
+                self._shutdown,
+                self._subscribe_to_event(
+                    CASE_CREATED_TOPIC,
+                    [CASE_ID_FIELD, CASE_OWNER_ID_FIELD],
+                    self.handle_case_created,
+                    "create",
+                ),
             )
         )
         tasks.create_task(
-            self._subscribe_to_event(
-                CASE_STATUS_CHANGED_TOPIC,
-                [CASE_ID_FIELD, CASE_STATUS_FIELD],
-                self.handle_case_status_changed,
+            cancel_on_shutdown(
+                self._shutdown,
+                self._subscribe_to_event(
+                    CASE_STATUS_CHANGED_TOPIC,
+                    [CASE_ID_FIELD, CASE_STATUS_FIELD],
+                    self.handle_case_status_changed,
+                ),
             )
         )
-        tasks.create_task(self._run_schedule())
+        tasks.create_task(cancel_on_shutdown(self._shutdown, self._run_schedule()))
 
         # poller will look for cases that have been created+assigned
         # that the agent has "missed"

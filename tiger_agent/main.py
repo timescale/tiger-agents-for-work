@@ -7,6 +7,7 @@ from dotenv import find_dotenv, load_dotenv
 from psycopg import AsyncConnection
 
 from tiger_agent import TigerApp
+from tiger_agent.app import DEFAULT_SHUTDOWN_GRACE_SECONDS
 from tiger_agent.migrations import runner
 from tiger_agent.utils import setup_logging
 
@@ -73,6 +74,12 @@ def cli():
 )
 @click.option("--num-workers", type=int, default=5, help="Number of worker processes")
 @click.option(
+    "--shutdown-grace-seconds",
+    type=int,
+    default=DEFAULT_SHUTDOWN_GRACE_SECONDS,
+    help="On SIGTERM/SIGINT, how long to let in-flight tasks finish before cancelling them. Keep below the pod's terminationGracePeriodSeconds",
+)
+@click.option(
     "--rate-limit-allowed-requests",
     type=int,
     default=None,
@@ -105,6 +112,7 @@ def run(
     max_age_minutes: int = 60,
     invisibility_minutes: int = 10,
     num_workers: int = 5,
+    shutdown_grace_seconds: int = DEFAULT_SHUTDOWN_GRACE_SECONDS,
     rate_limit_allowed_requests: int | None = None,
     rate_limit_interval: int = 1,
     proactive_prompt_channels: list[str] = None,
@@ -129,6 +137,7 @@ def run(
             max_attempts=max_attempts,
             max_age_minutes=max_age_minutes,
             invisibility_minutes=invisibility_minutes,
+            shutdown_grace_seconds=shutdown_grace_seconds,
         )
         await app.run()
 

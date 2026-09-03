@@ -97,6 +97,9 @@ class TaskHarness:
         or by timeout. Workers are initially staggered to distribute
         load and prevent thundering herd effects.
 
+        When ``hctx.shutdown`` is set the worker finishes whatever task it is
+        currently processing, stops claiming new ones, and returns.
+
         Args:
             worker_id: Unique identifier for this worker
             initial_sleep_seconds: Initial delay before starting work
@@ -115,6 +118,8 @@ class TaskHarness:
                 max_age_minutes=self._hctx.max_age_minutes,
             )
 
+        shutdown = self._hctx.shutdown
+
         if initial_sleep_seconds > 0:
             logger.info(
                 "worker initial sleep",
@@ -123,19 +128,31 @@ class TaskHarness:
                     "initial_sleep_seconds": initial_sleep_seconds,
                 },
             )
-            await asyncio.sleep(initial_sleep_seconds)
+            try:
+                await asyncio.wait_for(shutdown.wait(), timeout=initial_sleep_seconds)
+                logger.info(
+                    "shutdown requested; worker never started",
+                    extra={"worker_id": worker_id},
+                )
+                return
+            except TimeoutError:
+                pass
 
         logger.info("starting worker", extra={"worker_id": worker_id})
-        while True:
+        while not shutdown.is_set():
             try:
                 await asyncio.wait_for(
                     self._hctx.trigger.get(), timeout=self._calc_worker_sleep()
                 )
-                await worker_run()
             except TimeoutError:
-                await worker_run()
+                pass
             except QueueShutDown:
-                return
+                break
+            if shutdown.is_set():
+                break
+            await worker_run()
+
+        logger.info("worker stopped", extra={"worker_id": worker_id})
 
     def _worker_args(self, num_workers: int) -> list[tuple[int, int]]:
         """Generate worker arguments with staggered start times.
