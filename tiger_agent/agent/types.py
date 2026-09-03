@@ -73,10 +73,31 @@ class CaseSummary(BaseModel):
     )
 
 
+class SpamAssessment(BaseModel):
+    """Verdict from the dedicated spam-detection agent.
+
+    Produced by a small, tool-free model so that triaging junk costs a fraction
+    of a full case investigation. See ``prompts/spam_detection_prompt.md``.
+    """
+
+    is_spam: bool = Field(
+        description="True only when the case is clearly spam. When in doubt, False."
+    )
+    reason: str = Field(
+        description="One or two sentences naming the evidence behind the verdict, recorded for auditing."
+    )
+    short_description: str = Field(
+        description="A brief 1-2 sentence neutral summary of what the case says."
+    )
+    message: str = Field(
+        default="",
+        description="Slack mrkdwn notification body. Populated only when is_spam is True.",
+    )
+
+
 class AgentSalesforceResponse(CaseSummary):
     """Structured response for Salesforce case events."""
 
-    is_spam: bool
     message: str
     case_owner_slack_user_id: str | None = Field(
         default=None,

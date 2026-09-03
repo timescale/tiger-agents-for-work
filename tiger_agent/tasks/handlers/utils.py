@@ -1,10 +1,8 @@
-from typing import cast
-
 import logfire
 
 from tiger_agent.agent.tiger_agent import TigerAgent
-from tiger_agent.agent.types import AgentSalesforceResponse
-from tiger_agent.agent.utils import create_agent_and_context, summarize_new_case
+from tiger_agent.agent.types import AgentResponseContext
+from tiger_agent.agent.utils import assess_case_for_spam, summarize_new_case
 from tiger_agent.db.utils import (
     add_salesforce_case_thread,
 )
@@ -21,7 +19,6 @@ from tiger_agent.salesforce.utils import (
 )
 from tiger_agent.slack.types import SlackMessage
 from tiger_agent.slack.utils import add_quote_block, post_response, request_feedback
-from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
@@ -108,19 +105,15 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
     if (event.case.Origin or "").lower() != "email":
         return
 
-    agent_and_ctx = await create_agent_and_context(
-        hctx=hctx,
-        task=task,
-        agent=agent,
-        channel_to_respond=SALESFORCE_CASE_CHANNEL,
-    )
+    if hctx.bot_info is None:
+        logfire.error("Cannot assess a case for spam without bot info, aborting")
+        return
 
-    response = await agent_and_ctx.agent.run(
-        user_prompt=agent_and_ctx.user_prompt,
-        deps=agent_and_ctx.ctx,
-        usage_limits=AGENT_USAGE_LIMITS,
+    output = await assess_case_for_spam(
+        agent=agent,
+        ctx=AgentResponseContext(task=task, mention=event, bot=hctx.bot_info),
+        case=event.case,
     )
-    output = cast(AgentSalesforceResponse, response.output)
 
     if not output.is_spam:
         return
