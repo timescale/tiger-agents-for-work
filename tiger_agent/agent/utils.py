@@ -50,11 +50,25 @@ from tiger_agent.utils import (
 # Only the settings matching the active model's provider prefix are read; the rest are
 # ignored, so it's safe to set both Anthropic's and OpenRouter's cache keys regardless of
 # whether `model` is an `anthropic:` or `openrouter:` model string.
+#
+# Caching instructions and tool definitions only ever covers a fixed-size prefix, so its
+# value decays as an agent loop grows -- on SalesforceAssignmentChanged that was a ~21.5K
+# cached block against requests averaging 137K. Also caching the conversation makes the
+# cached prefix grow with the run, so each turn pays full price for the new tool result
+# rather than for the whole history again.
+#
+# Anthropic gets `anthropic_cache` rather than `anthropic_cache_messages`: it is the
+# native form, where the server moves the breakpoint forward on its own. The `_messages`
+# variant is the fallback for gateways that cannot pass the top-level parameter, and the
+# two are mutually exclusive. OpenRouter has no automatic equivalent, so it takes the
+# explicit per-message breakpoint.
 PROMPT_CACHE_MODEL_SETTINGS: dict[str, Any] = {
     "anthropic_cache_instructions": True,
     "anthropic_cache_tool_definitions": True,
+    "anthropic_cache": True,
     "openrouter_cache_instructions": True,
     "openrouter_cache_tool_definitions": True,
+    "openrouter_cache_messages": True,
 }
 
 
