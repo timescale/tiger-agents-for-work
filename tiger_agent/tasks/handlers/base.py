@@ -50,14 +50,6 @@ class TaskHandler(ABC):
 
     EVENT_TYPES: ClassVar[list[type]]
 
-    EVALUATES_USER_DEFINED_RULES: ClassVar[bool] = True
-    """Whether user-defined rules should be judged after this handler runs.
-
-    Rule evaluation costs an LLM call per candidate rule. Handlers that only
-    mirror data mechanically -- and never invoke the agent themselves -- have
-    nothing a rule could usefully match on, so they opt out.
-    """
-
     def __init__(self, hctx: HarnessContext, agent: TigerAgent) -> None:
         self._hctx = hctx
         self._agent = agent
@@ -147,11 +139,7 @@ class TaskProcessor:
             raise
 
         # skip rule evaluation for match events themselves to avoid loops
-        if (
-            USER_DEFINED_EVENTS_ENABLED
-            and handler.EVALUATES_USER_DEFINED_RULES
-            and not isinstance(event, UserDefinedRuleMatch)
-        ):
+        if USER_DEFINED_EVENTS_ENABLED and not isinstance(event, UserDefinedRuleMatch):
             await evaluate_user_defined_rules(
                 pool=hctx.pool,
                 event_type=event.type,

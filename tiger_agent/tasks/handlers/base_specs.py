@@ -38,7 +38,7 @@ def stub_slack_notifications():
         yield
 
 
-def _processor(handler_exc=None, evaluates_rules=True):
+def _processor(handler_exc=None):
     hctx = MagicMock()
     hctx.app.client = MagicMock()
     hctx.pool = MagicMock()
@@ -48,7 +48,6 @@ def _processor(handler_exc=None, evaluates_rules=True):
 
     class Handler(TaskHandler):
         EVENT_TYPES = [_Event]
-        EVALUATES_USER_DEFINED_RULES = evaluates_rules
 
         async def handle(self, task):
             if handler_exc is not None:
@@ -109,42 +108,3 @@ class TestOverflowIsNotRequeued:
         processor, hctx = _processor(handler_exc=UsageLimitExceeded("too much"))
 
         await processor(hctx, _task())  # must not raise
-
-
-class TestRuleEvaluationGate:
-    @patch(
-        "tiger_agent.tasks.handlers.base.evaluate_user_defined_rules", new=AsyncMock()
-    )
-    @patch("tiger_agent.tasks.handlers.base.USER_DEFINED_EVENTS_ENABLED", True)
-    async def test_runs_for_a_normal_handler(self):
-        from tiger_agent.tasks.handlers import base
-
-        processor, hctx = _processor(evaluates_rules=True)
-        await processor(hctx, _task())
-
-        base.evaluate_user_defined_rules.assert_awaited_once()
-
-    @patch(
-        "tiger_agent.tasks.handlers.base.evaluate_user_defined_rules", new=AsyncMock()
-    )
-    @patch("tiger_agent.tasks.handlers.base.USER_DEFINED_EVENTS_ENABLED", True)
-    async def test_skipped_when_the_handler_opts_out(self):
-        """A mechanical mirror has nothing a rule could usefully match on."""
-        from tiger_agent.tasks.handlers import base
-
-        processor, hctx = _processor(evaluates_rules=False)
-        await processor(hctx, _task())
-
-        base.evaluate_user_defined_rules.assert_not_awaited()
-
-    def test_the_feed_item_handler_opts_out(self):
-        from tiger_agent.tasks.handlers.salesforce_feed_item import (
-            SalesforceFeedItemHandler,
-        )
-
-        assert SalesforceFeedItemHandler.EVALUATES_USER_DEFINED_RULES is False
-
-    def test_handlers_evaluate_rules_by_default(self):
-        from tiger_agent.tasks.handlers.slack import SlackTaskHandler
-
-        assert SlackTaskHandler.EVALUATES_USER_DEFINED_RULES is True

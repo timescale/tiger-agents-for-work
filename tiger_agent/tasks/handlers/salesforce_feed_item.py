@@ -19,10 +19,6 @@ class SalesforceFeedItemHandler(TaskHandler):
 
     EVENT_TYPES = [SalesforceFeedItemEvent]
 
-    # This handler mirrors a Salesforce feed item into Slack and never invokes
-    # the agent, so there is nothing for a user-defined rule to judge.
-    EVALUATES_USER_DEFINED_RULES = False
-
     @logfire.instrument("SalesforceFeedItemHandler.handle", extract_args=["task"])
     async def handle(self, task: Task) -> None:
         hctx = self._hctx
