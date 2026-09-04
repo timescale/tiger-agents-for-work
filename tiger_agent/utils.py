@@ -28,15 +28,12 @@ from pydantic_ai.mcp import (
 )
 
 from tiger_agent import __version__
+from tiger_agent.agent.constants import (
+    MAX_IDENTICAL_TOOL_CALLS,
+    MAX_TOOL_RESULT_CHARS,
+)
 from tiger_agent.agent.types import AgentResponseContext
 from tiger_agent.mcp.types import MCPDict
-
-MAX_TOOL_RESULT_CHARS = 200_000
-
-# How many times one exact (tool, arguments) pair may run in a single agent
-# run before further attempts are refused. Two is a legitimate retry; a
-# third is a loop.
-MAX_IDENTICAL_TOOL_CALLS = 2
 
 
 def setup_logging(service_name: str = "tiger-agent") -> None:

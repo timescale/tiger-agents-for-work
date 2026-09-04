@@ -12,6 +12,8 @@ from pydantic_ai_harness import SubAgent, SubAgents
 from pydantic_ai_summarization import ContextManagerCapability
 
 from tiger_agent.agent.constants import (
+    AGENT_MAX_CONTEXT_TOKENS,
+    AGENT_MAX_TOOL_OUTPUT_TOKENS,
     CASE_SUMMARY_MODEL,
     SPAM_DETECTION_MODEL,
     SPAM_DETECTION_USAGE_LIMITS,
@@ -212,8 +214,8 @@ async def create_agent_and_context(
     agent = Agent(
         capabilities=[
             ContextManagerCapability(
-                max_tokens=800_000,
-                max_tool_output_tokens=50_000,
+                max_tokens=AGENT_MAX_CONTEXT_TOKENS,
+                max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
             ),
             make_limit_warner(),
             SubAgents(
@@ -247,8 +249,8 @@ async def create_agent_and_context(
                             system_prompt=investigator_prompt,
                             capabilities=[
                                 ContextManagerCapability(
-                                    max_tokens=800_000,
-                                    max_tool_output_tokens=50_000,
+                                    max_tokens=AGENT_MAX_CONTEXT_TOKENS,
+                                    max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
                                 ),
                                 make_limit_warner(),
                             ],
