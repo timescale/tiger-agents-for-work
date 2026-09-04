@@ -1,6 +1,7 @@
 import logfire
 from pydantic_ai.messages import PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
 
+from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import usage_limit_reached, user_ignored
 from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
@@ -10,7 +11,7 @@ from tiger_agent.slack.utils import (
     set_status,
     stream_response_to_mention,
 )
-from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS, TaskHandler
+from tiger_agent.tasks.handlers.base import TaskHandler
 from tiger_agent.tasks.types import Task
 
 
