@@ -290,17 +290,31 @@ def create_wrapped_process_tool_call(
     return process_tool_call
 
 
-def wrap_mcp_servers_with_exception_handling(mcp_servers: MCPDict) -> MCPDict:
-    """Wrap MCP servers with exception handling for tool calls.
+def wrap_mcp_servers_with_tool_call_guards(mcp_servers: MCPDict) -> MCPDict:
+    """Install the tool-call guards on every MCP server.
 
-    Creates wrapper functions around existing process_tool_call methods
-    to add consistent error handling and logging.
+    Each guard stops one way a single tool call can damage a run, and all
+    three surface as an ordinary tool result rather than an exception, so the
+    model can react and the run continues:
+
+    * **Failures** are logged and returned as text instead of propagating.
+    * **Oversized payloads** are truncated at ``MAX_TOOL_RESULT_CHARS`` with a
+      marker, so one unbounded result cannot swallow the context window.
+    * **Exact repeats** past ``MAX_IDENTICAL_TOOL_CALLS`` within a run are
+      refused, so a loop cannot re-issue the same call indefinitely.
+
+    Wrappers compose over any ``process_tool_call`` already set on a server,
+    so callers that install their own hook keep it.
+
+    Note this rebinds ``process_tool_call`` in place and is **not idempotent** --
+    calling it twice on the same servers nests the wrappers. That is safe today
+    because ``MCPLoader.__call__`` builds fresh server instances per run.
 
     Args:
         mcp_servers: Dictionary of MCP server configurations
 
     Returns:
-        Modified dictionary with wrapped process_tool_call functions
+        The same dictionary, with each server's process_tool_call wrapped
     """
     # One tracker instance across servers; it partitions counts by run_id
     # internally, so the coordinator and each delegated sub-agent -- which share

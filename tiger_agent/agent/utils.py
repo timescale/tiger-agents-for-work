@@ -44,7 +44,7 @@ from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import (
     pretty_print_models,
-    wrap_mcp_servers_with_exception_handling,
+    wrap_mcp_servers_with_tool_call_guards,
 )
 
 # Only the settings matching the active model's provider prefix are read; the rest are
@@ -177,7 +177,7 @@ async def create_agent_and_context(
         channel_id=channel_to_respond,
     )
 
-    wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
+    wrap_mcp_servers_with_tool_call_guards(mcp_servers=mcp_servers)
 
     ctx = AgentResponseContext(
         task=task,
