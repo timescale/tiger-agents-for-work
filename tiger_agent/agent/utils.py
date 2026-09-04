@@ -16,6 +16,7 @@ from tiger_agent.agent.constants import (
     SPAM_DETECTION_MODEL,
     SPAM_DETECTION_USAGE_LIMITS,
 )
+from tiger_agent.agent.limits import make_limit_warner
 from tiger_agent.agent.tiger_agent import (
     INVESTIGATOR_SYSTEM_PROMPT_REGEX,
     SPAM_DETECTION_PROMPT_REGEX,
@@ -214,6 +215,7 @@ async def create_agent_and_context(
                 max_tokens=800_000,
                 max_tool_output_tokens=50_000,
             ),
+            make_limit_warner(),
             SubAgents(
                 agents=[
                     SubAgent(
@@ -248,6 +250,7 @@ async def create_agent_and_context(
                                     max_tokens=800_000,
                                     max_tool_output_tokens=50_000,
                                 ),
+                                make_limit_warner(),
                             ],
                         )
                     )

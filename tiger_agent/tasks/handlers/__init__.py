@@ -4,12 +4,12 @@ Re-exports the dispatch base classes and every concrete handler so callers can
 continue to write `from tiger_agent.tasks.handlers import ...`.
 """
 
+from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.tasks.handlers.agent_feedback_rating import AgentFeedbackRatingHandler
 from tiger_agent.tasks.handlers.agent_feedback_request_reminder import (
     AgentFeedbackRequestReminderHandler,
 )
 from tiger_agent.tasks.handlers.base import (
-    AGENT_USAGE_LIMITS,
     TaskHandler,
     TaskProcessor,
 )
