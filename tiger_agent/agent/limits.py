@@ -30,34 +30,12 @@ from pydantic_ai_summarization import LimitWarnerCapability
 
 from tiger_agent.agent.constants import (
     AGENT_CRITICAL_REMAINING_REQUESTS,
-    AGENT_MAX_CONTEXT_TOKENS,
     AGENT_MAX_OUTPUT_TOKENS,
+    AGENT_MAX_REQUEST_INPUT_TOKENS,
     AGENT_MAX_REQUESTS,
-    AGENT_SOFT_TOTAL_TOKENS,
     AGENT_WARNING_THRESHOLD,
     FINALIZE_MAX_REQUESTS,
 )
-
-# Stop a run before its context reaches the model's ceiling.
-#
-# A run was observed dying on "prompt is too long: 1002326 tokens > 1000000
-# maximum". That surfaces as a provider 400, which is the worst shape available:
-# the oversized request is billed, nothing is salvaged, and because the prompt
-# is a deterministic function of the event, every requeue rebuilds it and fails
-# identically.
-#
-# pydantic-ai checks this against each response's input tokens as it arrives.
-# Context grows monotonically, so catching "this turn was 850K" ends the run
-# before the next turn would breach 1M -- and it raises UsageLimitExceeded, so
-# the warner already counts down toward it and run_and_return_partial still
-# turns it into a partial answer.
-#
-# Sized to sit above the compaction trigger (0.9 x 800K = 720K) so context
-# management gets first attempt, and far enough below a 1M window that one more
-# turn cannot clear it: a single tool result is capped at 50K tokens by
-# ContextManagerCapability and ~50K by MAX_TOOL_RESULT_CHARS. Only 39 of 20,652
-# calls in a six-day sample exceeded 720K at all, so routine work never sees it.
-AGENT_MAX_REQUEST_INPUT_TOKENS = 850_000
 
 AGENT_USAGE_LIMITS = UsageLimits(
     output_tokens_limit=AGENT_MAX_OUTPUT_TOKENS,
@@ -91,10 +69,16 @@ def make_limit_warner() -> LimitWarnerCapability:
     and become critical with three requests to spare, which gives the agent
     room to stop searching and write its answer before anything is enforced.
     """
+    # Every number here is interpolated verbatim into the message the model
+    # reads ("Context window: 812345/850000 tokens used"), so each one must be a
+    # limit that is actually enforced. A countdown to a ceiling that never
+    # arrives teaches the model to discount the warnings that do matter.
     return LimitWarnerCapability(
         max_iterations=AGENT_MAX_REQUESTS,
-        max_context_tokens=AGENT_MAX_CONTEXT_TOKENS,
-        max_total_tokens=AGENT_SOFT_TOTAL_TOKENS,
+        max_context_tokens=AGENT_MAX_REQUEST_INPUT_TOKENS,
+        # No cumulative token limit is enforced yet, so there is nothing
+        # truthful to count down against. Set this the moment one exists.
+        max_total_tokens=None,
         warning_threshold=AGENT_WARNING_THRESHOLD,
         critical_remaining_iterations=AGENT_CRITICAL_REMAINING_REQUESTS,
     )

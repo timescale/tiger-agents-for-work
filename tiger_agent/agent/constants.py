@@ -44,11 +44,35 @@ SPAM_DETECTION_MODEL = os.environ.get(
 #
 #   0.7 x CONTEXT       warner starts telling the model to converge
 #   0.9 x CONTEXT       ContextManagerCapability attempts compaction
-#   AGENT_MAX_REQUESTS  hard stop on turn count
+#   REQUEST_INPUT       run stops with UsageLimitExceeded -> partial answer
+#   model window        provider would reject -- never reached
 # --------------------------------------------------------------------------
 
 AGENT_MAX_REQUESTS: int = int(os.getenv("AGENT_MAX_REQUESTS", "150"))
 AGENT_MAX_OUTPUT_TOKENS: int = int(os.getenv("AGENT_MAX_OUTPUT_TOKENS", "40000"))
+
+# Stop a run before its context reaches the model's ceiling.
+#
+# A run was observed dying on "prompt is too long: 1002326 tokens > 1000000
+# maximum". That surfaces as a provider 400, which is the worst shape available:
+# the oversized request is billed, nothing is salvaged, and because the prompt
+# is a deterministic function of the event, every requeue rebuilds it and fails
+# identically.
+#
+# pydantic-ai checks this against each response's input tokens as it arrives.
+# Context grows monotonically, so catching "this turn was 850K" ends the run
+# before the next turn would breach 1M -- and it raises UsageLimitExceeded, so
+# the warner already counts down toward it and run_and_return_partial still
+# turns it into a partial answer.
+#
+# Sized to sit above the compaction trigger (0.9 x 800K = 720K) so context
+# management gets first attempt, and far enough below a 1M window that one more
+# turn cannot clear it: a single tool result is capped at 50K tokens by
+# ContextManagerCapability and ~50K by MAX_TOOL_RESULT_CHARS. Only 39 of 20,652
+# calls in a six-day sample exceeded 720K at all, so routine work never sees it.
+AGENT_MAX_REQUEST_INPUT_TOKENS: int = int(
+    os.getenv("AGENT_MAX_REQUEST_INPUT_TOKENS", "850000")
+)
 
 # The budget ContextManagerCapability manages against; compaction fires at
 # 0.9x this.

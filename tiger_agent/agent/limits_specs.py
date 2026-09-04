@@ -8,9 +8,11 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from tiger_agent.agent.limits import (
+from tiger_agent.agent.constants import (
     AGENT_MAX_CONTEXT_TOKENS,
     AGENT_MAX_REQUEST_INPUT_TOKENS,
+)
+from tiger_agent.agent.limits import (
     AGENT_USAGE_LIMITS,
     FINALIZE_USAGE_LIMITS,
     _close_dangling_tool_calls,
@@ -166,3 +168,49 @@ class TestPerRequestContextCeiling:
     def test_the_finalize_pass_is_not_subject_to_it(self):
         """The salvage call must not be blocked by the budget that just tripped."""
         assert FINALIZE_USAGE_LIMITS.per_request_input_tokens_limit is None
+
+
+class TestWarnerMatchesEnforcedLimits:
+    """The warner interpolates its numbers straight into the model's context.
+
+    "Context window: 812345/850000 tokens used" is read as fact. If the figure
+    is not the one that actually stops the run, the model is either warned
+    about a ceiling that never arrives or blindsided by one it was never told
+    about -- and warnings that prove empty devalue the ones that do not.
+    """
+
+    def test_iteration_warning_matches_the_enforced_request_limit(self):
+        warner = make_limit_warner()
+
+        assert warner.max_iterations == AGENT_USAGE_LIMITS.request_limit
+
+    def test_context_warning_matches_the_enforced_per_request_ceiling(self):
+        warner = make_limit_warner()
+
+        assert warner.max_context_tokens == (
+            AGENT_USAGE_LIMITS.per_request_input_tokens_limit
+        )
+
+    def test_no_countdown_against_an_unenforced_total(self):
+        """AGENT_SOFT_TOTAL_TOKENS is a proposal, not a limit."""
+        warner = make_limit_warner()
+
+        assert AGENT_USAGE_LIMITS.total_tokens_limit is None
+        assert AGENT_USAGE_LIMITS.input_tokens_limit is None
+        assert warner.max_total_tokens is None
+
+    def test_every_warned_dimension_is_actually_enforced(self):
+        """Guards against drift as limits are tuned."""
+        warner = make_limit_warner()
+        enforced = {
+            "max_iterations": AGENT_USAGE_LIMITS.request_limit,
+            "max_context_tokens": AGENT_USAGE_LIMITS.per_request_input_tokens_limit,
+            "max_total_tokens": AGENT_USAGE_LIMITS.total_tokens_limit,
+        }
+
+        for field, enforced_value in enforced.items():
+            warned_value = getattr(warner, field)
+            if warned_value is not None:
+                assert warned_value == enforced_value, (
+                    f"warner {field}={warned_value} but nothing enforces that value"
+                )
