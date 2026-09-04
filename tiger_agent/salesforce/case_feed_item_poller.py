@@ -60,23 +60,29 @@ class SalesforceCaseFeedItemPoller:
 
     async def _poll(self) -> None:
         # TODO: can improve the fallback by doing a query on the last feed item event in the db
-        since = self._last_poll or (
-            datetime.now(UTC) - timedelta(hours=INITIAL_LOOKBACK_IN_HOURS)
+        since = (
+            (self._last_poll - timedelta(seconds=self._poll_interval_seconds))
+            if self._last_poll
+            else (datetime.now(UTC) - timedelta(hours=INITIAL_LOOKBACK_IN_HOURS))
         )
         self._last_poll = datetime.now(UTC)
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        case_feed_items = get_case_feed_items(
-            salesforce_client=self._salesforce_client,
-            types=["TextPost", "ContentPost"],
-            public_only=True,
-            created_after=since_str,
-        ) + get_case_email_messages(
-            salesforce_client=self._salesforce_client,
-            created_after=since_str,
-            # the agent will create EmailMessages when syncing Slack messages
-            # so we do not want to create an infinite loop!
-            exclude_creator_id=self._get_bot_sf_user_id(),
+        case_feed_items = sorted(
+            get_case_feed_items(
+                salesforce_client=self._salesforce_client,
+                types=["TextPost", "ContentPost"],
+                public_only=True,
+                created_after=since_str,
+            )
+            + get_case_email_messages(
+                salesforce_client=self._salesforce_client,
+                created_after=since_str,
+                # the agent will create EmailMessages when syncing Slack messages
+                # so we do not want to create an infinite loop!
+                exclude_creator_id=self._get_bot_sf_user_id(),
+            ),
+            key=lambda x: x.CreatedDate or "",
         )
 
         # filter out feed items that have already been handled

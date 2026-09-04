@@ -1,7 +1,8 @@
 import logfire
 
 from tiger_agent.agent.tiger_agent import TigerAgent
-from tiger_agent.agent.utils import create_agent_and_context, summarize_new_case
+from tiger_agent.agent.types import AgentResponseContext
+from tiger_agent.agent.utils import assess_case_for_spam, summarize_new_case
 from tiger_agent.db.utils import (
     add_salesforce_case_thread,
 )
@@ -18,7 +19,6 @@ from tiger_agent.salesforce.utils import (
 )
 from tiger_agent.slack.types import SlackMessage
 from tiger_agent.slack.utils import add_quote_block, post_response, request_feedback
-from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
@@ -57,8 +57,11 @@ async def create_slack_thread_for_case(
                 add_quote_block(short_description),
             ]
         ),
-        use_mrkdwn=True,
     )
+
+    if not response:
+        logfire.error("Failed to post message, aborting")
+        return
 
     new_case_thread_ts = response.data.get("ts", None)
     if not new_case_thread_ts:
@@ -102,20 +105,17 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
     if (event.case.Origin or "").lower() != "email":
         return
 
-    agent_and_ctx = await create_agent_and_context(
-        hctx=hctx,
-        task=task,
+    if hctx.bot_info is None:
+        logfire.error("Cannot assess a case for spam without bot info, aborting")
+        return
+
+    output = await assess_case_for_spam(
         agent=agent,
-        channel_to_respond=SALESFORCE_CASE_CHANNEL,
+        ctx=AgentResponseContext(task=task, mention=event, bot=hctx.bot_info),
+        case=event.case,
     )
 
-    response = await agent_and_ctx.agent.run(
-        user_prompt=agent_and_ctx.user_prompt,
-        deps=agent_and_ctx.ctx,
-        usage_limits=AGENT_USAGE_LIMITS,
-    )
-
-    if not response.output.is_spam:
+    if not output.is_spam:
         return
 
     logfire.info(
@@ -129,6 +129,10 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
         text=f"*Spam Detected* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_",
     )
 
+    if not original_message:
+        logfire.error("Failed to post message, aborting")
+        return
+
     message_thread = original_message.data.get("ts")
     if not message_thread:
         raise Exception(
@@ -138,7 +142,7 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
     message_to_link_to = SlackMessage(
         channel_id=SALESFORCE_CASE_CHANNEL,
         ts=message_thread,
-        text=response.output.message,
+        text=output.message,
         thread_ts=None,
     )
 
@@ -162,7 +166,7 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
     add_internal_case_post(
         salesforce_client=hctx.salesforce_client,
         case_id=event.case.Id,
-        body=response.output.short_description,
+        body=output.short_description,
     )
     request_feedback(
         hctx.app.client,

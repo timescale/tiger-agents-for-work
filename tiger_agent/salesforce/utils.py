@@ -422,7 +422,7 @@ def get_case_feed_items(
             f"SELECT Id, ParentId, Body, Type, CreatedDate, CreatedById,"
             f" CreatedBy.Name, CreatedBy.Email, Visibility"
             f" FROM FeedItem{where}"
-            f" ORDER BY CreatedDate DESC"
+            f" ORDER BY CreatedDate ASC"
         )
         return [SalesforceFeedItem(**r) for r in result.get("records", [])]
     except Exception:
@@ -439,9 +439,9 @@ def get_case_email_messages(
 ) -> list[SalesforceEmailMessage]:
     """Fetch recent EmailMessages on Cases and normalize them into SalesforceFeedItem shape."""
     try:
-        conditions = ["ParentId != null"]
+        conditions = ["MessageDate != null", "ParentId != null"]
         if created_after is not None:
-            conditions.append(f"CreatedDate > {created_after}")
+            conditions.append(f"MessageDate > {created_after}")
         if incoming_only:
             conditions.append("Incoming = true")
         if exclude_creator_id is not None:
@@ -449,20 +449,23 @@ def get_case_email_messages(
         if case_id:
             conditions.append(f"Parent.Id = '{case_id}'")
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-        result = salesforce_client.query(
-            f"SELECT Id, ParentId, TextBody, Subject, CreatedDate, CreatedById,"
+        query = (
+            f"SELECT Id, Status, ParentId, TextBody, Subject, MessageDate, CreatedById,"
             f" FromName, FromAddress, Incoming, HasAttachment, HtmlBody"
             f" FROM EmailMessage{where}"
-            f" ORDER BY CreatedDate DESC"
+            f" ORDER BY MessageDate ASC"
         )
+        result = salesforce_client.query(query)
+
         return [
             SalesforceEmailMessage(
                 Id=r["Id"],
                 ParentId=r.get("ParentId"),
                 Body=r.get("TextBody") or r.get("Subject"),
-                CreatedDate=r.get("CreatedDate"),
+                CreatedDate=r.get("MessageDate"),
                 CreatedById=r.get("CreatedById"),
                 HtmlBody=r.get("HtmlBody"),
+                Status=r.get("Status"),
                 Subject=r.get("Subject"),
                 HasAttachment=r.get("HasAttachment"),
                 CreatedBy={"Name": r.get("FromName"), "Email": r.get("FromAddress")},

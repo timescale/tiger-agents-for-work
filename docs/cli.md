@@ -140,6 +140,7 @@ tiger-agent run --mcp-config mcp_config.json
 | `--max-age-minutes` | `60` | Event expiration time |
 | `--invisibility-minutes` | `10` | Task claim duration |
 | `--num-workers` | `5` | Number of concurrent workers |
+| `--shutdown-grace-seconds` | `840` | On SIGTERM/SIGINT, how long in-flight tasks may run before being cancelled. Keep below the pod's `terminationGracePeriodSeconds` |
 
 #### Examples
 

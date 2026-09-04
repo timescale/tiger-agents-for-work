@@ -111,7 +111,19 @@ class SlackListener(Listener):
         self._app.event("app_mention")(self._on_slack_event)
 
         handler = AsyncSocketModeHandler(self._app, app_token=SLACK_APP_TOKEN)
-        tasks.create_task(handler.start_async())
+        tasks.create_task(self._run_socket_mode(handler))
+
+    async def _run_socket_mode(self, handler: AsyncSocketModeHandler) -> None:
+        """Stay connected to Slack until a soft shutdown is requested.
+
+        Disconnecting makes Slack route new events to the remaining
+        instances instead of this one.
+        """
+        await handler.connect_async()
+        logfire.info("slack socket mode connected")
+        await self._hctx.shutdown.wait()
+        logfire.info("shutdown requested; disconnecting slack socket mode")
+        await handler.close_async()
 
     async def _on_slack_event(self, ack: AsyncAck, event: dict[str, Any]):
         await set_status(

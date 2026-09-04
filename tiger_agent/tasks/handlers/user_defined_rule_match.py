@@ -3,10 +3,11 @@ import json
 import logfire
 from pydantic_ai import Agent, Tool
 
+from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.salesforce.types import UserDefinedRuleMatch
 from tiger_agent.salesforce.utils import create_case_url
 from tiger_agent.slack.utils import post_response
-from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS, TaskHandler
+from tiger_agent.tasks.handlers.base import TaskHandler
 from tiger_agent.tasks.types import Task
 
 

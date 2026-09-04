@@ -9,10 +9,18 @@ from tiger_agent.db.utils import (
     delete_user_defined_rule,
     insert_user_defined_rule,
     list_user_defined_rules,
+    user_is_admin,
 )
+from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.events import EVENT_TYPE_OPTIONS, EVENT_TYPES_BY_NAME
 from tiger_agent.logfire.constants import LOGFIRE_READ_TOKEN
-from tiger_agent.logfire.utils import get_tool_calls_for_event
+from tiger_agent.logfire.utils import (
+    find_errors,
+    get_log_by_id,
+    get_logs_for_trace,
+    get_tool_calls_for_event,
+    get_trace_ids_for_event,
+)
 from tiger_agent.org_calendar.utils import get_calender_events
 from tiger_agent.salesforce.types import (
     UserDefinedRule,
@@ -142,6 +150,42 @@ def create_tools(hctx: HarnessContext, task: Task) -> list[Tool]:
             event=event, lookback_hours=lookback_hours
         )
 
+    async def _get_logs_for_event(
+        lookback_hours: float = 24.0,
+        errors_only: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]] | None:
+        assert isinstance(event, SlackBaseEvent)
+        trace_ids = await get_trace_ids_for_event(
+            event=event, lookback_hours=lookback_hours
+        )
+        if not trace_ids:
+            return None
+        results: list[dict[str, Any]] = []
+        for trace_id in trace_ids:
+            results.extend(
+                await get_logs_for_trace(
+                    trace_id=trace_id,
+                    lookback_hours=lookback_hours,
+                    errors_only=errors_only,
+                    limit=limit,
+                )
+            )
+        return results
+
+    async def _get_log_by_id(
+        span_id: str, lookback_hours: float = 24.0
+    ) -> dict[str, Any] | None:
+        return await get_log_by_id(span_id=span_id, lookback_hours=lookback_hours)
+
+    async def _find_errors(
+        lookback_hours: float = 24.0, limit: int = 100
+    ) -> list[dict[str, Any]] | str:
+        assert isinstance(event, SlackBaseEvent)
+        if not await user_is_admin(pool=hctx.pool, user_id=event.user):
+            return "This tool can only be used by admins."
+        return await find_errors(lookback_hours=lookback_hours, limit=limit)
+
     return [
         Tool(
             download_slack_hosted_file,
@@ -188,43 +232,49 @@ def create_tools(hctx: HarnessContext, task: Task) -> list[Tool]:
         ),
         *(
             [
-                Tool(
-                    _list_user_defined_rules,
-                    takes_ctx=False,
-                    name="list_user_defined_rules",
-                    description=(
-                        "List all user-defined rules owned by the current user. "
-                        'Use when the user asks things like "show me my rules", '
-                        '"what rules do I have set up?", or "list my custom rules".'
-                    ),
+                *(
+                    [
+                        Tool(
+                            _list_user_defined_rules,
+                            takes_ctx=False,
+                            name="list_user_defined_rules",
+                            description=(
+                                "List all user-defined rules owned by the current user. "
+                                'Use when the user asks things like "show me my rules", '
+                                '"what rules do I have set up?", or "list my custom rules".'
+                            ),
+                        ),
+                        Tool(
+                            _delete_user_defined_rule,
+                            takes_ctx=False,
+                            name="delete_user_defined_rule",
+                            description=(
+                                "Delete a user-defined rule by its ID. Only rules owned by the current user "
+                                "can be deleted. Returns True if deleted, False if not found. Use when the user asks things like "
+                                '"delete rule 3", "remove my rule with ID 7", or "turn off rule 12".'
+                            ),
+                        ),
+                        Tool(
+                            _create_user_defined_rule,
+                            takes_ctx=False,
+                            name="create_user_defined_rule",
+                            description=(
+                                "Call this when the user wants to be notified, alerted, or asks to create a rule or automation. "
+                                "Creates a persistent rule that triggers a custom action when a matching event occurs. "
+                                "Infer all parameters from the user's request.\n"
+                                f"event_type must be one of:\n{EVENT_TYPE_OPTIONS}\n"
+                                "criteria_examples are optional but improve matching accuracy."
+                            ),
+                        ),
+                    ]
+                    if USER_DEFINED_EVENTS_ENABLED
+                    else []
                 ),
                 Tool(
                     _attach_file,
                     takes_ctx=False,
                     name="attach_file_to_slack_thread",
                     description="Attach a snippet or attachment to the current thread. If the content type is a string, will be attached as a snippet, if the content type is a byte array, will be attached as a file.",
-                ),
-                Tool(
-                    _delete_user_defined_rule,
-                    takes_ctx=False,
-                    name="delete_user_defined_rule",
-                    description=(
-                        "Delete a user-defined rule by its ID. Only rules owned by the current user "
-                        "can be deleted. Returns True if deleted, False if not found. Use when the user asks things like "
-                        '"delete rule 3", "remove my rule with ID 7", or "turn off rule 12".'
-                    ),
-                ),
-                Tool(
-                    _create_user_defined_rule,
-                    takes_ctx=False,
-                    name="create_user_defined_rule",
-                    description=(
-                        "Call this when the user wants to be notified, alerted, or asks to create a rule or automation. "
-                        "Creates a persistent rule that triggers a custom action when a matching event occurs. "
-                        "Infer all parameters from the user's request.\n"
-                        f"event_type must be one of:\n{EVENT_TYPE_OPTIONS}\n"
-                        "criteria_examples are optional but improve matching accuracy."
-                    ),
                 ),
                 Tool(
                     _get_user_ids_in_user_group,
@@ -279,6 +329,46 @@ def create_tools(hctx: HarnessContext, task: Task) -> list[Tool]:
                                 "Returns a JSON list of tool calls with their names, arguments, and responses. "
                                 'Use when the user asks things like "what tools did you call?", '
                                 '"what did you look up?", or "show me what you did last time".'
+                            ),
+                        ),
+                        Tool(
+                            _get_logs_for_event,
+                            takes_ctx=False,
+                            name="get_logs_for_event",
+                            description=(
+                                "Retrieve a condensed list of Logfire records (spans + logs) "
+                                "produced while handling the current Slack event. Each row "
+                                "contains start_timestamp, span_id, span_name, level, message, "
+                                "is_exception, and otel_status_message. Pass a span_id from a "
+                                "returned row to `get_log_by_id` to fetch the full record.\n\n"
+                                "Set `errors_only=True` to restrict results to exceptions / "
+                                "error-level records. "
+                                'Use when the user asks things like "what happened?", '
+                                '"show me the logs for this thread", or "were there any errors?".'
+                            ),
+                        ),
+                        Tool(
+                            _get_log_by_id,
+                            takes_ctx=False,
+                            name="get_log_by_id",
+                            description=(
+                                "Fetch the full Logfire record for a given `span_id` — including "
+                                "attributes, otel_events, and otel_links. Use after "
+                                "`get_logs_for_event` to drill into a specific row."
+                            ),
+                        ),
+                        Tool(
+                            _find_errors,
+                            takes_ctx=False,
+                            name="find_errors",
+                            description=(
+                                "Find error and exception records across all traces within the "
+                                "given `lookback_hours` window (default 24). Returns rows with "
+                                "start_timestamp, trace_id, span_id, span_name, and message, "
+                                "ordered newest-first. Pass a returned `span_id` to "
+                                "`get_log_by_id` or a `trace_id` to fetch related logs. "
+                                'Use when the user asks things like "any errors in the last hour?", '
+                                '"what\'s been failing today?", or "show me recent exceptions".'
                             ),
                         ),
                     ]

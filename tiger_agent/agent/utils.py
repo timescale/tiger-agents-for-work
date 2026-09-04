@@ -11,17 +11,29 @@ from pydantic_ai.toolsets.abstract import AbstractToolset
 from pydantic_ai_harness import SubAgent, SubAgents
 from pydantic_ai_summarization import ContextManagerCapability
 
-from tiger_agent.agent.tiger_agent import INVESTIGATOR_SYSTEM_PROMPT_REGEX, TigerAgent
+from tiger_agent.agent.constants import (
+    CASE_SUMMARY_MODEL,
+    SPAM_DETECTION_MODEL,
+    SPAM_DETECTION_USAGE_LIMITS,
+)
+from tiger_agent.agent.limits import make_limit_warner
+from tiger_agent.agent.tiger_agent import (
+    INVESTIGATOR_SYSTEM_PROMPT_REGEX,
+    SPAM_DETECTION_PROMPT_REGEX,
+    TigerAgent,
+)
 from tiger_agent.agent.tools import create_tools
 from tiger_agent.agent.types import (
     AgentResponseContext,
     AgentSalesforceResponse,
     CaseSummary,
     ExtraContextDict,
+    SpamAssessment,
 )
 from tiger_agent.mcp.types import McpConfig
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.salesforce.types import (
+    CaseData,
     SalesforceBaseEvent,
 )
 from tiger_agent.slack.utils import (
@@ -35,13 +47,36 @@ from tiger_agent.utils import (
     wrap_mcp_servers_with_exception_handling,
 )
 
-CASE_SUMMARY_MODEL = "openrouter:anthropic/claude-sonnet-5"
+# Only the settings matching the active model's provider prefix are read; the rest are
+# ignored, so it's safe to set both Anthropic's and OpenRouter's cache keys regardless of
+# whether `model` is an `anthropic:` or `openrouter:` model string.
+#
+# Caching instructions and tool definitions only ever covers a fixed-size prefix, so its
+# value decays as an agent loop grows -- on SalesforceAssignmentChanged that was a ~21.5K
+# cached block against requests averaging 137K. Also caching the conversation makes the
+# cached prefix grow with the run, so each turn pays full price for the new tool result
+# rather than for the whole history again.
+#
+# Anthropic gets `anthropic_cache` rather than `anthropic_cache_messages`: it is the
+# native form, where the server moves the breakpoint forward on its own. The `_messages`
+# variant is the fallback for gateways that cannot pass the top-level parameter, and the
+# two are mutually exclusive. OpenRouter has no automatic equivalent, so it takes the
+# explicit per-message breakpoint.
+PROMPT_CACHE_MODEL_SETTINGS: dict[str, Any] = {
+    "anthropic_cache_instructions": True,
+    "anthropic_cache_tool_definitions": True,
+    "anthropic_cache": True,
+    "openrouter_cache_instructions": True,
+    "openrouter_cache_tool_definitions": True,
+    "openrouter_cache_messages": True,
+}
 
 
 @logfire.instrument("summarize_new_case", extract_args=False)
 async def summarize_new_case(subject: str, description: str) -> str:
     agent = Agent(
         model=CASE_SUMMARY_MODEL,
+        model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         output_type=CaseSummary,
         system_prompt=(
             "You summarize customer-submitted support case descriptions into a brief, "
@@ -51,6 +86,59 @@ async def summarize_new_case(subject: str, description: str) -> str:
     )
     result = await agent.run(f"Subject: {subject}\n\nDescription: {description}")
     return result.output.short_description
+
+
+@logfire.instrument("assess_case_for_spam", extract_args=False)
+async def assess_case_for_spam(
+    agent: TigerAgent,
+    ctx: AgentResponseContext,
+    case: CaseData,
+) -> SpamAssessment:
+    """Decide whether a newly created case is spam.
+
+    Deliberately does not go through ``create_agent_and_context``: spam triage
+    needs to read the case, not investigate it, so it runs on a small model with
+    no toolsets, no skills and no subagents. The prompt is rendered through the
+    normal template machinery so a downstream package can override it.
+    """
+    system_prompt = await agent.render_prompts(
+        regex=SPAM_DETECTION_PROMPT_REGEX, ctx=ctx, extra_ctx={}
+    )
+
+    spam_agent = Agent(
+        model=SPAM_DETECTION_MODEL,
+        model_settings=PROMPT_CACHE_MODEL_SETTINGS,
+        output_type=SpamAssessment,
+        system_prompt=system_prompt,
+    )
+
+    user_prompt = "\n".join(
+        [
+            "Assess the following Salesforce case.",
+            "",
+            f"Case Number: {case.CaseNumber or '(none)'}",
+            f"Subject: {case.Subject or '(none)'}",
+            f"Origin: {case.Origin or '(unknown)'}",
+            f"Supplied Name: {case.SuppliedName or '(none)'}",
+            f"Supplied Email: {case.SuppliedEmail or case.ContactEmail or '(none)'}",
+            f"Account Id: {case.AccountId or '(none)'}",
+            "",
+            "Description:",
+            case.Description or "(empty)",
+        ]
+    )
+
+    result = await spam_agent.run(
+        user_prompt=user_prompt,
+        usage_limits=SPAM_DETECTION_USAGE_LIMITS,
+    )
+    logfire.info(
+        "Spam assessment complete",
+        is_spam=result.output.is_spam,
+        reason=result.output.reason,
+        case_number=case.CaseNumber,
+    )
+    return result.output
 
 
 def _build_toolset(mcp_config: McpConfig) -> AbstractToolset:
@@ -127,11 +215,13 @@ async def create_agent_and_context(
                 max_tokens=800_000,
                 max_tool_output_tokens=50_000,
             ),
+            make_limit_warner(),
             SubAgents(
                 agents=[
                     SubAgent(
                         Agent(
                             model=agent.model,
+                            model_settings=PROMPT_CACHE_MODEL_SETTINGS,
                             name="investigator",
                             description=(
                                 "Delegate a self-contained investigation that would require "
@@ -160,6 +250,7 @@ async def create_agent_and_context(
                                     max_tokens=800_000,
                                     max_tool_output_tokens=50_000,
                                 ),
+                                make_limit_warner(),
                             ],
                         )
                     )
@@ -168,6 +259,7 @@ async def create_agent_and_context(
             ),
         ],
         model=agent.model,
+        model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         deps_type=dict[str, Any],
         system_prompt=system_prompt,
         output_type=AgentSalesforceResponse

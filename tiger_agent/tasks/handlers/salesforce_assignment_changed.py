@@ -1,10 +1,13 @@
+from typing import cast
+
 import logfire
 
+from tiger_agent.agent.limits import AGENT_USAGE_LIMITS, run_and_return_partial
+from tiger_agent.agent.types import AgentSalesforceResponse
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import upsert_feedback_request_reminder
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
-    SALESFORCE_ENABLE_SPAM_FILTERING,
     SALESFORCE_SLACK_THREAD_FIELD,
 )
 from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
@@ -16,7 +19,7 @@ from tiger_agent.slack.utils import (
     post_response,
     request_feedback,
 )
-from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS, TaskHandler
+from tiger_agent.tasks.handlers.base import TaskHandler
 from tiger_agent.tasks.types import Task
 
 
@@ -40,33 +43,33 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             channel_to_respond=SALESFORCE_CASE_CHANNEL,
         )
 
-        response = await agent_and_ctx.agent.run(
+        # A case summary built from partial research still helps the assignee;
+        # dying on the budget leaves the case with no Slack thread at all.
+        response = await run_and_return_partial(
+            agent_and_ctx.agent,
             user_prompt=agent_and_ctx.user_prompt,
             deps=agent_and_ctx.ctx,
             usage_limits=AGENT_USAGE_LIMITS,
         )
+        output = cast(AgentSalesforceResponse, response.output)
 
-        if response.output.is_spam:
-            logfire.info(
-                "Salesforce case identified as spam",
-                extra={"filtering_enabled": SALESFORCE_ENABLE_SPAM_FILTERING},
-            )
-            if SALESFORCE_ENABLE_SPAM_FILTERING:
-                return
-
-        case_owner_user_id = response.output.case_owner_slack_user_id
+        case_owner_user_id = output.case_owner_slack_user_id
 
         original_message = await post_response(
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=None,
-            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{response.output.short_description}\n```",
+            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{output.short_description}\n```",
         )
+
+        if not original_message:
+            logfire.error("Failed to post message, aborting")
+            return
 
         message_to_link_to = SlackMessage(
             channel_id=SALESFORCE_CASE_CHANNEL,
             ts=original_message.data.get("ts"),
-            text=response.output.message,
+            text=output.message,
             thread_ts=None,
             to_user_id=case_owner_user_id,
         )
@@ -75,7 +78,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             client=hctx.app.client,
             channel=SALESFORCE_CASE_CHANNEL,
             thread_ts=message_to_link_to.ts,
-            text=response.output.message,
+            text=output.message,
         )
 
         if message_to_link_to and SALESFORCE_SLACK_THREAD_FIELD:

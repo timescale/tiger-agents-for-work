@@ -67,7 +67,7 @@ async def get_tool_calls_for_traces(
 ) -> list[dict[str, any]]:
 
     if not trace_ids:
-        return ""
+        return []
 
     # Step 2: find all tool-execution spans in those traces
     find_tool_calls_sql = f"""
@@ -111,3 +111,77 @@ async def get_tool_calls_for_event(
             lookback_hours=lookback_hours,
         )
     return tool_calls
+
+
+async def get_logs_for_trace(
+    trace_id: str,
+    lookback_hours: float = 24.0,
+    errors_only: bool = False,
+    limit: int = 100,
+) -> list[dict[str, any]]:
+    """Return a condensed list of records (spans + logs) for a trace.
+
+    Set ``errors_only=True`` to restrict results to exception/error rows.
+    Each row includes ``span_id`` which can be passed to :func:`get_log_by_id`
+    to fetch the full record.
+    """
+    if not trace_id:
+        return []
+
+    error_filter = "AND (is_exception = true OR level >= 'error')" if errors_only else ""
+    sql = f"""
+SELECT
+    start_timestamp,
+    span_id,
+    span_name,
+    level,
+    message,
+    is_exception,
+    otel_status_message
+FROM records
+WHERE
+    trace_id = '{trace_id}'
+    {error_filter}
+ORDER BY start_timestamp ASC
+"""
+    return await query_logfire_spans(sql=sql, lookback_hours=lookback_hours, limit=limit)
+
+
+async def get_log_by_id(
+    span_id: str, lookback_hours: float = 24.0
+) -> dict[str, any] | None:
+    """Return the full record for a single ``span_id`` (or None if not found)."""
+    if not span_id:
+        return None
+
+    sql = f"""
+SELECT *
+FROM records
+WHERE span_id = '{span_id}'
+LIMIT 1
+"""
+    rows = await query_logfire_spans(sql=sql, lookback_hours=lookback_hours, limit=1)
+    return rows[0] if rows else None
+
+
+async def find_errors(
+    lookback_hours: float = 24.0, limit: int = 100
+) -> list[dict[str, any]]:
+    """Return error/exception records over the given timespan.
+
+    Each row includes ``trace_id``, ``span_id``, ``span_name``, and ``message`` —
+    pass ``span_id`` to :func:`get_log_by_id` or ``trace_id`` to
+    :func:`get_logs_for_trace` to drill in.
+    """
+    sql = """
+SELECT
+    start_timestamp,
+    trace_id,
+    span_id,
+    span_name,
+    message
+FROM records
+WHERE is_exception = true OR level >= 'error'
+ORDER BY start_timestamp DESC
+"""
+    return await query_logfire_spans(sql=sql, lookback_hours=lookback_hours, limit=limit)
