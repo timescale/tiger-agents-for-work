@@ -45,6 +45,7 @@ class SalesforceCaseFeedItemPoller:
         self._poll_interval_seconds = poll_interval_seconds
         self._last_poll: datetime | None = None
         self._bot_sf_user_id: str | None = None
+        self._poll_task: asyncio.Task[None] | None = None
 
     def _get_bot_sf_user_id(self) -> str | None:
         """Fetch and cache the Salesforce user ID of the integration user."""
@@ -65,7 +66,7 @@ class SalesforceCaseFeedItemPoller:
             if self._last_poll
             else (datetime.now(UTC) - timedelta(hours=INITIAL_LOOKBACK_IN_HOURS))
         )
-        self._last_poll = datetime.now(UTC)
+        poll_started_at = datetime.now(UTC)
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         case_feed_items = sorted(
@@ -91,6 +92,7 @@ class SalesforceCaseFeedItemPoller:
         )
 
         if not filtered_new_feed_items:
+            self._last_poll = poll_started_at
             return
 
         logfire.info("New case feed items found", count=len(filtered_new_feed_items))
@@ -102,9 +104,27 @@ class SalesforceCaseFeedItemPoller:
                     "Error handling new feed item", feed_item_id=feed_item.Id
                 )
 
+        # Only advance once the poll has run to completion. Setting this up
+        # front meant a mid-poll exception still moved the cursor past a window
+        # that was never processed.
+        self._last_poll = poll_started_at
+
+    async def _poll_if_idle(self) -> None:
+        """Skip this tick when the previous poll is still running.
+
+        ``schedule`` fires every ``poll_interval_seconds`` regardless of whether
+        the last poll finished. Without this guard two polls overlap, and since
+        each computes its own window from ``_last_poll`` they can enqueue the
+        same feed items twice.
+        """
+        if self._poll_task is not None and not self._poll_task.done():
+            logfire.info("Skipping case feed poll; previous poll still running")
+            return
+        self._poll_task = asyncio.create_task(self._poll())
+
     def start(self, run_immediate: bool = False) -> None:
         def job():
-            asyncio.create_task(self._poll())
+            asyncio.create_task(self._poll_if_idle())
 
         schedule.every(self._poll_interval_seconds).seconds.do(job)
         logger.info(
