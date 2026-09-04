@@ -30,10 +30,9 @@ from pydantic_ai_summarization import LimitWarnerCapability
 
 from tiger_agent.agent.constants import (
     AGENT_CRITICAL_REMAINING_REQUESTS,
-    AGENT_MAX_CONTEXT_TOKENS,
     AGENT_MAX_OUTPUT_TOKENS,
+    AGENT_MAX_REQUEST_INPUT_TOKENS,
     AGENT_MAX_REQUESTS,
-    AGENT_SOFT_TOTAL_TOKENS,
     AGENT_WARNING_THRESHOLD,
     FINALIZE_MAX_REQUESTS,
 )
@@ -41,6 +40,7 @@ from tiger_agent.agent.constants import (
 AGENT_USAGE_LIMITS = UsageLimits(
     output_tokens_limit=AGENT_MAX_OUTPUT_TOKENS,
     request_limit=AGENT_MAX_REQUESTS,
+    per_request_input_tokens_limit=AGENT_MAX_REQUEST_INPUT_TOKENS,
 )
 
 # The fallback call makes exactly one tool-free request, so it needs a budget of
@@ -69,10 +69,16 @@ def make_limit_warner() -> LimitWarnerCapability:
     and become critical with three requests to spare, which gives the agent
     room to stop searching and write its answer before anything is enforced.
     """
+    # Every number here is interpolated verbatim into the message the model
+    # reads ("Context window: 812345/850000 tokens used"), so each one must be a
+    # limit that is actually enforced. A countdown to a ceiling that never
+    # arrives teaches the model to discount the warnings that do matter.
     return LimitWarnerCapability(
         max_iterations=AGENT_MAX_REQUESTS,
-        max_context_tokens=AGENT_MAX_CONTEXT_TOKENS,
-        max_total_tokens=AGENT_SOFT_TOTAL_TOKENS,
+        max_context_tokens=AGENT_MAX_REQUEST_INPUT_TOKENS,
+        # No cumulative token limit is enforced yet, so there is nothing
+        # truthful to count down against. Set this the moment one exists.
+        max_total_tokens=None,
         warning_threshold=AGENT_WARNING_THRESHOLD,
         critical_remaining_iterations=AGENT_CRITICAL_REMAINING_REQUESTS,
     )
