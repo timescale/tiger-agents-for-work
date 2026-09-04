@@ -107,9 +107,12 @@ class TaskProcessor:
         except ModelHTTPError as e:
             if not _is_context_overflow(e):
                 raise
-            # The prompt exceeded the model's context window. Rebuilding it from
-            # the same inputs produces the same oversized prompt, so requeueing
-            # just burns the attempt budget at full cost. Ack it instead.
+            # Backstop. AGENT_MAX_REQUEST_INPUT_TOKENS should end a run as
+            # UsageLimitExceeded before the provider ever rejects it, so this
+            # branch only fires if a single turn grew past the headroom or a
+            # model has a smaller window than the limit assumes. Either way the
+            # prompt is a deterministic function of the event, so requeueing
+            # rebuilds it and fails identically -- ack instead of retrying.
             logger.warning("handler exceeded the model context window", exc_info=e)
             logfire.warn(
                 "Context window exceeded; not retrying",

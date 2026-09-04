@@ -1,3 +1,4 @@
+import pytest
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -8,7 +9,10 @@ from pydantic_ai.messages import (
 )
 
 from tiger_agent.agent.limits import (
+    AGENT_MAX_CONTEXT_TOKENS,
+    AGENT_MAX_REQUEST_INPUT_TOKENS,
     AGENT_USAGE_LIMITS,
+    FINALIZE_USAGE_LIMITS,
     _close_dangling_tool_calls,
     make_limit_warner,
 )
@@ -113,3 +117,52 @@ class TestLimits:
         # Warnings must start strictly before the hard limit, with room to finish.
         assert warner.max_iterations * warner.warning_threshold < warner.max_iterations
         assert warner.critical_remaining_iterations > 0
+
+
+class TestPerRequestContextCeiling:
+    """The proactive half: stop before the provider rejects the prompt.
+
+    A provider 400 is the worst available shape -- the oversized request is
+    billed, nothing is salvaged, and the retry rebuilds it. Tripping
+    UsageLimitExceeded one turn earlier routes the same situation into the
+    warner / partial-answer / ack path that already exists.
+    """
+
+    def test_a_per_request_ceiling_is_set(self):
+        assert AGENT_USAGE_LIMITS.per_request_input_tokens_limit == (
+            AGENT_MAX_REQUEST_INPUT_TOKENS
+        )
+
+    def test_it_leaves_room_for_one_more_turn_under_a_1m_window(self):
+        """A single tool result is capped near 50K, so one turn cannot clear it."""
+        headroom = 1_000_000 - AGENT_MAX_REQUEST_INPUT_TOKENS
+
+        assert headroom >= 100_000
+
+    def test_it_sits_above_the_compaction_trigger(self):
+        """Context management gets first attempt; this is the wall behind it."""
+        compaction_trigger = AGENT_MAX_CONTEXT_TOKENS * 0.9
+
+        assert compaction_trigger < AGENT_MAX_REQUEST_INPUT_TOKENS
+
+    def test_the_warner_still_warns_before_the_ceiling(self):
+        warner = make_limit_warner()
+
+        first_warning_at = warner.max_context_tokens * warner.warning_threshold
+        assert first_warning_at < AGENT_MAX_REQUEST_INPUT_TOKENS
+
+    def test_it_raises_the_exception_the_fallback_already_handles(self):
+        """The whole point: overflow becomes UsageLimitExceeded, not a 400."""
+        from pydantic_ai import UsageLimitExceeded
+
+        with pytest.raises(UsageLimitExceeded):
+            AGENT_USAGE_LIMITS.check_per_request_input_tokens(
+                AGENT_MAX_REQUEST_INPUT_TOKENS + 1
+            )
+
+    def test_a_normal_request_passes(self):
+        AGENT_USAGE_LIMITS.check_per_request_input_tokens(324_132)  # observed p95
+
+    def test_the_finalize_pass_is_not_subject_to_it(self):
+        """The salvage call must not be blocked by the budget that just tripped."""
+        assert FINALIZE_USAGE_LIMITS.per_request_input_tokens_limit is None
