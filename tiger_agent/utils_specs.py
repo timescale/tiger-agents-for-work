@@ -92,6 +92,20 @@ class TestSplitMarkdownTextIntoBlocks:
             assert not chunk.startswith("\n\n")
 
 
+RUN = "run-parent"
+
+
+class _Ctx:
+    """Minimal stand-in for RunContext -- only run_id is read."""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+
+
+def _ctx(run_id: str) -> _Ctx:
+    return _Ctx(run_id)
+
+
 class TestRepeatedToolCallTracker:
     """Bounds the loops that prose caps demonstrably do not."""
 
@@ -99,43 +113,43 @@ class TestRepeatedToolCallTracker:
         t = RepeatedToolCallTracker()
         args = {"case_id": "500Nv00000ZI2OzIAL"}
 
-        assert t.record("get_case_summary", args) == 1
-        assert t.record("get_case_summary", args) == 2
-        assert t.record("get_case_summary", args) == 3
+        assert t.record(RUN, "get_case_summary", args) == 1
+        assert t.record(RUN, "get_case_summary", args) == 2
+        assert t.record(RUN, "get_case_summary", args) == 3
 
     def test_allows_two_then_blocks_the_third(self):
         t = RepeatedToolCallTracker()
         args = {"user_id": "005Nv000008h9cvIAA"}
 
-        assert not t.exceeds_limit(t.record("get_user_details", args))
-        assert not t.exceeds_limit(t.record("get_user_details", args))
-        assert t.exceeds_limit(t.record("get_user_details", args))
+        assert not t.exceeds_limit(t.record(RUN, "get_user_details", args))
+        assert not t.exceeds_limit(t.record(RUN, "get_user_details", args))
+        assert t.exceeds_limit(t.record(RUN, "get_user_details", args))
 
     def test_argument_order_does_not_create_a_new_key(self):
         t = RepeatedToolCallTracker()
 
-        t.record("search", {"a": 1, "b": 2})
-        assert t.record("search", {"b": 2, "a": 1}) == 2
+        t.record(RUN, "search", {"a": 1, "b": 2})
+        assert t.record(RUN, "search", {"b": 2, "a": 1}) == 2
 
     def test_different_arguments_are_tracked_separately(self):
         t = RepeatedToolCallTracker()
 
-        assert t.record("search_docs", {"query": "privatelink"}) == 1
-        assert t.record("search_docs", {"query": "pgbouncer"}) == 1
+        assert t.record(RUN, "search_docs", {"query": "privatelink"}) == 1
+        assert t.record(RUN, "search_docs", {"query": "pgbouncer"}) == 1
 
     def test_a_swept_parameter_counts_as_a_different_call(self):
         """Exact matching by design -- parameter sweeps are a prompt-side fix."""
         t = RepeatedToolCallTracker()
 
-        assert t.record("search_docs", {"q": "x", "semanticWeight": 0.7}) == 1
-        assert t.record("search_docs", {"q": "x", "semanticWeight": 0.3}) == 1
+        assert t.record(RUN, "search_docs", {"q": "x", "semanticWeight": 0.7}) == 1
+        assert t.record(RUN, "search_docs", {"q": "x", "semanticWeight": 0.3}) == 1
 
     def test_unserialisable_arguments_still_key_stably(self):
         t = RepeatedToolCallTracker()
         args = {"obj": object()}
 
-        assert t.record("weird", args) == 1
-        assert t.record("weird", args) == 2
+        assert t.record(RUN, "weird", args) == 1
+        assert t.record(RUN, "weird", args) == 2
 
     def test_describe_names_the_proxied_tool(self):
         """Through tigerlabs nearly every call arrives as call_tool."""
@@ -164,9 +178,15 @@ class TestRepeatedCallBlocking:
         )
         args = {"case_id": "500x"}
 
-        assert await wrapped(None, call_tool, "get_case_summary", args) == "real result"
-        assert await wrapped(None, call_tool, "get_case_summary", args) == "real result"
-        blocked = await wrapped(None, call_tool, "get_case_summary", args)
+        assert (
+            await wrapped(_ctx(RUN), call_tool, "get_case_summary", args)
+            == "real result"
+        )
+        assert (
+            await wrapped(_ctx(RUN), call_tool, "get_case_summary", args)
+            == "real result"
+        )
+        blocked = await wrapped(_ctx(RUN), call_tool, "get_case_summary", args)
 
         assert len(calls) == 2, "the third call reached the tool"
         assert "REPEATED_TOOL_CALL" in blocked
@@ -180,9 +200,9 @@ class TestRepeatedCallBlocking:
         )
         args = {"user_id": "005x"}
         for _ in range(2):
-            await wrapped(None, call_tool, "get_user_details", args)
+            await wrapped(_ctx(RUN), call_tool, "get_user_details", args)
 
-        blocked = await wrapped(None, call_tool, "get_user_details", args)
+        blocked = await wrapped(_ctx(RUN), call_tool, "get_user_details", args)
 
         assert "already in" in blocked
         assert "unresolved" in blocked
@@ -198,7 +218,7 @@ class TestRepeatedCallBlocking:
             None, tracker=RepeatedToolCallTracker()
         )
         for i in range(5):
-            await wrapped(None, call_tool, "search", {"q": f"query-{i}"})
+            await wrapped(_ctx(RUN), call_tool, "search", {"q": f"query-{i}"})
 
         assert len(calls) == 5
 
@@ -211,7 +231,7 @@ class TestRepeatedCallBlocking:
 
         wrapped = create_wrapped_process_tool_call(None)
         for _ in range(5):
-            await wrapped(None, call_tool, "same", {"a": 1})
+            await wrapped(_ctx(RUN), call_tool, "same", {"a": 1})
 
         assert len(calls) == 5
 
@@ -228,9 +248,76 @@ class TestRepeatedCallBlocking:
         server_b = create_wrapped_process_tool_call(None, tracker=tracker)
         args = {"toolName": "shared::tool"}
 
-        await server_a(None, call_tool, "call_tool", args)
-        await server_b(None, call_tool, "call_tool", args)
-        blocked = await server_b(None, call_tool, "call_tool", args)
+        await server_a(_ctx(RUN), call_tool, "call_tool", args)
+        await server_b(_ctx(RUN), call_tool, "call_tool", args)
+        blocked = await server_b(_ctx(RUN), call_tool, "call_tool", args)
 
         assert len(calls) == 2
         assert "REPEATED_TOOL_CALL" in blocked
+
+
+class TestRunScoping:
+    """A sub-agent has its own context, so it must have its own budget.
+
+    SubAgents inherits the parent's toolsets by wrapping the same MCPToolset,
+    so coordinator and investigator pass through one wrapper instance.
+    """
+
+    def test_runs_do_not_share_a_budget(self):
+        t = RepeatedToolCallTracker()
+        args = {"case_id": "500x"}
+
+        t.record("run-parent", "get_case_summary", args)
+        t.record("run-parent", "get_case_summary", args)
+
+        assert t.record("run-investigator", "get_case_summary", args) == 1
+
+    async def test_a_sub_agent_first_call_is_not_blocked_by_the_parent(self):
+        """The regression: the parent exhausting its budget must not starve
+        the investigator, whose context has never seen that result."""
+        calls: list[str] = []
+
+        async def call_tool(name, tool_args):
+            calls.append(name)
+            return "real result"
+
+        tracker = RepeatedToolCallTracker()
+        wrapped = create_wrapped_process_tool_call(None, tracker=tracker)
+        args = {"case_id": "500x"}
+
+        for _ in range(3):
+            await wrapped(_ctx("run-parent"), call_tool, "get_case_summary", args)
+        assert len(calls) == 2, "parent should be capped at two"
+
+        result = await wrapped(
+            _ctx("run-investigator"), call_tool, "get_case_summary", args
+        )
+
+        assert result == "real result"
+        assert len(calls) == 3
+
+    async def test_a_sub_agent_is_still_capped_within_its_own_run(self):
+        calls: list[str] = []
+
+        async def call_tool(name, tool_args):
+            calls.append(name)
+            return "ok"
+
+        wrapped = create_wrapped_process_tool_call(
+            None, tracker=RepeatedToolCallTracker()
+        )
+        args = {"case_id": "500x"}
+        for _ in range(4):
+            await wrapped(_ctx("run-investigator"), call_tool, "x", args)
+
+        assert len(calls) == 2
+
+    def test_run_id_falls_back_to_conversation_id(self):
+        class OnlyConversation:
+            run_id = None
+            conversation_id = "conv-7"
+
+        assert RepeatedToolCallTracker.run_id(OnlyConversation()) == "conv-7"
+
+    def test_run_id_tolerates_a_context_without_either(self):
+        assert RepeatedToolCallTracker.run_id(object()) == "unknown-run"

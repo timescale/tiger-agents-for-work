@@ -176,8 +176,15 @@ class RepeatedToolCallTracker:
     not hold -- one trace made 60 calls against a skill whose own text says
     "at most 2 retries per tool" -- so the bound lives in code.
 
-    One tracker is shared by every MCP server in a run, since a run's tool
-    calls fan out across several servers but the budget is per run.
+    Counts are partitioned by ``run_id``. The coordinator and each delegated
+    investigator are separate runs with separate contexts, yet they share these
+    toolset objects -- ``SubAgents`` inherits the parent's toolsets by wrapping
+    the very same ``MCPToolset``. A single shared counter would therefore block
+    a sub-agent's *first* call because the parent had already made it, while
+    telling it the result was already in a context it has never seen.
+
+    Within one run the tracker is shared across every MCP server, since a run's
+    tool calls fan out across servers but the budget belongs to the run.
     """
 
     def __init__(self, limit: int = MAX_IDENTICAL_TOOL_CALLS) -> None:
@@ -185,7 +192,20 @@ class RepeatedToolCallTracker:
         self._counts: dict[str, int] = {}
 
     @staticmethod
-    def _key(name: str, tool_args: dict[str, Any]) -> str:
+    def run_id(ctx: Any) -> str:
+        """Identify the agent run a call belongs to.
+
+        A delegated sub-agent performs its own ``Agent.run``, so it carries its
+        own ``run_id`` and therefore its own budget.
+        """
+        for attr in ("run_id", "conversation_id"):
+            value = getattr(ctx, attr, None)
+            if value:
+                return str(value)
+        return "unknown-run"
+
+    @staticmethod
+    def _key(run_id: str, name: str, tool_args: dict[str, Any]) -> str:
         """Exact match on canonicalised arguments.
 
         Deliberately exact rather than fuzzy: a near-match rule risks
@@ -196,7 +216,7 @@ class RepeatedToolCallTracker:
             args = json.dumps(tool_args, sort_keys=True, default=str)
         except (TypeError, ValueError):
             args = repr(tool_args)
-        return f"{name}::{args}"
+        return f"{run_id}::{name}::{args}"
 
     @staticmethod
     def describe(name: str, tool_args: dict[str, Any]) -> str:
@@ -208,9 +228,9 @@ class RepeatedToolCallTracker:
         target = tool_args.get("toolName")
         return f"{name}({target})" if isinstance(target, str) else name
 
-    def record(self, name: str, tool_args: dict[str, Any]) -> int:
-        """Count this call and return how many times it has now been seen."""
-        key = self._key(name, tool_args)
+    def record(self, run_id: str, name: str, tool_args: dict[str, Any]) -> int:
+        """Count this call within its run; return how many times it has been seen."""
+        key = self._key(run_id, name, tool_args)
         self._counts[key] = self._counts.get(key, 0) + 1
         return self._counts[key]
 
@@ -243,13 +263,15 @@ def create_wrapped_process_tool_call(
         tool_args: dict[str, Any],
     ):
         if tracker is not None:
-            attempt = tracker.record(name, tool_args)
+            run_id = RepeatedToolCallTracker.run_id(ctx)
+            attempt = tracker.record(run_id, name, tool_args)
             if tracker.exceeds_limit(attempt):
                 logfire.warning(
                     "Blocked repeated tool call",
                     name=name,
                     tool=RepeatedToolCallTracker.describe(name, tool_args),
                     attempt=attempt,
+                    run_id=run_id,
                 )
                 return _repeated_call_message(name, tool_args, attempt)
 
@@ -280,8 +302,9 @@ def wrap_mcp_servers_with_exception_handling(mcp_servers: MCPDict) -> MCPDict:
     Returns:
         Modified dictionary with wrapped process_tool_call functions
     """
-    # One tracker for the whole run. Each server is wrapped separately, but the
-    # repeat budget is per run, not per server.
+    # One tracker instance across servers; it partitions counts by run_id
+    # internally, so the coordinator and each delegated sub-agent -- which share
+    # these toolset objects -- get independent budgets.
     tracker = RepeatedToolCallTracker()
 
     for value in mcp_servers.values():
