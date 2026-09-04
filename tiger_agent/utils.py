@@ -33,6 +33,11 @@ from tiger_agent.mcp.types import MCPDict
 
 MAX_TOOL_RESULT_CHARS = 200_000
 
+# How many times one exact (tool, arguments) pair may run in a single agent
+# run before further attempts are refused. Two is a legitimate retry; a
+# third is a loop.
+MAX_IDENTICAL_TOOL_CALLS = 2
+
 
 def setup_logging(service_name: str = "tiger-agent") -> None:
     """Configure comprehensive logging with Logfire integration.
@@ -161,8 +166,75 @@ def _truncate_tool_result(name: str, result: Any) -> Any:
     return truncated
 
 
+class RepeatedToolCallTracker:
+    """Counts identical tool calls within a single agent run.
+
+    Agent runs were observed re-issuing the same call dozens of times: 85
+    identical ``get_user_details`` invocations that had already *succeeded*,
+    the same case summary fetched five times byte-for-byte, and an ID
+    brute-forced through 118 variants after the first rejection. Prose caps do
+    not hold -- one trace made 60 calls against a skill whose own text says
+    "at most 2 retries per tool" -- so the bound lives in code.
+
+    One tracker is shared by every MCP server in a run, since a run's tool
+    calls fan out across several servers but the budget is per run.
+    """
+
+    def __init__(self, limit: int = MAX_IDENTICAL_TOOL_CALLS) -> None:
+        self._limit = limit
+        self._counts: dict[str, int] = {}
+
+    @staticmethod
+    def _key(name: str, tool_args: dict[str, Any]) -> str:
+        """Exact match on canonicalised arguments.
+
+        Deliberately exact rather than fuzzy: a near-match rule risks
+        suppressing a legitimately different query, and the observed loops are
+        dominated by byte-identical repeats that exact matching already stops.
+        """
+        try:
+            args = json.dumps(tool_args, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            args = repr(tool_args)
+        return f"{name}::{args}"
+
+    @staticmethod
+    def describe(name: str, tool_args: dict[str, Any]) -> str:
+        """The tool the model actually asked for.
+
+        Through the tigerlabs proxy nearly every call arrives as
+        ``call_tool``, with the real target in ``tool_args``.
+        """
+        target = tool_args.get("toolName")
+        return f"{name}({target})" if isinstance(target, str) else name
+
+    def record(self, name: str, tool_args: dict[str, Any]) -> int:
+        """Count this call and return how many times it has now been seen."""
+        key = self._key(name, tool_args)
+        self._counts[key] = self._counts.get(key, 0) + 1
+        return self._counts[key]
+
+    def exceeds_limit(self, attempt: int) -> bool:
+        return attempt > self._limit
+
+
+def _repeated_call_message(name: str, tool_args: dict[str, Any], attempt: int) -> str:
+    return (
+        f"[REPEATED_TOOL_CALL tool={RepeatedToolCallTracker.describe(name, tool_args)} "
+        f"attempt={attempt}]\n"
+        "This call was not executed. You have already made this exact call with "
+        "these exact arguments earlier in this run, and its result is already in "
+        "your context -- scroll back and use it rather than fetching it again.\n"
+        "If that earlier result did not answer your question, repeating it will "
+        "not either. Either use a different tool, change the arguments in a way "
+        "that asks a genuinely different question, or record the fact as "
+        "unresolved and move on."
+    )
+
+
 def create_wrapped_process_tool_call(
     existing_func: ProcessToolCallback | None,
+    tracker: RepeatedToolCallTracker | None = None,
 ) -> ProcessToolCallback:
     async def process_tool_call(
         ctx: RunContext[AgentResponseContext],
@@ -170,6 +242,17 @@ def create_wrapped_process_tool_call(
         name: str,
         tool_args: dict[str, Any],
     ):
+        if tracker is not None:
+            attempt = tracker.record(name, tool_args)
+            if tracker.exceeds_limit(attempt):
+                logfire.warning(
+                    "Blocked repeated tool call",
+                    name=name,
+                    tool=RepeatedToolCallTracker.describe(name, tool_args),
+                    attempt=attempt,
+                )
+                return _repeated_call_message(name, tool_args, attempt)
+
         try:
             if existing_func is not None:
                 result = await existing_func(ctx, call_tool, name, tool_args)
@@ -197,11 +280,15 @@ def wrap_mcp_servers_with_exception_handling(mcp_servers: MCPDict) -> MCPDict:
     Returns:
         Modified dictionary with wrapped process_tool_call functions
     """
+    # One tracker for the whole run. Each server is wrapped separately, but the
+    # repeat budget is per run, not per server.
+    tracker = RepeatedToolCallTracker()
+
     for value in mcp_servers.values():
         existing_process_tool_call = value.mcp_server.process_tool_call
 
         value.mcp_server.process_tool_call = create_wrapped_process_tool_call(
-            existing_process_tool_call
+            existing_process_tool_call, tracker=tracker
         )
 
     return mcp_servers
