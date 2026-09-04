@@ -28,31 +28,26 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai_summarization import LimitWarnerCapability
 
-# Hard backstop. Unchanged from the original definition in tasks.handlers.base;
-# the warner below is what should normally end a long run.
-AGENT_MAX_REQUESTS = 150
-AGENT_MAX_OUTPUT_TOKENS = 40_000
+from tiger_agent.agent.constants import (
+    AGENT_CRITICAL_REMAINING_REQUESTS,
+    AGENT_MAX_CONTEXT_TOKENS,
+    AGENT_MAX_OUTPUT_TOKENS,
+    AGENT_MAX_REQUESTS,
+    AGENT_SOFT_TOTAL_TOKENS,
+    AGENT_WARNING_THRESHOLD,
+    FINALIZE_MAX_REQUESTS,
+)
 
 AGENT_USAGE_LIMITS = UsageLimits(
     output_tokens_limit=AGENT_MAX_OUTPUT_TOKENS,
     request_limit=AGENT_MAX_REQUESTS,
 )
 
-# Context ceiling the warner measures against. Matches the ``max_tokens`` given
-# to ContextManagerCapability so the two agree on what "full" means.
-AGENT_MAX_CONTEXT_TOKENS = 800_000
-
-# Advisory only -- nothing enforces this, it just gives the warner a cumulative
-# budget to count down against. Sized above the observed p75 for the most
-# expensive handler (SalesforceAssignmentChanged, p75 ~6.1M input tokens over a
-# 5 day sample) so routine work never sees a warning.
-AGENT_SOFT_TOTAL_TOKENS = 8_000_000
-
 # The fallback call makes exactly one tool-free request, so it needs a budget of
 # its own -- the run's original limits are already exhausted by definition.
 FINALIZE_USAGE_LIMITS = UsageLimits(
     output_tokens_limit=AGENT_MAX_OUTPUT_TOKENS,
-    request_limit=2,
+    request_limit=FINALIZE_MAX_REQUESTS,
 )
 
 FINALIZE_PROMPT = (
@@ -78,8 +73,8 @@ def make_limit_warner() -> LimitWarnerCapability:
         max_iterations=AGENT_MAX_REQUESTS,
         max_context_tokens=AGENT_MAX_CONTEXT_TOKENS,
         max_total_tokens=AGENT_SOFT_TOTAL_TOKENS,
-        warning_threshold=0.7,
-        critical_remaining_iterations=3,
+        warning_threshold=AGENT_WARNING_THRESHOLD,
+        critical_remaining_iterations=AGENT_CRITICAL_REMAINING_REQUESTS,
     )
 
 
