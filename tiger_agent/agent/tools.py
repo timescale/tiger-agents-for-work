@@ -47,7 +47,10 @@ from tiger_agent.types import HarnessContext
 
 
 def create_tools(
-    hctx: HarnessContext, task: Task, channel_info: ChannelInfo
+    hctx: HarnessContext,
+    task: Task,
+    channel_info: ChannelInfo,
+    channel_is_linked_to_salesforce_account: bool = False,
 ) -> list[Tool]:
     event = task.event
 
@@ -237,6 +240,8 @@ def create_tools(
     # channel, we do not want to expose all of the available tooling, but just a list of
     # tools that are deemed customer facing.
     if channel_is_external(channel_info=channel_info):
+        if not channel_is_linked_to_salesforce_account:
+            return []
         return [
             Tool(
                 _show_salesforce_case_form,
