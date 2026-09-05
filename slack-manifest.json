@@ -41,7 +41,8 @@
         "files:read",
         "files:write",
         "team:read",
-        "usergroups:read"
+        "usergroups:read",
+        "workflow.steps:execute"
       ]
     }
   },
@@ -51,6 +52,7 @@
         "app_mention",
         "message.channels",
         "message.im",
+        "workflow_step_execute",
         "function_executed"
       ]
     },
@@ -60,5 +62,28 @@
     "org_deploy_enabled": false,
     "socket_mode_enabled": true,
     "token_rotation_enabled": false
+  },
+  "functions": {
+    "create_case": {
+      "title": "Create Case",
+      "description": "Executes a custom Python backend logic step",
+      "input_parameters": {
+        "UserId": {
+          "type": "string",
+          "title": "User Id",
+          "description": "The user who initiated the action",
+          "is_required": true,
+          "name": "UserId"
+        },
+        "ChannelId": {
+          "type": "string",
+          "title": "Channel Id",
+          "description": "The channel where the workflow was triggered",
+          "is_required": true,
+          "name": "ChannelId"
+        }
+      },
+      "output_parameters": {}
+    }
   }
 }
