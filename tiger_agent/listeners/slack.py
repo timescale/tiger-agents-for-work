@@ -6,6 +6,8 @@ from typing import Any
 import logfire
 from slack_bolt.adapter.socket_mode.websockets import AsyncSocketModeHandler
 from slack_bolt.context.ack.async_ack import AsyncAck
+from slack_bolt.context.complete.async_complete import AsyncComplete
+from slack_bolt.context.fail.async_fail import AsyncFail
 from slack_bolt.context.respond.async_respond import AsyncRespond
 
 from tiger_agent.db.utils import (
@@ -25,6 +27,7 @@ from tiger_agent.salesforce.utils import (
 )
 from tiger_agent.slack.constants import (
     CONFIRM_PROACTIVE_PROMPT,
+    CREATE_CASE_FUNCTION_ID,
     FEEDBACK_FORM_SUBMIT,
     FEEDBACK_FORM_TRIGGER,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
@@ -109,6 +112,10 @@ class SlackListener(Listener):
         self._app.event("message")(self._on_message)
         self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
         self._app.event("app_mention")(self._on_slack_event)
+
+        self._app.function(CREATE_CASE_FUNCTION_ID)(
+            self._handle_create_support_case_function
+        )
 
         handler = AsyncSocketModeHandler(self._app, app_token=SLACK_APP_TOKEN)
         tasks.create_task(self._run_socket_mode(handler))
@@ -312,6 +319,65 @@ class SlackListener(Listener):
             user=user,
             services=services_and_projects,
         )
+
+    async def _handle_create_support_case_function(
+        self, inputs: dict, fail: AsyncFail, complete: AsyncComplete
+    ):
+        """This is the handler for the Create Case workflow step/function call initiated by the Slack App.
+        The use case that this is satisifying is to give customers the ability to click a Create Case workflow button
+        Pinned onto the message input bar in our external Slack channel for them. The input payload should be configured
+        to include the intiator's user id and the channel in which they originated it from. Once we have that, we will present
+        a create case form to the initiator in the form of an ephemeral message that only they can see.
+        """
+
+        user_id = inputs.get("UserId", {})
+        channel_id = inputs.get("ChannelId", {})
+
+        if not user_id or not channel_id:
+            logfire.error(
+                "Custom workflow missing required inputs",
+                user=user_id,
+                channel=channel_id,
+                inputs=inputs,
+            )
+            await fail(
+                error="Missing required inputs: UserId or ChannelId",
+            )
+            return
+
+        account_id = await get_salesforce_account_id_for_channel(
+            self._pool, channel_id=channel_id
+        )
+
+        if not account_id:
+            logfire.warning(
+                "Custom workflow triggered in channel without Salesforce linkage",
+                channel=channel_id,
+            )
+            await fail(
+                error="This channel is not linked to a Salesforce account.",
+            )
+            return
+
+        services = None
+        if self._hctx.salesforce_client:
+            services = get_services_for_account(
+                self._hctx.salesforce_client, account_id
+            )
+
+        try:
+            await send_new_salesforce_case_workflow_form(
+                client=self._app.client,
+                channel=channel_id,
+                user=user_id,
+                services=services,
+            )
+        except Exception:
+            logfire.exception("Failed to send ephemeral case form from custom workflow")
+            await fail(error="Failed to send case creation form.")
+            return
+
+        await complete(outputs={"status": "form_sent"})
 
     async def _handle_feedback_form_trigger(self, ack: AsyncAck, body: dict[str, Any]):
         await ack()
