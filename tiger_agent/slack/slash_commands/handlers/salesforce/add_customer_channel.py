@@ -20,8 +20,7 @@ async def handle(ctx: CommandContext, args: list[str]) -> str:
         channel=channel_id,
         text=(
             f"Hi there! I'm {bot_name}. I'm here to help — you can get assistance by "
-            f"@mentioning {bot_mention} in this channel. If you need to open a support ticket, "
-            f"you can just ask {bot_mention} to help you create one."
+            f"@mentioning {bot_mention} in this channel."
         ),
     )
     return f"Assigned channel {channel_id} to Salesforce account id {salesforce_account_id}"
