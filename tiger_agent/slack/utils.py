@@ -1207,6 +1207,10 @@ def get_channel_link(channel_id: str) -> str:
     return f"<#{channel_id}>"
 
 
+def channel_is_external(channel_info: ChannelInfo) -> bool:
+    return channel_info.is_ext_shared or channel_info.is_shared
+
+
 def user_is_external(bot_info: BotInfo, user_info: UserInfo) -> bool:
     # seemingly you can't trust Slacks' is_external fields
     # so this is going to compare the user's team with

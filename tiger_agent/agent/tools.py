@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
 from pydantic_ai import BinaryContent, Tool
 
+from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.db.utils import (
     delete_user_defined_rule,
+    get_salesforce_account_id_for_channel,
     insert_user_defined_rule,
     list_user_defined_rules,
     user_is_admin,
 )
-from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.events import EVENT_TYPE_OPTIONS, EVENT_TYPES_BY_NAME
 from tiger_agent.logfire.constants import LOGFIRE_READ_TOKEN
 from tiger_agent.logfire.utils import (
@@ -23,24 +25,30 @@ from tiger_agent.logfire.utils import (
 )
 from tiger_agent.org_calendar.utils import get_calender_events
 from tiger_agent.salesforce.types import (
+    ServiceRecord,
     UserDefinedRule,
 )
 from tiger_agent.salesforce.utils import (
     EXT_TO_MIME,
     download_content_version_url,
+    get_services_for_account,
 )
-from tiger_agent.slack.types import SlackBaseEvent
+from tiger_agent.slack.types import ChannelInfo, SlackBaseEvent
 from tiger_agent.slack.utils import (
+    channel_is_external,
     download_slack_hosted_file,
     find_user_group,
     get_user_ids_in_channel,
     get_user_ids_in_user_group,
+    send_new_salesforce_case_workflow_form,
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
 
-def create_tools(hctx: HarnessContext, task: Task) -> list[Tool]:
+def create_tools(
+    hctx: HarnessContext, task: Task, channel_info: ChannelInfo
+) -> list[Tool]:
     event = task.event
 
     def _download_salesforce_hosted_file(
@@ -185,6 +193,69 @@ def create_tools(hctx: HarnessContext, task: Task) -> list[Tool]:
         if not await user_is_admin(pool=hctx.pool, user_id=event.user):
             return "This tool can only be used by admins."
         return await find_errors(lookback_hours=lookback_hours, limit=limit)
+
+    async def _show_salesforce_case_form() -> str:
+        assert isinstance(event, SlackBaseEvent)
+        if not event.user:
+            return "Cannot show case form: no user is associated with this event."
+
+        account_id = await get_salesforce_account_id_for_channel(
+            pool=hctx.pool, channel_id=event.channel
+        )
+        if not account_id:
+            return (
+                "This Slack channel is not linked to a Salesforce account, "
+                "so I cannot open a support case from here. "
+                "Please contact an admin to link this channel to a Salesforce account."
+            )
+
+        services: list[ServiceRecord] | None = None
+        if hctx.salesforce_client:
+            services = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: get_services_for_account(
+                    salesforce_client=hctx.salesforce_client, account_id=account_id
+                ),
+            )
+
+        try:
+            await send_new_salesforce_case_workflow_form(
+                client=hctx.app.client,
+                channel=event.channel,
+                user=event.user,
+                services=services,
+            )
+        except Exception as e:
+            return f"Sorry, I couldn't display the case creation form right now: {e}"
+
+        return (
+            "I've sent you an ephemeral form to open a new support case. "
+            "Only you can see it — fill it out and submit when ready."
+        )
+
+    # if the handling of this event has a destination output in a customer-facing
+    # channel, we do not want to expose all of the available tooling, but just a list of
+    # tools that are deemed customer facing.
+    if channel_is_external(channel_info=channel_info):
+        return [
+            Tool(
+                _show_salesforce_case_form,
+                takes_ctx=False,
+                name="show_salesforce_case_form",
+                description=(
+                    "Show an ephemeral form in the current Slack channel for creating a new Salesforce support case. "
+                    "This form is only visible to the requesting user. The form dynamically populates a service/project "
+                    "dropdown based on the Salesforce account linked to this channel.\n\n"
+                    "Use when the user asks to:\n"
+                    "- open a support ticket/case\n"
+                    "- create a new support case\n"
+                    "- report an issue that needs a ticket\n"
+                    "- file a bug or problem report\n"
+                    "- get help with a technical issue that should be tracked in Salesforce\n\n"
+                    "If this channel is not linked to a Salesforce account, the tool returns an explanatory message."
+                ),
+            ),
+        ]
 
     return [
         Tool(

@@ -36,6 +36,7 @@ from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
 )
 from tiger_agent.slack.utils import (
+    fetch_channel_info,
     fetch_thread_messages,
     fetch_user_info,
 )
@@ -153,6 +154,10 @@ async def create_agent_and_context(
 ) -> AgentAndContext:
     event = task.event
 
+    destination_channel_info = await fetch_channel_info(
+        client=hctx.app.client, channel_id=channel_to_respond
+    )
+
     all_mcp_servers = agent.mcp_loader()
     agent.augment_mcp_servers(all_mcp_servers)
 
@@ -192,7 +197,7 @@ async def create_agent_and_context(
     )
 
     toolsets = [_build_toolset(mcp_config) for mcp_config in mcp_servers.values()]
-    tools = create_tools(hctx=hctx, task=task)
+    tools = create_tools(hctx=hctx, task=task, channel_info=destination_channel_info)
 
     agent = Agent(
         capabilities=[
