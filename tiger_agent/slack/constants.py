@@ -7,6 +7,8 @@ AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL = os.environ.get(
     "AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL", None
 )
 
+CREATE_CASE_FUNCTION_ID = os.environ.get("CREATE_CASE_FUNCTION_ID", "create_case")
+
 CONFIRM_PROACTIVE_PROMPT = "confirm_proactive_prompt"
 REJECT_PROACTIVE_PROMPT = "reject_proactive_prompt"
 
