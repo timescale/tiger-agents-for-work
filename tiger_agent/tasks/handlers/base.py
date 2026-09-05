@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import ClassVar
 
 import logfire
-from pydantic_ai import UsageLimitExceeded, UsageLimits
+from pydantic_ai import ModelHTTPError, UsageLimitExceeded
 
 from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.agent.tiger_agent import TigerAgent
@@ -25,7 +25,20 @@ from tiger_agent.types import HarnessContext
 
 logger = logging.getLogger(__name__)
 
-AGENT_USAGE_LIMITS = UsageLimits(output_tokens_limit=40_000, request_limit=150)
+# Providers word this differently ("prompt is too long: 1002326 tokens >
+# 1000000 maximum" from Bedrock, "maximum context length" from others), and
+# ModelHTTPError also covers transient 400s that SHOULD be retried -- so match
+# on the message rather than the exception type alone.
+_CONTEXT_OVERFLOW_MARKERS = (
+    "prompt is too long",
+    "maximum context length",
+    "context_length_exceeded",
+)
+
+
+def _is_context_overflow(error: ModelHTTPError) -> bool:
+    """True when the request failed because the prompt did not fit."""
+    return any(marker in str(error).lower() for marker in _CONTEXT_OVERFLOW_MARKERS)
 
 
 class TaskHandler(ABC):
@@ -89,6 +102,29 @@ class TaskProcessor:
                     channel=event.channel,
                     thread_ts=event.thread_ts if event.thread_ts else event.ts,
                     text="That request is too large for me to handle in one go. Please split it into smaller batches (for example, fewer items per message) and try again.",
+                )
+            return
+        except ModelHTTPError as e:
+            if not _is_context_overflow(e):
+                raise
+            # Backstop. AGENT_MAX_REQUEST_INPUT_TOKENS should end a run as
+            # UsageLimitExceeded before the provider ever rejects it, so this
+            # branch only fires if a single turn grew past the headroom or a
+            # model has a smaller window than the limit assumes. Either way the
+            # prompt is a deterministic function of the event, so requeueing
+            # rebuilds it and fails identically -- ack instead of retrying.
+            logger.warning("handler exceeded the model context window", exc_info=e)
+            logfire.warn(
+                "Context window exceeded; not retrying",
+                event_type=type(event).__name__,
+            )
+            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch)):
+                await add_reaction(hctx.app.client, event.channel, event.ts, "x")
+                await post_response(
+                    client=hctx.app.client,
+                    channel=event.channel,
+                    thread_ts=event.thread_ts if event.thread_ts else event.ts,
+                    text="That request grew too large for me to finish. Please split it into smaller batches and try again.",
                 )
             return
         except Exception as e:

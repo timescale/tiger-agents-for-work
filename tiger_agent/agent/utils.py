@@ -12,10 +12,13 @@ from pydantic_ai_harness import SubAgent, SubAgents
 from pydantic_ai_summarization import ContextManagerCapability
 
 from tiger_agent.agent.constants import (
+    AGENT_MAX_CONTEXT_TOKENS,
+    AGENT_MAX_TOOL_OUTPUT_TOKENS,
     CASE_SUMMARY_MODEL,
     SPAM_DETECTION_MODEL,
     SPAM_DETECTION_USAGE_LIMITS,
 )
+from tiger_agent.agent.limits import make_limit_warner
 from tiger_agent.agent.tiger_agent import (
     INVESTIGATOR_SYSTEM_PROMPT_REGEX,
     SPAM_DETECTION_PROMPT_REGEX,
@@ -45,17 +48,31 @@ from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 from tiger_agent.utils import (
     pretty_print_models,
-    wrap_mcp_servers_with_exception_handling,
+    wrap_mcp_servers_with_tool_call_guards,
 )
 
 # Only the settings matching the active model's provider prefix are read; the rest are
 # ignored, so it's safe to set both Anthropic's and OpenRouter's cache keys regardless of
 # whether `model` is an `anthropic:` or `openrouter:` model string.
+#
+# Caching instructions and tool definitions only ever covers a fixed-size prefix, so its
+# value decays as an agent loop grows -- on SalesforceAssignmentChanged that was a ~21.5K
+# cached block against requests averaging 137K. Also caching the conversation makes the
+# cached prefix grow with the run, so each turn pays full price for the new tool result
+# rather than for the whole history again.
+#
+# Anthropic gets `anthropic_cache` rather than `anthropic_cache_messages`: it is the
+# native form, where the server moves the breakpoint forward on its own. The `_messages`
+# variant is the fallback for gateways that cannot pass the top-level parameter, and the
+# two are mutually exclusive. OpenRouter has no automatic equivalent, so it takes the
+# explicit per-message breakpoint.
 PROMPT_CACHE_MODEL_SETTINGS: dict[str, Any] = {
     "anthropic_cache_instructions": True,
     "anthropic_cache_tool_definitions": True,
+    "anthropic_cache": True,
     "openrouter_cache_instructions": True,
     "openrouter_cache_tool_definitions": True,
+    "openrouter_cache_messages": True,
 }
 
 
@@ -168,7 +185,7 @@ async def create_agent_and_context(
         channel_id=channel_to_respond,
     )
 
-    wrap_mcp_servers_with_exception_handling(mcp_servers=mcp_servers)
+    wrap_mcp_servers_with_tool_call_guards(mcp_servers=mcp_servers)
 
     ctx = AgentResponseContext(
         task=task,
@@ -213,9 +230,10 @@ async def create_agent_and_context(
     agent = Agent(
         capabilities=[
             ContextManagerCapability(
-                max_tokens=800_000,
-                max_tool_output_tokens=50_000,
+                max_tokens=AGENT_MAX_CONTEXT_TOKENS,
+                max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
             ),
+            make_limit_warner(),
             SubAgents(
                 agents=[
                     SubAgent(
@@ -247,9 +265,10 @@ async def create_agent_and_context(
                             system_prompt=investigator_prompt,
                             capabilities=[
                                 ContextManagerCapability(
-                                    max_tokens=800_000,
-                                    max_tool_output_tokens=50_000,
+                                    max_tokens=AGENT_MAX_CONTEXT_TOKENS,
+                                    max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
                                 ),
+                                make_limit_warner(),
                             ],
                         )
                     )

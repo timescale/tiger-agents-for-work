@@ -434,21 +434,22 @@ async def filter_new_feed_items(
     if not feed_items:
         return []
 
-    if not feed_items:
-        return []
+    items_json = Jsonb([{"id": item.Id} for item in feed_items])
 
-    items_json = Jsonb(
-        [{"id": item.Id, "created_date": item.CreatedDate} for item in feed_items]
-    )
-
+    # Match on the feed-item Id alone. The Id is already unique, so adding
+    # event_ts can only produce false negatives -- and for EmailMessage it
+    # reliably does: that event_ts derives from MessageDate, which Salesforce
+    # backdates and later revises. A revised date both re-enters the poll
+    # window and no longer equals the stored one, so the item is treated as
+    # new. One message was observed with 79 distinct dates, re-posted to the
+    # customer's Slack thread each time.
     def get_already_handled_query(table_name: str) -> str:
         return f"""
             SELECT elem->>'id' AS id
             FROM jsonb_array_elements(%s::jsonb) AS elem
             WHERE EXISTS (
                 SELECT 1 FROM agent.{table_name}
-                WHERE event_ts = (elem->>'created_date')::timestamptz
-                  AND event->>'type' = 'salesforce_event'
+                WHERE event->>'type' = 'salesforce_event'
                   AND event->>'subtype' = 'new_feed_item'
                   AND event->'feed_item'->>'Id' = elem->>'id'
             )
