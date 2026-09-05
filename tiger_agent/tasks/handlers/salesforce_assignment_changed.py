@@ -2,6 +2,7 @@ from typing import cast
 
 import logfire
 
+from tiger_agent.agent.limits import AGENT_USAGE_LIMITS, run_and_return_partial
 from tiger_agent.agent.types import AgentSalesforceResponse
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import upsert_feedback_request_reminder
@@ -18,7 +19,7 @@ from tiger_agent.slack.utils import (
     post_response,
     request_feedback,
 )
-from tiger_agent.tasks.handlers.base import AGENT_USAGE_LIMITS, TaskHandler
+from tiger_agent.tasks.handlers.base import TaskHandler
 from tiger_agent.tasks.types import Task
 
 
@@ -42,7 +43,10 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             channel_to_respond=SALESFORCE_CASE_CHANNEL,
         )
 
-        response = await agent_and_ctx.agent.run(
+        # A case summary built from partial research still helps the assignee;
+        # dying on the budget leaves the case with no Slack thread at all.
+        response = await run_and_return_partial(
+            agent_and_ctx.agent,
             user_prompt=agent_and_ctx.user_prompt,
             deps=agent_and_ctx.ctx,
             usage_limits=AGENT_USAGE_LIMITS,
