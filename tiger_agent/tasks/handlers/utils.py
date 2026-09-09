@@ -18,6 +18,7 @@ from tiger_agent.db.utils import (
     get_salesforce_account_id_for_channel,
 )
 from tiger_agent.salesforce.constants import (
+    CLOUD_IMPACT_FIELD,
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD,
     SALESFORCE_SLACK_THREAD_FIELD,
@@ -29,6 +30,7 @@ from tiger_agent.salesforce.types import (
 from tiger_agent.salesforce.utils import (
     add_internal_case_post,
     create_case_url,
+    get_pick_list_values,
     get_services_for_account,
     update_case,
 )
@@ -40,6 +42,17 @@ from tiger_agent.slack.types import (
     SlackMessage,
 )
 from tiger_agent.slack.utils import add_quote_block, post_response, request_feedback
+from tiger_agent.tasks.handlers.constants import (
+    CUSTOMER_IMPACT_ACTION_ID,
+    CUSTOMER_IMPACT_BLOCK_ID,
+    DESCRIPTION_ACTION_ID,
+    DESCRIPTION_BLOCK_ID,
+    SERVICE_ACTION_ID,
+    SERVICE_BLOCK_ID,
+    SUBJECT_ACTION_ID,
+    SUBJECT_BLOCK_ID,
+)
+from tiger_agent.tasks.handlers.types import NewSalesforceCaseFormSubmission
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
@@ -254,6 +267,23 @@ async def send_new_salesforce_case_workflow_form(
         salesforce_client=salesforce_client, account_id=account_id
     )
 
+    cloud_impact_values = get_pick_list_values(
+        salesforce_client.Case, CLOUD_IMPACT_FIELD
+    )
+
+    cloud_impact_options = []
+
+    for cloud_impact in cloud_impact_values:
+        cloud_impact_options.append(
+            {
+                "text": {
+                    "type": "plain_text",
+                    "text": cloud_impact,
+                },
+                "value": cloud_impact,
+            }
+        )
+
     service_options = []
     if services:
         # let's get a unique set of projects with the service+project items
@@ -286,16 +316,32 @@ async def send_new_salesforce_case_workflow_form(
     service_block = (
         {
             "type": "input",
-            "block_id": "service_block",
+            "block_id": SERVICE_BLOCK_ID,
             "label": {"type": "plain_text", "text": "Service"},
             "element": {
                 "type": "static_select",
-                "action_id": "service_select",
+                "action_id": SERVICE_ACTION_ID,
                 "placeholder": {"type": "plain_text", "text": "Select a service"},
                 "options": service_options,
             },
         }
         if service_options
+        else None
+    )
+
+    customer_impact_block = (
+        {
+            "type": "input",
+            "block_id": CUSTOMER_IMPACT_BLOCK_ID,
+            "label": {"type": "plain_text", "text": "Impact"},
+            "element": {
+                "type": "static_select",
+                "action_id": CUSTOMER_IMPACT_ACTION_ID,
+                "placeholder": {"type": "plain_text", "text": "Impact"},
+                "options": cloud_impact_options,
+            },
+        }
+        if cloud_impact_options
         else None
     )
 
@@ -309,11 +355,11 @@ async def send_new_salesforce_case_workflow_form(
         },
         {
             "type": "input",
-            "block_id": "subject_block",
+            "block_id": SUBJECT_BLOCK_ID,
             "label": {"type": "plain_text", "text": "Title"},
             "element": {
                 "type": "plain_text_input",
-                "action_id": "subject_input",
+                "action_id": SUBJECT_ACTION_ID,
                 "placeholder": {
                     "type": "plain_text",
                     "text": "Brief summary of the case",
@@ -323,11 +369,11 @@ async def send_new_salesforce_case_workflow_form(
         },
         {
             "type": "input",
-            "block_id": "description_block",
+            "block_id": DESCRIPTION_BLOCK_ID,
             "label": {"type": "plain_text", "text": "Description"},
             "element": {
                 "type": "plain_text_input",
-                "action_id": "description_input",
+                "action_id": DESCRIPTION_ACTION_ID,
                 "multiline": True,
                 "placeholder": {
                     "type": "plain_text",
@@ -335,6 +381,7 @@ async def send_new_salesforce_case_workflow_form(
                 },
             },
         },
+        *([customer_impact_block] if customer_impact_block else []),
         *([service_block] if service_block else []),
         {
             "type": "actions",
@@ -362,41 +409,37 @@ async def send_new_salesforce_case_workflow_form(
     )
 
 
-async def handle_new_salesforce_case_workflow_form_submit(
-    ack: AsyncAck,
+def parse_new_case_form_data(
     body: dict[str, Any],
-    respond: AsyncRespond,
-) -> dict[str, Any] | None:
-    """Handle submission of the new Salesforce case workflow form.
-
-    Extracts form field values from the block actions body and returns them.
-    Deletes the form after submission.
+) -> NewSalesforceCaseFormSubmission | None:
+    """Parse the new Salesforce case workflow form submission.
 
     Args:
-        ack: Slack ack function
         body: Full action body from Slack
-        respond: Slack respond function for deleting the ephemeral message
 
     Returns:
-        Dict with title and description if valid; None if fields are missing.
+        The submitted form data if valid; None if required fields are missing.
     """
-    await ack()
-
-    await respond(text="", replace_original=True, delete_original=True)
 
     state_values = (body.get("state") or {}).get("values") or {}
 
     subject = (
-        state_values.get("subject_block", {}).get("subject_input", {}).get("value")
+        state_values.get(SUBJECT_BLOCK_ID, {}).get(SUBJECT_ACTION_ID, {}).get("value")
     )
     description = (
-        state_values.get("description_block", {})
-        .get("description_input", {})
+        state_values.get(DESCRIPTION_BLOCK_ID, {})
+        .get(DESCRIPTION_ACTION_ID, {})
         .get("value")
     )
+    customer_impact_value = (
+        state_values.get(CUSTOMER_IMPACT_BLOCK_ID, {})
+        .get(CUSTOMER_IMPACT_ACTION_ID, {})
+        .get("selected_option", {})
+        or {}
+    ).get("value")
     service_value = (
-        state_values.get("service_block", {})
-        .get("service_select", {})
+        state_values.get(SERVICE_BLOCK_ID, {})
+        .get(SERVICE_ACTION_ID, {})
         .get("selected_option", {})
         or {}
     ).get("value")
@@ -414,7 +457,12 @@ async def handle_new_salesforce_case_workflow_form_submit(
         subject=subject,
     )
 
-    return {"subject": subject, "description": description, "service": service_value}
+    return NewSalesforceCaseFormSubmission(
+        subject=subject,
+        description=description,
+        service=service_value,
+        customer_impact=customer_impact_value,
+    )
 
 
 async def handle_new_salesforce_case_workflow_form_cancel(

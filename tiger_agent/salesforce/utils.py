@@ -8,7 +8,7 @@ from typing import Any
 import logfire
 from aiosfstream_ng.client import Client
 from pydantic_ai import BinaryContent
-from simple_salesforce.api import Salesforce
+from simple_salesforce.api import Salesforce, SFType
 from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
@@ -18,6 +18,7 @@ from tiger_agent.salesforce.clients import (
 )
 from tiger_agent.salesforce.constants import (
     CASE_FIELDS,
+    CLOUD_IMPACT_FIELD,
     SALESFORCE_DOMAIN,
     SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX,
     SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS,
@@ -191,6 +192,7 @@ def create_case(
     account_id: str,
     project_id: str | None = None,
     service_id: str | None = None,
+    cloud_impact: str | None = None,
     origin: str | None = None,
 ) -> CaseData:
     payload = {
@@ -205,6 +207,8 @@ def create_case(
         payload["Cloud_Service_ID__c"] = service_id
     if origin:
         payload["Origin"] = origin
+    if cloud_impact:
+        payload[CLOUD_IMPACT_FIELD] = cloud_impact
 
     result = salesforce_client.Case.create(payload)
     if not result["success"] or not result["id"]:
@@ -212,6 +216,20 @@ def create_case(
         return
     case = salesforce_client.Case.get(result["id"])
     return CaseData(**case)
+
+
+def get_pick_list_values(sf_object: SFType, field_name: str) -> list[str]:
+    """Takes a salesforce object, such as salesforce_client.Case and the name of the field
+    and returns the picklist values available for that field"""
+    describe = sf_object.describe()
+    for field in describe.get("fields", []):
+        if field.get("name") == field_name:
+            return [
+                entry["value"]
+                for entry in field.get("picklistValues", [])
+                if entry.get("active")
+            ]
+    return []
 
 
 def get_services_for_account(

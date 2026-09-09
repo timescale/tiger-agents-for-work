@@ -4,7 +4,44 @@ import pytest
 
 from tiger_agent.salesforce.types import ServiceRecord
 from tiger_agent.tasks.handlers import utils as utils_module
-from tiger_agent.tasks.handlers.utils import send_new_salesforce_case_workflow_form
+from tiger_agent.tasks.handlers.constants import (
+    CUSTOMER_IMPACT_ACTION_ID,
+    CUSTOMER_IMPACT_BLOCK_ID,
+    DESCRIPTION_ACTION_ID,
+    DESCRIPTION_BLOCK_ID,
+    SERVICE_ACTION_ID,
+    SERVICE_BLOCK_ID,
+    SUBJECT_ACTION_ID,
+    SUBJECT_BLOCK_ID,
+)
+from tiger_agent.tasks.handlers.utils import (
+    parse_new_case_form_data,
+    send_new_salesforce_case_workflow_form,
+)
+
+
+def _make_body(
+    subject: str | None = "Cannot connect",
+    description: str | None = "Details here",
+    customer_impact: str | None = "High",
+    service: str | None = "proj-a|svc-1",
+) -> dict:
+    values: dict = {}
+    if subject is not None:
+        values[SUBJECT_BLOCK_ID] = {SUBJECT_ACTION_ID: {"value": subject}}
+    if description is not None:
+        values[DESCRIPTION_BLOCK_ID] = {DESCRIPTION_ACTION_ID: {"value": description}}
+    if customer_impact is not None:
+        values[CUSTOMER_IMPACT_BLOCK_ID] = {
+            CUSTOMER_IMPACT_ACTION_ID: {
+                "selected_option": {"value": customer_impact}
+            }
+        }
+    if service is not None:
+        values[SERVICE_BLOCK_ID] = {
+            SERVICE_ACTION_ID: {"selected_option": {"value": service}}
+        }
+    return {"state": {"values": values}}
 
 
 @pytest.fixture
@@ -147,3 +184,38 @@ class TestSendNewSalesforceCaseWorkflowForm:
         patch_lookups["get_services"].assert_called_once_with(
             salesforce_client=salesforce_client, account_id="0011x00000ABCDE"
         )
+
+
+class TestParseNewCaseFormData:
+    def test_returns_all_fields_when_present(self):
+        result = parse_new_case_form_data(_make_body())
+        assert result is not None
+        assert result.subject == "Cannot connect"
+        assert result.description == "Details here"
+        assert result.customer_impact == "High"
+        assert result.service == "proj-a|svc-1"
+
+    def test_optional_fields_default_to_none_when_not_selected(self):
+        result = parse_new_case_form_data(
+            _make_body(customer_impact=None, service=None)
+        )
+        assert result is not None
+        assert result.subject == "Cannot connect"
+        assert result.description == "Details here"
+        assert result.customer_impact is None
+        assert result.service is None
+
+    def test_returns_none_when_subject_is_missing(self):
+        assert parse_new_case_form_data(_make_body(subject=None)) is None
+
+    def test_returns_none_when_subject_is_empty(self):
+        assert parse_new_case_form_data(_make_body(subject="")) is None
+
+    def test_returns_none_when_description_is_missing(self):
+        assert parse_new_case_form_data(_make_body(description=None)) is None
+
+    def test_returns_none_when_description_is_empty(self):
+        assert parse_new_case_form_data(_make_body(description="")) is None
+
+    def test_returns_none_when_body_has_no_state(self):
+        assert parse_new_case_form_data({}) is None

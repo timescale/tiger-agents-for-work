@@ -73,9 +73,10 @@ class SalesforceCreateNewCaseEvent(SalesforceBaseEvent):
     description: str
     user: str
     channel: str
-    severity: str
-    project_id: str | None
-    service_id: str | None
+    severity: str | None = None
+    project_id: str | None = None
+    service_id: str | None = None
+    cloud_impact: str | None = None
 
 
 class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
