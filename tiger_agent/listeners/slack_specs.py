@@ -88,6 +88,7 @@ class TestOnMessageBotMessagePseudoSlashCommand:
         self, listener, patch_insert_event
     ):
         event = {
+            "type": "message",
             "subtype": "bot_message",
             "channel": "C_CHAN",
             "channel_type": "channel",
@@ -102,6 +103,7 @@ class TestOnMessageEarlyReturns:
         self, listener, patch_insert_event, hctx
     ):
         event = {
+            "type": "message",
             "user": hctx.bot_info.user_id,
             "channel": "C_CHAN",
             "channel_type": "channel",
@@ -116,6 +118,7 @@ class TestOnMessageEarlyReturns:
     ):
         # e.g. message_changed / message_deleted arrive with no `user`
         event = {
+            "type": "message",
             "subtype": "message_changed",
             "channel": "C_CHAN",
             "channel_type": "channel",
