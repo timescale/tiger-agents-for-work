@@ -41,9 +41,11 @@ class TestOnMessageBotMessagePseudoSlashCommand:
         self, listener, patch_insert_event
     ):
         event = {
+            "type": "message",
             "subtype": "bot_message",
             "channel": "C_CHAN",
             "channel_type": "channel",
+            "ts": "1700000000.000100",
             "text": "/support-case-form <@U086NRW4PEK>",
         }
         await listener._on_message(ack=AsyncMock(), event=event)
@@ -53,12 +55,15 @@ class TestOnMessageBotMessagePseudoSlashCommand:
         assert payload["type"] == "request_new_case_form"
         assert payload["user"] == "U086NRW4PEK"
         assert payload["channel"] == "C_CHAN"
+        assert payload["trigger_message_ts"] == "1700000000.000100"
 
     async def test_matching_pseudo_command_triggers_task_worker(self, listener, hctx):
         event = {
+            "type": "message",
             "subtype": "bot_message",
             "channel": "C_CHAN",
             "channel_type": "channel",
+            "ts": "1700000000.000100",
             "text": "/support-case-form <@U086NRW4PEK>",
         }
         await listener._on_message(ack=AsyncMock(), event=event)
@@ -69,6 +74,7 @@ class TestOnMessageBotMessagePseudoSlashCommand:
         self, listener, patch_insert_event, hctx
     ):
         event = {
+            "type": "message",
             "subtype": "bot_message",
             "channel": "C_CHAN",
             "channel_type": "channel",

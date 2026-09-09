@@ -213,7 +213,7 @@ class SlackListener(Listener):
         # if there is no user on the event, let's just return
         if user is None:
             logfire.info(
-                "Received an event that had no user associated", extra={"event", event}
+                "Received an event that had no user associated", extra={"event": event}
             )
             return
 
