@@ -1,0 +1,8 @@
+SUBJECT_BLOCK_ID = "subject_block"
+SUBJECT_ACTION_ID = "subject_input"
+DESCRIPTION_BLOCK_ID = "description_block"
+DESCRIPTION_ACTION_ID = "description_input"
+CUSTOMER_IMPACT_BLOCK_ID = "customer_impact_block"
+CUSTOMER_IMPACT_ACTION_ID = "customer_impact_select"
+SERVICE_BLOCK_ID = "service_block"
+SERVICE_ACTION_ID = "service_select"

@@ -8,7 +8,7 @@ from typing import Any
 import logfire
 from aiosfstream_ng.client import Client
 from pydantic_ai import BinaryContent
-from simple_salesforce.api import Salesforce
+from simple_salesforce.api import Salesforce, SFType
 from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
@@ -212,6 +212,20 @@ def create_case(
         return
     case = salesforce_client.Case.get(result["id"])
     return CaseData(**case)
+
+
+def get_pick_list_values(sf_object: SFType, field_name: str) -> list[str]:
+    """Takes a salesforce object, such as salesforce_client.Case and the name of the field
+    and returns the picklist values available for that field"""
+    describe = sf_object.describe()
+    for field in describe.get("fields", []):
+        if field.get("name") == field_name:
+            return [
+                entry["value"]
+                for entry in field.get("picklistValues", [])
+                if entry.get("active")
+            ]
+    return []
 
 
 def get_services_for_account(

@@ -76,6 +76,7 @@ class SalesforceCreateNewCaseEvent(SalesforceBaseEvent):
     severity: str
     project_id: str | None
     service_id: str | None
+    customer_impact: str | None
 
 
 class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):

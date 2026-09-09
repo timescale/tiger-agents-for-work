@@ -5,6 +5,7 @@ CASE_ID_FIELD = "Id"
 CASE_OWNER_ID_FIELD = "OwnerId"
 CASE_STATUS_FIELD = "Status"
 DEV_HELP_LINKS_FIELD = "Dev_Help_Links__c"
+CLOUD_IMPACT_FIELD = "Cloud_Impact__c"
 
 CASE_FIELDS = [
     "AccountId",
@@ -16,7 +17,7 @@ CASE_FIELDS = [
     "Owner.FirstName",
     "Owner.LastName",
     "Owner.Email",
-    "Cloud_Impact__c",
+    CLOUD_IMPACT_FIELD,
     "ContactEmail",
     "Severity__c",
     "Subject",

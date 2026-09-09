@@ -56,7 +56,7 @@ from tiger_agent.slack.utils import (
 from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.handlers.utils import (
     handle_new_salesforce_case_workflow_form_cancel,
-    handle_new_salesforce_case_workflow_form_submit,
+    parse_new_case_form_data,
     send_new_salesforce_case_workflow_form,
 )
 from tiger_agent.tasks.utils import process_task
@@ -282,9 +282,12 @@ class SlackListener(Listener):
     async def _handle_new_salesforce_case_workflow_form_submit(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
     ):
-        form_data = await handle_new_salesforce_case_workflow_form_submit(
-            ack=ack, body=body, respond=respond
-        )
+        await ack()
+
+        # remove the ephemeral form
+        await respond(text="", replace_original=True, delete_original=True)
+
+        form_data = parse_new_case_form_data(body=body)
         if form_data is None:
             return
 
@@ -292,7 +295,8 @@ class SlackListener(Listener):
         channel = (body.get("channel") or {}).get("id")
         service_id: str | None = None
         project_id: str | None = None
-        maybe_project_and_service = form_data.get("service")
+        maybe_project_and_service = form_data.service
+        customer_impact = form_data.customer_impact
 
         if maybe_project_and_service:
             # we can get either "<project id>" or "<project id>|<service id>"
@@ -313,8 +317,9 @@ class SlackListener(Listener):
         await insert_event(
             self._pool,
             SalesforceCreateNewCaseEvent(
-                subject=form_data["subject"],
-                description=form_data["description"],
+                customer_impact=customer_impact,
+                subject=form_data.subject,
+                description=form_data.description,
                 user=user,
                 channel=channel,
                 severity="Severity 3 - Medium",  # for now, this will be hardcoded
