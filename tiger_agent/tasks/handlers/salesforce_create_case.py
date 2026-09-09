@@ -44,6 +44,7 @@ class SalesforceCreateCaseHandler(TaskHandler):
             account_id=account_id_for_channel,
             project_id=event.project_id,
             service_id=event.service_id,
+            cloud_impact=event.cloud_impact,
             origin="Slack",
         )
 

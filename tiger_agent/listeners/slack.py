@@ -54,6 +54,10 @@ from tiger_agent.slack.utils import (
     user_is_external,
 )
 from tiger_agent.tasks.handlers import TaskProcessor
+from tiger_agent.tasks.handlers.constants import (
+    CUSTOMER_IMPACT_ACTION_ID,
+    SERVICE_ACTION_ID,
+)
 from tiger_agent.tasks.handlers.utils import (
     handle_new_salesforce_case_workflow_form_cancel,
     parse_new_case_form_data,
@@ -104,6 +108,8 @@ class SlackListener(Listener):
         self._app.action(NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER)(
             self._handle_new_salesforce_case_workflow_form_trigger
         )
+        self._app.action(CUSTOMER_IMPACT_ACTION_ID)(self._ack_noop)
+        self._app.action(SERVICE_ACTION_ID)(self._ack_noop)
         self._app.action(FEEDBACK_FORM_TRIGGER)(self._handle_feedback_form_trigger)
         self._app.view(FEEDBACK_FORM_SUBMIT)(self._handle_feedback_form_submit)
         self._app.event("message")(self._on_message)
@@ -296,7 +302,7 @@ class SlackListener(Listener):
         service_id: str | None = None
         project_id: str | None = None
         maybe_project_and_service = form_data.service
-        customer_impact = form_data.customer_impact
+        cloud_impact = form_data.customer_impact
 
         if maybe_project_and_service:
             # we can get either "<project id>" or "<project id>|<service id>"
@@ -317,7 +323,7 @@ class SlackListener(Listener):
         await insert_event(
             self._pool,
             SalesforceCreateNewCaseEvent(
-                customer_impact=customer_impact,
+                cloud_impact=cloud_impact,
                 subject=form_data.subject,
                 description=form_data.description,
                 user=user,
@@ -333,6 +339,9 @@ class SlackListener(Listener):
         self, ack: AsyncAck, respond: AsyncRespond
     ):
         await handle_new_salesforce_case_workflow_form_cancel(ack=ack, respond=respond)
+
+    async def _ack_noop(self, ack: AsyncAck):
+        await ack()
 
     async def _handle_new_salesforce_case_workflow_form_trigger(
         self, ack: AsyncAck, body: dict[str, Any]
