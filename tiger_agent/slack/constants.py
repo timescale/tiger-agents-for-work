@@ -1,4 +1,5 @@
 import os
+import re
 
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
 SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
@@ -6,8 +7,6 @@ SLACK_APP_TOKEN = os.environ.get("SLACK_APP_TOKEN")
 AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL = os.environ.get(
     "AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL", None
 )
-
-CREATE_CASE_FUNCTION_ID = os.environ.get("CREATE_CASE_FUNCTION_ID", "create_case")
 
 CONFIRM_PROACTIVE_PROMPT = "confirm_proactive_prompt"
 REJECT_PROACTIVE_PROMPT = "reject_proactive_prompt"
@@ -21,3 +20,7 @@ FEEDBACK_FORM_SUBMIT = "feedback_form_submit"
 
 MAXIMUM_LENGTH_OF_SLACK_MESSAGE = 40_000
 MAXIMUM_LENGTH_OF_MARKDOWN_BLOCK = 12_000
+
+PSEUDO_SLASH_COMMAND_FOR_NEW_CASE_FORM = re.compile(
+    r"^/support-case-form <@(U[0-9A-Z]+)>$"
+)
