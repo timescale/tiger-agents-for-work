@@ -8,6 +8,7 @@ from typing import Any
 import logfire
 from aiosfstream_ng.client import Client
 from pydantic_ai import BinaryContent
+from pydantic_ai.messages import DocumentMediaType, ImageMediaType
 from simple_salesforce.api import Salesforce, SFType
 from slack_sdk.web.async_client import (
     AsyncWebClient,
@@ -49,12 +50,29 @@ IGNORED_CONTACT_EMAILS = set(
 )
 IGNORED_CONTACT_EMAIL_PATTERN = re.compile(SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX)
 
-EXT_TO_MIME = {
+EXT_TO_MIME: dict[str, ImageMediaType | DocumentMediaType] = {
+    # Images
     "png": "image/png",
     "jpg": "image/jpeg",
     "jpeg": "image/jpeg",
     "gif": "image/gif",
     "webp": "image/webp",
+    # Documents
+    "pdf": "application/pdf",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # Text / data
+    "txt": "text/plain",
+    "log": "text/plain",
+    "csv": "text/csv",
+    "md": "text/markdown",
+    "html": "text/html",
+    "htm": "text/html",
+    "conf": "text/plain",
+    "ini": "text/plain",
+    "env": "text/plain",
 }
 
 logfire.info("Salesforce ignore list", extra={"list": IGNORED_CONTACT_EMAILS})

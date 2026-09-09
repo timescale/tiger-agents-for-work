@@ -54,7 +54,9 @@ def create_tools(
         url: str, filename: str
     ) -> BinaryContent | str:
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        media_type = EXT_TO_MIME.get(ext, "application/octet-stream")
+        media_type = EXT_TO_MIME.get(ext)
+        if not media_type:
+            return f"File types of {ext} and not supported for downloading."
         try:
             content = download_content_version_url(hctx.salesforce_client, url)
             return BinaryContent(data=content, media_type=media_type)
