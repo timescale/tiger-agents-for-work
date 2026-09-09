@@ -15,6 +15,7 @@ from tiger_agent.slack.types import (
     AgentFeedbackRequestReminderEvent,
     SlackAppMentionEvent,
     SlackMessageEvent,
+    SlackRequestNewCaseFormEvent,
     SlackSalesforceCaseThreadMessageEvent,
 )
 
@@ -43,6 +44,7 @@ class Task(BaseModel):
         SlackAppMentionEvent
         | SlackSalesforceCaseThreadMessageEvent
         | SlackMessageEvent
+        | SlackRequestNewCaseFormEvent
         | SalesforceCreateNewCaseEvent
         | SalesforceAssignmentChangedEvent
         | SalesforceCaseCreatedEvent

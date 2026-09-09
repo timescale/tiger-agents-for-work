@@ -21,6 +21,9 @@ from tiger_agent.tasks.handlers import (
     TaskProcessor,
     UserDefinedRuleMatchHandler,
 )
+from tiger_agent.tasks.handlers.slack_send_new_case_form import (
+    SlackSendNewCaseFormHandler,
+)
 from tiger_agent.tasks.harness import TaskHarness
 from tiger_agent.types import HarnessContext
 
@@ -36,6 +39,7 @@ _HANDLERS: list[type[TaskHandler]] = [
     SalesforceAssignmentChangedHandler,
     SalesforceCreateCaseHandler,
     SalesforceFeedItemHandler,
+    SlackSendNewCaseFormHandler,
     SlackSalesforceCaseThreadMessageHandler,
     SalesforceCaseStatusChangedHandler,
     AgentFeedbackRatingHandler,

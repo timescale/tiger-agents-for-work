@@ -300,6 +300,13 @@ class SlackSalesforceCaseThreadMessageEvent(SlackBaseEvent):
     salesforce_case_id: str
 
 
+class SlackRequestNewCaseFormEvent(BaseModel):
+    type: str = "request_new_case_form"
+    channel: str
+    user: str
+    trigger_message_ts: str
+
+
 class AgentFeedbackRatingSubtype(StrEnum):
     internal = "internal"
     external = "external"

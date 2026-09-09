@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import re
 from typing import Any
 
@@ -9,7 +8,6 @@ from pydantic_ai import BinaryContent, Tool
 from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.db.utils import (
     delete_user_defined_rule,
-    get_salesforce_account_id_for_channel,
     insert_user_defined_rule,
     list_user_defined_rules,
     user_is_admin,
@@ -25,13 +23,11 @@ from tiger_agent.logfire.utils import (
 )
 from tiger_agent.org_calendar.utils import get_calender_events
 from tiger_agent.salesforce.types import (
-    ServiceRecord,
     UserDefinedRule,
 )
 from tiger_agent.salesforce.utils import (
     EXT_TO_MIME,
     download_content_version_url,
-    get_services_for_account,
 )
 from tiger_agent.slack.types import ChannelInfo, SlackBaseEvent
 from tiger_agent.slack.utils import (
@@ -40,8 +36,8 @@ from tiger_agent.slack.utils import (
     find_user_group,
     get_user_ids_in_channel,
     get_user_ids_in_user_group,
-    send_new_salesforce_case_workflow_form,
 )
+from tiger_agent.tasks.handlers.utils import send_new_salesforce_case_workflow_form
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
 
@@ -199,34 +195,14 @@ def create_tools(
 
     async def _show_salesforce_case_form() -> str:
         assert isinstance(event, SlackBaseEvent)
-        if not event.user:
-            return "Cannot show case form: no user is associated with this event."
-
-        account_id = await get_salesforce_account_id_for_channel(
-            pool=hctx.pool, channel_id=event.channel
-        )
-        if not account_id:
-            return (
-                "This Slack channel is not linked to a Salesforce account, "
-                "so I cannot open a support case from here. "
-                "Please contact an admin to link this channel to a Salesforce account."
-            )
-
-        services: list[ServiceRecord] | None = None
-        if hctx.salesforce_client:
-            services = await asyncio.get_running_loop().run_in_executor(
-                None,
-                lambda: get_services_for_account(
-                    salesforce_client=hctx.salesforce_client, account_id=account_id
-                ),
-            )
 
         try:
             await send_new_salesforce_case_workflow_form(
-                client=hctx.app.client,
+                slack_client=hctx.app.client,
+                salesforce_client=hctx.salesforce_client,
+                pool=hctx.pool,
                 channel=event.channel,
                 user=event.user,
-                services=services,
             )
         except Exception as e:
             return f"Sorry, I couldn't display the case creation form right now: {e}"

@@ -18,6 +18,7 @@ from tiger_agent.slack.types import (
     AgentFeedbackRequestReminderEvent,
     SlackAppMentionEvent,
     SlackMessageEvent,
+    SlackRequestNewCaseFormEvent,
     SlackSalesforceCaseThreadMessageEvent,
 )
 from tiger_agent.tasks.handlers import (
@@ -34,11 +35,15 @@ from tiger_agent.tasks.handlers import (
     TaskProcessor,
     UserDefinedRuleMatchHandler,
 )
+from tiger_agent.tasks.handlers.slack_send_new_case_form import (
+    SlackSendNewCaseFormHandler,
+)
 from tiger_agent.types import HarnessContext
 
 EXPECTED_EVENT_ROUTES: dict[type, type[TaskHandler]] = {
     SlackAppMentionEvent: SlackTaskHandler,
     SlackMessageEvent: SlackTaskHandler,
+    SlackRequestNewCaseFormEvent: SlackSendNewCaseFormHandler,
     SalesforceCaseCreatedEvent: SalesforceCaseCreatedHandler,
     SalesforceAssignmentChangedEvent: SalesforceAssignmentChangedHandler,
     SalesforceCreateNewCaseEvent: SalesforceCreateCaseHandler,

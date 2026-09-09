@@ -1,23 +1,44 @@
-import logfire
+from typing import Any
 
+import logfire
+from psycopg_pool import AsyncConnectionPool
+from simple_salesforce.api import Salesforce
+from slack_bolt.context.ack.async_ack import AsyncAck
+from slack_bolt.context.respond.async_respond import AsyncRespond
+from slack_sdk.web.async_client import (
+    AsyncWebClient,
+)
+
+from tiger_agent.agent.assess_case_for_spam_agent import assess_case_for_spam
+from tiger_agent.agent.summarize_new_case_agent import summarize_new_case
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.types import AgentResponseContext
-from tiger_agent.agent.utils import assess_case_for_spam, summarize_new_case
 from tiger_agent.db.utils import (
     add_salesforce_case_thread,
+    get_salesforce_account_id_for_channel,
 )
 from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD,
     SALESFORCE_SLACK_THREAD_FIELD,
 )
-from tiger_agent.salesforce.types import CaseData, SalesforceCaseCreatedEvent
+from tiger_agent.salesforce.types import (
+    CaseData,
+    SalesforceCaseCreatedEvent,
+)
 from tiger_agent.salesforce.utils import (
     add_internal_case_post,
     create_case_url,
+    get_services_for_account,
     update_case,
 )
-from tiger_agent.slack.types import SlackMessage
+from tiger_agent.slack.constants import (
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+    NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+)
+from tiger_agent.slack.types import (
+    SlackMessage,
+)
 from tiger_agent.slack.utils import add_quote_block, post_response, request_feedback
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -179,3 +200,234 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
         event.case.Id,
         {"Status": "Spam", "Type": "Spam"},
     )
+
+
+@logfire.instrument(
+    "send_new_salesforce_case_workflow_form",
+    extract_args=["channel", "user", "services"],
+)
+async def send_new_salesforce_case_workflow_form(
+    slack_client: AsyncWebClient,
+    salesforce_client: Salesforce | None,
+    pool: AsyncConnectionPool,
+    channel: str,
+    user: str | None,
+):
+    """Send an ephemeral message with a form to collect new Salesforce case details.
+
+    Looks up the Salesforce account linked to ``channel``, pulls the account's
+    services/projects to populate the project dropdown, and posts an ephemeral
+    Block Kit form visible only to ``user``.
+
+    Args:
+        slack_client: Slack AsyncWebClient for API calls
+        salesforce_client: Salesforce API client. If ``None``, the form is not
+            sent and the function logs a warning and returns.
+        pool: Database connection pool used to resolve the channel's linked
+            Salesforce account id.
+        channel: Slack channel ID to post the form in.
+        user: Slack user ID to send the ephemeral message to.
+
+    Raises:
+        Exception: If ``user`` is falsy, or the channel is not linked to a
+            Salesforce account.
+    """
+
+    if not salesforce_client:
+        logfire.warn("Salesforce client not configured, skipping")
+        return
+
+    if not user:
+        raise Exception("Cannot show case form: no user is associated with this event.")
+
+    account_id = await get_salesforce_account_id_for_channel(
+        pool=pool, channel_id=channel
+    )
+    if not account_id:
+        raise Exception(
+            "This Slack channel is not linked to a Salesforce account, "
+            "so I cannot open a support case from here. "
+            "Please contact an admin to link this channel to a Salesforce account."
+        )
+
+    services = get_services_for_account(
+        salesforce_client=salesforce_client, account_id=account_id
+    )
+
+    service_options = []
+    if services:
+        # let's get a unique set of projects with the service+project items
+        # so that the user can just select a project, rather than
+        # tying support case to a specific service within a project
+        seen_projects: set[str] = set()
+        for s in services:
+            if s.project_id and s.project_id not in seen_projects:
+                seen_projects.add(s.project_id)
+                service_options.append(
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"Project: {s.project_id}",
+                        },
+                        "value": s.project_id,
+                    }
+                )
+        # then create options for each service within each project
+        for s in services:
+            label = f"Project: {s.project_id}, Service: {s.service_id}"
+            value = f"{s.project_id}|{s.service_id}"
+            service_options.append(
+                {
+                    "text": {"type": "plain_text", "text": label},
+                    "value": value,
+                }
+            )
+
+    service_block = (
+        {
+            "type": "input",
+            "block_id": "service_block",
+            "label": {"type": "plain_text", "text": "Service"},
+            "element": {
+                "type": "static_select",
+                "action_id": "service_select",
+                "placeholder": {"type": "plain_text", "text": "Select a service"},
+                "options": service_options,
+            },
+        }
+        if service_options
+        else None
+    )
+
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*New Support Case*\nPlease fill out the details below.",
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "subject_block",
+            "label": {"type": "plain_text", "text": "Title"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "subject_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Brief summary of the case",
+                },
+                "max_length": 200,
+            },
+        },
+        {
+            "type": "input",
+            "block_id": "description_block",
+            "label": {"type": "plain_text", "text": "Description"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "description_input",
+                "multiline": True,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Detailed description of the issue",
+                },
+            },
+        },
+        *([service_block] if service_block else []),
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Submit"},
+                },
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+                    "text": {"type": "plain_text", "text": "Cancel"},
+                },
+            ],
+        },
+    ]
+
+    await slack_client.chat_postEphemeral(
+        channel=channel,
+        user=user,
+        text="New Support Case",
+        blocks=blocks,
+    )
+
+
+async def handle_new_salesforce_case_workflow_form_submit(
+    ack: AsyncAck,
+    body: dict[str, Any],
+    respond: AsyncRespond,
+) -> dict[str, Any] | None:
+    """Handle submission of the new Salesforce case workflow form.
+
+    Extracts form field values from the block actions body and returns them.
+    Deletes the form after submission.
+
+    Args:
+        ack: Slack ack function
+        body: Full action body from Slack
+        respond: Slack respond function for deleting the ephemeral message
+
+    Returns:
+        Dict with title and description if valid; None if fields are missing.
+    """
+    await ack()
+
+    await respond(text="", replace_original=True, delete_original=True)
+
+    state_values = (body.get("state") or {}).get("values") or {}
+
+    subject = (
+        state_values.get("subject_block", {}).get("subject_input", {}).get("value")
+    )
+    description = (
+        state_values.get("description_block", {})
+        .get("description_input", {})
+        .get("value")
+    )
+    service_value = (
+        state_values.get("service_block", {})
+        .get("service_select", {})
+        .get("selected_option", {})
+        or {}
+    ).get("value")
+
+    if not subject or not description:
+        logfire.error(
+            "New Salesforce case form submission missing required fields",
+            title=subject,
+            description=description,
+        )
+        return None
+
+    logfire.info(
+        "New Salesforce case workflow form submitted",
+        subject=subject,
+    )
+
+    return {"subject": subject, "description": description, "service": service_value}
+
+
+async def handle_new_salesforce_case_workflow_form_cancel(
+    ack: AsyncAck,
+    respond: AsyncRespond,
+):
+    """Handle cancellation of the new Salesforce case workflow form.
+
+    Dismisses the ephemeral form message without taking any action.
+
+    Args:
+        ack: Slack ack function
+        respond: Slack respond function for deleting the ephemeral message
+    """
+    await ack()
+    await respond(text="", replace_original=True, delete_original=True)
