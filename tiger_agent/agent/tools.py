@@ -73,19 +73,21 @@ def create_tools(
             pool=hctx.pool, rule_id=rule_id, owner_slack_id=event.user
         )
 
-    async def _attach_file(filename: str, content: str | bytes) -> None:
+    async def _attach_file(
+        filename: str, content: str | bytes | BinaryContent
+    ) -> None:
         thread_ts = event.thread_ts or event.ts
+        if isinstance(content, BinaryContent):
+            content = content.data
         if isinstance(content, str):
-            res = await hctx.app.client.files_upload_v2(
+            await hctx.app.client.files_upload_v2(
                 filename=filename,
                 content=content,
                 channel=event.channel,
                 thread_ts=thread_ts,
             )
-
-            print(str(res))
-        if isinstance(content, bytes):
-            res = await hctx.app.client.files_upload_v2(
+        elif isinstance(content, bytes):
+            await hctx.app.client.files_upload_v2(
                 filename=filename,
                 file=content,
                 channel=event.channel,
@@ -328,7 +330,12 @@ def create_tools(
                     _attach_file,
                     takes_ctx=False,
                     name="attach_file_to_slack_thread",
-                    description="Attach a snippet or attachment to the current thread. If the content type is a string, will be attached as a snippet, if the content type is a byte array, will be attached as a file.",
+                    description=(
+                        "Attach a file or snippet to the current Slack thread. "
+                        "For a file previously returned by another tool (e.g. `download_salesforce_hosted_file`), "
+                        "pass the returned BinaryContent object directly as `content` — do not base64-encode it or convert it to a string. "
+                        "For text you generated yourself, pass a `str` and it will be attached as a text snippet."
+                    ),
                 ),
                 Tool(
                     _get_user_ids_in_user_group,
