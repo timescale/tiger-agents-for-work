@@ -57,3 +57,7 @@ SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX = os.environ.get(
 SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS = MappingProxyType(
     {"Sforce-Auto-Assign": "FALSE"}
 )
+
+DEFAULT_NEW_CASE_SEVERITY = os.environ.get(
+    "DEFAULT_NEW_CASE_SEVERITY", "Severity 3 - Medium"
+)

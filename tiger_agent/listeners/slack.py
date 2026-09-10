@@ -16,6 +16,7 @@ from tiger_agent.db.utils import (
     upsert_feedback_request_reminder,
 )
 from tiger_agent.listeners import Listener
+from tiger_agent.salesforce.constants import DEFAULT_NEW_CASE_SEVERITY
 from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
 )
@@ -328,7 +329,9 @@ class SlackListener(Listener):
                 description=form_data.description,
                 user=user,
                 channel=channel,
-                severity="Severity 3 - Medium",  # for now, this will be hardcoded
+                # new case flow will set the severity based on the cloud impact.
+                # if no impact is given, default to fallback
+                severity=DEFAULT_NEW_CASE_SEVERITY if not cloud_impact else None,
                 project_id=project_id,
                 service_id=service_id,
             ).model_dump(),
