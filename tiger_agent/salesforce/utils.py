@@ -23,6 +23,7 @@ from tiger_agent.salesforce.constants import (
     SALESFORCE_DOMAIN,
     SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX,
     SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS,
+    SEVERITY_FIELD,
 )
 from tiger_agent.salesforce.types import (
     CaseData,
@@ -206,7 +207,7 @@ def create_case(
     salesforce_client: Salesforce,
     subject: str,
     description: str,
-    severity: str,
+    severity: str | None,
     account_id: str,
     project_id: str | None = None,
     service_id: str | None = None,
@@ -216,7 +217,6 @@ def create_case(
     payload = {
         "Subject": subject,
         "Description": description,
-        "Severity__c": severity,
         "AccountId": account_id,
     }
     if project_id:
@@ -227,6 +227,8 @@ def create_case(
         payload["Origin"] = origin
     if cloud_impact:
         payload[CLOUD_IMPACT_FIELD] = cloud_impact
+    if severity:
+        payload[SEVERITY_FIELD] = severity
 
     result = salesforce_client.Case.create(payload)
     if not result["success"] or not result["id"]:
