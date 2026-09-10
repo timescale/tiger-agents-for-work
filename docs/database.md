@@ -4,7 +4,7 @@ Tiger Agent requires a PostgreSQL database with the TimescaleDB extension.
 
 Tiger Agent creates and uses an `agent` schema.
 
-The `agent.event` table stores all the Slack events (currently only app_mention events) that have not yet been processed.
+The `agent.event` table stores all events that have not yet been processed — not just Slack `app_mention`s, but every event type listeners enqueue: Slack messages, interactive-component events, and the full set of Salesforce case/feed-item events. See the [Event Catalog](event_harness.md#event-catalog) for the complete list of event types and [Salesforce Integration](salesforce_sync.md) for how Salesforce events flow through this same table.
 
 **agent.event**
 - **id** an integer surrogate key
@@ -80,6 +80,27 @@ Tiger Agent provides several database functions for managing events and handling
 **agent.from_timestamptz(_ts timestamptz)**
 - Converts PostgreSQL timestamptz back to Unix timestamp numeric format
 - Useful for API responses that need Slack-compatible timestamps
+
+## Other Tables
+
+Beyond the `agent.event`/`agent.event_hist` work queue, a few small tables support specific workflows:
+
+**agent.salesforce_case_thread**
+- Links a Slack thread (`channel_id`, `thread_ts`) to a Salesforce `case_id`
+- Once a link exists, replies in that thread sync to the case as email comments, and new Chatter posts/status changes on the case sync into the thread
+- Unique index on `(channel_id, thread_ts)`; indexed on `case_id` for the reverse lookup
+- See [Salesforce Integration](salesforce_sync.md) for the full sync workflow
+
+**agent.customer_channel_salesforce_link**
+- Maps a Slack `channel_id` (primary key) to a `salesforce_account_id`
+- Used to auto-thread new cases created for a known account, and to authorize which channel can create a case for which account via the Slack case-creation form
+- Populated by admins via the `salesforce customer-channel add <channel_id> <salesforce_account_id>` slash command (and removed via `salesforce customer-channel remove <channel_id>`) — see [Salesforce Integration](salesforce_sync.md#prerequisite-linking-a-slack-channel-to-a-salesforce-account)
+
+**agent.user_defined_rules**
+- User-authored rules (`name`, `owner_slack_id`, `event_type`/`event_subtype`, `criteria`, `action_prompt`, `criteria_examples`, `enabled`) evaluated against every processed event
+- A match enqueues a `user_defined_rule_match` event back into `agent.event`, which `UserDefinedRuleMatchHandler` runs through a small tool-using agent to carry out `action_prompt`
+- Gated by the `USER_DEFINED_EVENTS_ENABLED` environment variable
+- Indexed on `(event_type, event_subtype, enabled)` for rule lookup
 
 ## Migrations
 

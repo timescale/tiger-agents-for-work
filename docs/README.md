@@ -4,7 +4,10 @@
 Detailed explanation of the PostgreSQL + TimescaleDB database design, including the event work queue system, database functions for atomic operations, migration system, and data models for durable event processing.
 
 ## [Task Processing Harness](event_harness.md)
-Technical documentation of the TaskHarness system that provides scalable, resilient task processing with bounded concurrency, immediate responsiveness, and atomic task claiming through PostgreSQL work queues.
+Technical documentation of the TaskHarness system that provides scalable, resilient task processing with bounded concurrency, immediate responsiveness, and atomic task claiming through PostgreSQL work queues. Covers the Listener pattern (SlackListener, SalesforceListener) and the Handler pattern (TaskHandler/TaskProcessor dispatch) that route every event type through the same queue.
+
+## [Salesforce Integration](salesforce_sync.md)
+How Tiger Agent keeps a Salesforce Case and a Slack thread in sync in both directions — case creation, assignment, status changes, Chatter posts/emails, and Slack replies syncing back to the case — plus the pollers that reconcile any events missed by Salesforce's push notifications.
 
 ## [Tiger Agent](tiger_agent.md)
 Deep dive into the TigerAgent class - the AI-powered task processor that integrates Pydantic-AI with MCP servers and Jinja2 templating. Includes customization patterns, configuration options, and subclassing examples for specialized use cases.

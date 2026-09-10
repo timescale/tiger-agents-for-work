@@ -18,7 +18,7 @@ SERVICE_NAME=my-custom-service-name
 
 ### Automatic Configuration
 
-The logging setup in `tiger_agent/logging.py:10-63` handles all Logfire configuration:
+The logging setup in `tiger_agent/utils.py` handles all Logfire configuration:
 
 - **Service identification**: Uses `SERVICE_NAME` environment variable or defaults to provided service name
 - **Version tracking**: Automatically includes the Tiger Agent version in all traces
@@ -55,9 +55,10 @@ async def my_function(arg1: str, arg2: int, sensitive_data: str):
 ```
 
 **Key instrumented functions:**
-- **Event Management** (`tiger_agent/harness.py`): `insert_event`, `claim_event`, `delete_event`, `process_events`
-- **Agent Operations** (`tiger_agent/agent.py`): `generate_response`, `make_system_prompt`, `make_user_prompt`
-- **Slack Integration** (`tiger_agent/slack.py`): `add_reaction`, `post_response`, `fetch_user_info`
+- **Task Management** (`tiger_agent/tasks/utils.py`, `tiger_agent/db/utils.py`): `insert_event`, `claim_event`, `delete_event`, `process_task(s)`
+- **Agent Operations** (`tiger_agent/agent/tiger_agent.py`): `generate_response`, `make_system_prompt`, `make_user_prompt`
+- **Handler Dispatch** (`tiger_agent/tasks/handlers/`): every `TaskHandler.handle()` is wrapped with `@logfire.instrument(...)` — see [Task Harness Architecture](event_harness.md#the-handler-pattern)
+- **Slack Integration** (`tiger_agent/slack/utils.py`): `add_reaction`, `post_response`, `fetch_user_info`
 - **Database Migrations** (`tiger_agent/migrations/runner.py`): `migrate_db`, `run_incremental`, `run_idempotent`
 
 ### Context-Aware Spans
@@ -65,13 +66,9 @@ async def my_function(arg1: str, arg2: int, sensitive_data: str):
 For more complex operations, Tiger Agent uses manual span creation with contextual information:
 
 ```python
-# Event processing with event ID context
-with logfire.span("process_event", event_id=event.id):
-    await self._event_processor(self._make_harness_context(), event)
-
-# Worker activity with worker ID and trigger reason
-with logfire.span("worker_run", worker_id=worker_id, reason=reason):
-    await self._process_events()
+# Task processing with the full task as context
+with logfire.span("process_task", task=task):
+    await task_processor(hctx, task)
 ```
 
 ### Migration Script Tracing
@@ -94,10 +91,10 @@ with logfire.span("idempotent_sql", script=path.name):
 
 Tiger Agent creates comprehensive traces for the complete event processing lifecycle:
 
-1. **Event Ingestion** (`insert_event`): When Slack events are received and stored
-2. **Event Claiming** (`claim_event`): When workers claim events for processing
-3. **Event Processing** (`process_event`): The complete processing workflow including AI response generation
-4. **Event Completion** (`delete_event`): When events are successfully processed and archived
+1. **Event Ingestion** (`insert_event`): When a listener receives a Slack or Salesforce event and stores it
+2. **Task Claiming** (`claim_event`): When workers claim tasks for processing
+3. **Task Processing** (`process_task`): The complete dispatch-to-handler workflow, including AI response generation for handlers that use the agent
+4. **Task Completion** (`delete_event`): When tasks are successfully processed and archived to `agent.event_hist`
 
 ### Worker Activity Monitoring
 

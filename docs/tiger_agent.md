@@ -319,7 +319,7 @@ async def generate_response(self, hctx: HarnessContext, task: Task) -> str:
 
 #### Implementing TaskProcessor
 
-For even more customizability, you can implement a TaskProcessor directly to control every aspect of the interaction. This can be a simple function which is passed to the TaskHarness:
+For even more customizability, you can implement a TaskProcessor directly to control every aspect of the interaction. This is the right approach for a single event type, or when you don't need per-event-type dispatch at all. This can be a simple function which is passed to the TaskHarness:
 
 ```python
 import asyncio
@@ -378,3 +378,5 @@ async def main() -> None:
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+**Handling multiple event types**: `TigerApp` itself doesn't use a single ad-hoc `TaskProcessor` like the examples above — it registers one `TaskHandler` per event type (Slack mentions, Salesforce case sync events, feedback, etc.) with a `TaskProcessor` dispatch table, which also centralizes retry/error handling. If your app needs to handle more than one event type, prefer that pattern over a large `if/elif` inside a single `TaskProcessor`. See [Task Harness Architecture — The Handler Pattern](event_harness.md#the-handler-pattern).
