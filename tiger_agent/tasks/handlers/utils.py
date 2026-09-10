@@ -87,6 +87,12 @@ async def create_slack_thread_for_case(
                     if case.Cloud_Service_ID__c
                     else []
                 ),
+                *(
+                    [f"_Cloud Impact:_: `{case.Cloud_Impact__c}`"]
+                    if case.Cloud_Impact__c
+                    else []
+                ),
+                *([f"_Severity:_: `{case.Severity__c}`"] if case.Severity__c else []),
                 "_Description:_",
                 add_quote_block(short_description),
             ]
