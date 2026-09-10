@@ -6,6 +6,7 @@ CASE_OWNER_ID_FIELD = "OwnerId"
 CASE_STATUS_FIELD = "Status"
 DEV_HELP_LINKS_FIELD = "Dev_Help_Links__c"
 CLOUD_IMPACT_FIELD = "Cloud_Impact__c"
+SEVERITY_FIELD = "Severity__c"
 
 CASE_FIELDS = [
     "AccountId",
@@ -19,7 +20,7 @@ CASE_FIELDS = [
     "Owner.Email",
     CLOUD_IMPACT_FIELD,
     "ContactEmail",
-    "Severity__c",
+    SEVERITY_FIELD,
     "Subject",
     "SuppliedName",
     "SuppliedEmail",
@@ -56,4 +57,8 @@ SALESFORCE_IGNORE_CONTACT_EMAIL_REGEX = os.environ.get(
 )
 SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS = MappingProxyType(
     {"Sforce-Auto-Assign": "FALSE"}
+)
+
+DEFAULT_NEW_CASE_SEVERITY = os.environ.get(
+    "DEFAULT_NEW_CASE_SEVERITY", "Severity 3 - Medium"
 )

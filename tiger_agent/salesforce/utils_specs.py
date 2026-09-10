@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tiger_agent.salesforce.constants import CLOUD_IMPACT_FIELD
+from tiger_agent.salesforce.constants import CLOUD_IMPACT_FIELD, SEVERITY_FIELD
 from tiger_agent.salesforce.utils import create_case
 
 
@@ -84,6 +84,28 @@ class TestCreateCase:
         assert "Cloud_Service_ID__c" not in payload
         assert CLOUD_IMPACT_FIELD not in payload
         assert "Origin" not in payload
+
+    def test_omits_severity_when_none(self, salesforce_client):
+        create_case(
+            salesforce_client=salesforce_client,
+            subject="Cannot connect",
+            description="Details",
+            severity=None,
+            account_id="0011x00000ABCDE",
+        )
+        payload = salesforce_client.Case.create.call_args.args[0]
+        assert SEVERITY_FIELD not in payload
+
+    def test_omits_severity_when_empty_string(self, salesforce_client):
+        create_case(
+            salesforce_client=salesforce_client,
+            subject="Cannot connect",
+            description="Details",
+            severity="",
+            account_id="0011x00000ABCDE",
+        )
+        payload = salesforce_client.Case.create.call_args.args[0]
+        assert SEVERITY_FIELD not in payload
 
     def test_returns_case_data_hydrated_from_get(self, salesforce_client):
         case = create_case(

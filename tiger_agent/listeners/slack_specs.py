@@ -5,6 +5,8 @@ import pytest
 
 from tiger_agent.listeners import slack as slack_listener_module
 from tiger_agent.listeners.slack import SlackListener
+from tiger_agent.salesforce.constants import DEFAULT_NEW_CASE_SEVERITY
+from tiger_agent.tasks.handlers.types import NewSalesforceCaseFormSubmission
 from tiger_agent.types import HarnessContext
 
 
@@ -127,3 +129,55 @@ class TestOnMessageEarlyReturns:
         await listener._on_message(ack=AsyncMock(), event=event)
         patch_insert_event.assert_not_awaited()
         assert hctx.trigger.qsize() == 0
+
+
+class TestHandleNewSalesforceCaseWorkflowFormSubmit:
+    @pytest.fixture
+    def body(self):
+        return {"user": {"id": "U_USER"}, "channel": {"id": "C_CHAN"}}
+
+    async def test_defaults_severity_when_no_cloud_impact(
+        self, listener, patch_insert_event, monkeypatch, body
+    ):
+        monkeypatch.setattr(
+            slack_listener_module,
+            "parse_new_case_form_data",
+            lambda body: NewSalesforceCaseFormSubmission(
+                subject="Cannot connect",
+                description="Details",
+                service="proj-a|svc-1",
+                customer_impact=None,
+            ),
+        )
+
+        await listener._handle_new_salesforce_case_workflow_form_submit(
+            ack=AsyncMock(), body=body, respond=AsyncMock()
+        )
+
+        patch_insert_event.assert_awaited_once()
+        payload = patch_insert_event.await_args.args[1]
+        assert payload["cloud_impact"] is None
+        assert payload["severity"] == DEFAULT_NEW_CASE_SEVERITY
+
+    async def test_omits_severity_when_cloud_impact_provided(
+        self, listener, patch_insert_event, monkeypatch, body
+    ):
+        monkeypatch.setattr(
+            slack_listener_module,
+            "parse_new_case_form_data",
+            lambda body: NewSalesforceCaseFormSubmission(
+                subject="Cannot connect",
+                description="Details",
+                service="proj-a|svc-1",
+                customer_impact="High",
+            ),
+        )
+
+        await listener._handle_new_salesforce_case_workflow_form_submit(
+            ack=AsyncMock(), body=body, respond=AsyncMock()
+        )
+
+        patch_insert_event.assert_awaited_once()
+        payload = patch_insert_event.await_args.args[1]
+        assert payload["cloud_impact"] == "High"
+        assert payload["severity"] is None
