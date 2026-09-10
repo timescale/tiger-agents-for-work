@@ -148,6 +148,7 @@ class TestCreateToolsInternalChannel:
         assert "download_salesforce_hosted_file" in names
         assert "get_org_calendar_events" in names
         assert "attach_file_to_slack_thread" in names
+        assert "attach_salesforce_hosted_file_to_slack_thread" in names
         assert "get_user_ids_in_user_group" in names
         assert "get_user_ids_in_channel" in names
 

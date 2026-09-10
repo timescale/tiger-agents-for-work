@@ -55,13 +55,35 @@ def create_tools(
     ) -> BinaryContent | str:
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         media_type = EXT_TO_MIME.get(ext)
-        if not media_type:
-            return f"File types of {ext} and not supported for downloading."
+        if not media_type or not media_type.startswith("image/"):
+            return (
+                f"File type {ext!r} is not supported for viewing. "
+                "This tool only returns images the model can read. "
+                "To attach a non-image file to the Slack thread, "
+                "use `attach_salesforce_hosted_file_to_slack_thread` instead."
+            )
         try:
             content = download_content_version_url(hctx.salesforce_client, url)
             return BinaryContent(data=content, media_type=media_type)
         except Exception as e:
             return f"Failed to download file: {e}"
+
+    async def _attach_salesforce_hosted_file_to_slack_thread(
+        url: str, filename: str
+    ) -> str:
+        assert isinstance(event, SlackBaseEvent)
+        try:
+            data = download_content_version_url(hctx.salesforce_client, url)
+        except Exception as e:
+            return f"Failed to download file: {e}"
+        thread_ts = event.thread_ts or event.ts
+        await hctx.app.client.files_upload_v2(
+            filename=filename,
+            file=data,
+            channel=event.channel,
+            thread_ts=thread_ts,
+        )
+        return f"Attached {filename} to the thread."
 
     async def _list_user_defined_rules() -> list[UserDefinedRule]:
         assert isinstance(event, SlackBaseEvent)
@@ -73,26 +95,14 @@ def create_tools(
             pool=hctx.pool, rule_id=rule_id, owner_slack_id=event.user
         )
 
-    async def _attach_file(
-        filename: str, content: str | bytes | BinaryContent
-    ) -> None:
+    async def _attach_file(filename: str, content: str) -> None:
         thread_ts = event.thread_ts or event.ts
-        if isinstance(content, BinaryContent):
-            content = content.data
-        if isinstance(content, str):
-            await hctx.app.client.files_upload_v2(
-                filename=filename,
-                content=content,
-                channel=event.channel,
-                thread_ts=thread_ts,
-            )
-        elif isinstance(content, bytes):
-            await hctx.app.client.files_upload_v2(
-                filename=filename,
-                file=content,
-                channel=event.channel,
-                thread_ts=thread_ts,
-            )
+        await hctx.app.client.files_upload_v2(
+            filename=filename,
+            content=content,
+            channel=event.channel,
+            thread_ts=thread_ts,
+        )
 
     async def _create_user_defined_rule(
         name: str,
@@ -254,9 +264,12 @@ def create_tools(
             takes_ctx=False,
             name="download_salesforce_hosted_file",
             description=(
-                "Download a Salesforce-hosted file by its relative URL and filename. "
+                "Download a Salesforce-hosted **image** so you can view its contents. "
                 "Use this for inline images in EmailMessage HtmlBody (e.g. <img src='/sfc/servlet.shepherd/version/download/<id>' alt='filename.png'>). "
-                "Pass the src as url and the alt attribute value as filename."
+                "Pass the src as url and the alt attribute value as filename. "
+                "Only image types are supported. "
+                "To attach a non-image Salesforce file (PDF, CSV, etc.) to the current Slack thread, "
+                "use `attach_salesforce_hosted_file_to_slack_thread` instead — it never loads the file into this conversation."
             ),
         ),
         Tool(
@@ -331,10 +344,21 @@ def create_tools(
                     takes_ctx=False,
                     name="attach_file_to_slack_thread",
                     description=(
-                        "Attach a file or snippet to the current Slack thread. "
-                        "For a file previously returned by another tool (e.g. `download_salesforce_hosted_file`), "
-                        "pass the returned BinaryContent object directly as `content` — do not base64-encode it or convert it to a string. "
-                        "For text you generated yourself, pass a `str` and it will be attached as a text snippet."
+                        "Attach a text snippet you have generated (e.g. a summary, a table, a query result) "
+                        "to the current Slack thread. `content` must be a string. "
+                        "Do NOT use this to forward a file that came from another tool — "
+                        "for Salesforce files, use `attach_salesforce_hosted_file_to_slack_thread`."
+                    ),
+                ),
+                Tool(
+                    _attach_salesforce_hosted_file_to_slack_thread,
+                    takes_ctx=False,
+                    name="attach_salesforce_hosted_file_to_slack_thread",
+                    description=(
+                        "Download a Salesforce-hosted file and attach it to the current Slack thread in one step. "
+                        "Use this whenever the user wants a file from Salesforce posted to Slack — the bytes never enter this conversation, "
+                        "which makes it safe for any file size (PDFs, CSVs, images, documents). "
+                        "Pass the file's relative Salesforce URL as `url` and its filename (including extension) as `filename`."
                     ),
                 ),
                 Tool(
