@@ -37,8 +37,6 @@ Return:
 - `short_description` — a brief, neutral one-to-two sentence summary of what the case
   actually says. No speculation, greetings, or next steps.
 - `message` — the Slack notification body, in Slack mrkdwn (single asterisks for bold, not
-  double). Only used when `is_spam` is true; return an empty string otherwise. Format it as:
-
-```
-*Reason:* <one or two sentences explaining why this case is considered spam>
-```
+  double). Only used when `is_spam` is true; return an empty string otherwise. It must start
+  with the literal text `*Reason:* ` followed by the one or two sentences explaining why this
+  case is considered spam.
