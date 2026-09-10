@@ -33,6 +33,10 @@ async def assess_case_for_spam(
         model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         output_type=SpamAssessment,
         system_prompt=system_prompt,
+        # Default is 1 retry (2 attempts total). Seen in production: the model
+        # garbles the structured output the same way on both attempts, so the
+        # run fails outright. A larger budget gives it more chances to recover.
+        retries=3,
     )
 
     user_prompt = "\n".join(

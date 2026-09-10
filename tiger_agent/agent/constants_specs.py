@@ -19,7 +19,7 @@ class TestDefaultsAreUnchanged:
             ("MAX_TOOL_RESULT_CHARS", 200_000),
             ("MAX_IDENTICAL_TOOL_CALLS", 2),
             ("FINALIZE_MAX_REQUESTS", 2),
-            ("SPAM_DETECTION_MAX_REQUESTS", 2),
+            ("SPAM_DETECTION_MAX_REQUESTS", 4),
             ("SPAM_DETECTION_MAX_OUTPUT_TOKENS", 2_000),
             ("AGENT_CRITICAL_REMAINING_REQUESTS", 3),
         ],
