@@ -207,7 +207,12 @@ def create_tools(
             return "This tool can only be used by admins."
         return await find_errors(lookback_hours=lookback_hours, limit=limit)
 
-    async def _show_salesforce_case_form() -> str:
+    async def _show_salesforce_case_form(
+        subject: str | None = None,
+        description: str | None = None,
+        customer_impact: str | None = None,
+        service: str | None = None,
+    ) -> str:
         assert isinstance(event, SlackBaseEvent)
 
         try:
@@ -217,6 +222,10 @@ def create_tools(
                 pool=hctx.pool,
                 channel=event.channel,
                 user=event.user,
+                subject=subject,
+                description=description,
+                customer_impact=customer_impact,
+                service=service,
             )
         except Exception as e:
             return f"Sorry, I couldn't display the case creation form right now: {e}"
@@ -247,7 +256,20 @@ def create_tools(
                     "- report an issue that needs a ticket\n"
                     "- file a bug or problem report\n"
                     "- get help with a technical issue that should be tracked in Salesforce\n\n"
-                    "If this channel is not linked to a Salesforce account, the tool returns an explanatory message."
+                    "If this channel is not linked to a Salesforce account, the tool returns an explanatory message.\n\n"
+                    "Prefill the form when the Slack thread history gives you enough signal to do so. All prefill "
+                    "arguments are optional; omit any you cannot derive with confidence, and never fabricate values.\n"
+                    "- subject: a short (<=200 char) title summarizing the issue, derived from the thread. "
+                    "Do not include quotes or trailing punctuation.\n"
+                    "- description: a longer, well-formatted summary of the problem drawn from the thread — what "
+                    "the user is seeing, when it started, and any error messages or context they've shared. "
+                    "Do not invent details that aren't in the thread.\n"
+                    "- customer_impact: only pass this if the user has clearly stated the impact level and it "
+                    "matches one of the Salesforce Cloud Impact picklist values. If unsure, omit it.\n"
+                    "- service: a project id (e.g. 'proj-abc') or a 'project_id|service_id' string (e.g. "
+                    "'proj-abc|svc-123') mentioned in the thread. Only pass it when the id appears verbatim in "
+                    "the thread; the prefill is silently dropped if it doesn't match one of the account's "
+                    "available projects/services."
                 ),
             ),
         ]

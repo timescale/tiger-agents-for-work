@@ -26,6 +26,7 @@ from tiger_agent.salesforce.constants import (
 from tiger_agent.salesforce.types import (
     CaseData,
     SalesforceCaseCreatedEvent,
+    ServiceRecord,
 )
 from tiger_agent.salesforce.utils import (
     add_internal_case_post,
@@ -221,6 +222,172 @@ async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) 
     )
 
 
+def _build_static_select_block(
+    *,
+    block_id: str,
+    action_id: str,
+    label: str,
+    placeholder: str,
+    options: list[dict[str, Any]],
+    selected_value: str | None,
+) -> dict[str, Any] | None:
+    """Build a Slack Block Kit input block wrapping a static_select element.
+
+    Returns ``None`` when ``options`` is empty. If ``selected_value`` matches
+    one of the option values, that option is set as the element's
+    ``initial_option``; otherwise the prefill is silently dropped.
+    """
+    if not options:
+        return None
+
+    initial_option = next(
+        (opt for opt in options if opt["value"] == selected_value), None
+    )
+    return {
+        "type": "input",
+        "block_id": block_id,
+        "label": {"type": "plain_text", "text": label},
+        "element": {
+            "type": "static_select",
+            "action_id": action_id,
+            "placeholder": {"type": "plain_text", "text": placeholder},
+            "options": options,
+            **({"initial_option": initial_option} if initial_option else {}),
+        },
+    }
+
+
+def _build_cloud_impact_dropdown(
+    cloud_impact_values: list[str], selected_value: str | None
+) -> dict[str, Any] | None:
+    """Build the Cloud Impact static_select block from Salesforce picklist values."""
+    options = [
+        {
+            "text": {"type": "plain_text", "text": cloud_impact},
+            "value": cloud_impact,
+        }
+        for cloud_impact in cloud_impact_values
+    ]
+    return _build_static_select_block(
+        block_id=CUSTOMER_IMPACT_BLOCK_ID,
+        action_id=CUSTOMER_IMPACT_ACTION_ID,
+        label="Impact",
+        placeholder="Impact",
+        options=options,
+        selected_value=selected_value,
+    )
+
+
+def _build_new_case_form(
+    *,
+    subject: str | None,
+    description: str | None,
+    customer_impact_block: dict[str, Any] | None,
+    service_block: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Build the Block Kit blocks for the new Salesforce case ephemeral form."""
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*New Support Case*\nPlease fill out the details below.",
+            },
+        },
+        {
+            "type": "input",
+            "block_id": SUBJECT_BLOCK_ID,
+            "label": {"type": "plain_text", "text": "Title"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": SUBJECT_ACTION_ID,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Brief summary of the case",
+                },
+                "max_length": 200,
+                **({"initial_value": subject[:200]} if subject else {}),
+            },
+        },
+        {
+            "type": "input",
+            "block_id": DESCRIPTION_BLOCK_ID,
+            "label": {"type": "plain_text", "text": "Description"},
+            "element": {
+                "type": "plain_text_input",
+                "action_id": DESCRIPTION_ACTION_ID,
+                "multiline": True,
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "Detailed description of the issue",
+                },
+                **({"initial_value": description} if description else {}),
+            },
+        },
+        *([customer_impact_block] if customer_impact_block else []),
+        *([service_block] if service_block else []),
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Submit"},
+                },
+                {
+                    "type": "button",
+                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
+                    "text": {"type": "plain_text", "text": "Cancel"},
+                },
+            ],
+        },
+    ]
+
+
+def _build_service_dropdown(
+    services: list[ServiceRecord] | None, selected_value: str | None
+) -> dict[str, Any] | None:
+    """Build the Service static_select block from an account's ServiceRecords.
+
+    Project-only options are inserted at the top so the user can pick a project
+    without drilling into a specific service; ``project_id|service_id`` options
+    are appended below.
+    """
+    options: list[dict[str, Any]] = []
+    seen_projects: set[str] = set()
+    for s in services or []:
+        if s.project_id and s.project_id not in seen_projects:
+            seen_projects.add(s.project_id)
+            options.insert(
+                len(seen_projects) - 1,
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"Project: {s.project_id}",
+                    },
+                    "value": s.project_id,
+                },
+            )
+        options.append(
+            {
+                "text": {
+                    "type": "plain_text",
+                    "text": f"Project: {s.project_id}, Service: {s.service_id}",
+                },
+                "value": f"{s.project_id}|{s.service_id}",
+            }
+        )
+    return _build_static_select_block(
+        block_id=SERVICE_BLOCK_ID,
+        action_id=SERVICE_ACTION_ID,
+        label="Service",
+        placeholder="Select a service",
+        options=options,
+        selected_value=selected_value,
+    )
+
+
 @logfire.instrument(
     "send_new_salesforce_case_workflow_form",
     extract_args=["channel", "user", "services"],
@@ -231,12 +398,17 @@ async def send_new_salesforce_case_workflow_form(
     pool: AsyncConnectionPool,
     channel: str,
     user: str | None,
+    subject: str | None = None,
+    description: str | None = None,
+    customer_impact: str | None = None,
+    service: str | None = None,
 ):
     """Send an ephemeral message with a form to collect new Salesforce case details.
 
     Looks up the Salesforce account linked to ``channel``, pulls the account's
     services/projects to populate the project dropdown, and posts an ephemeral
-    Block Kit form visible only to ``user``.
+    Block Kit form visible only to ``user``. Any of the form fields can be
+    prefilled by passing the corresponding argument.
 
     Args:
         slack_client: Slack AsyncWebClient for API calls
@@ -246,6 +418,13 @@ async def send_new_salesforce_case_workflow_form(
             Salesforce account id.
         channel: Slack channel ID to post the form in.
         user: Slack user ID to send the ephemeral message to.
+        subject: Optional prefill for the Title input.
+        description: Optional prefill for the Description input.
+        customer_impact: Optional prefill for the Impact dropdown. Only applied
+            when the value matches one of the picklist options.
+        service: Optional prefill for the Service dropdown. Expected to be
+            either a project id or a ``"<project_id>|<service_id>"`` string,
+            and only applied when the value matches one of the built options.
 
     Raises:
         Exception: If ``user`` is falsy, or the channel is not linked to a
@@ -273,139 +452,24 @@ async def send_new_salesforce_case_workflow_form(
         salesforce_client=salesforce_client, account_id=account_id
     )
 
+    service_block = _build_service_dropdown(
+        services=services, selected_value=service
+    )
+
     cloud_impact_values = get_pick_list_values(
         salesforce_client.Case, CLOUD_IMPACT_FIELD
     )
 
-    cloud_impact_options = []
-
-    for cloud_impact in cloud_impact_values:
-        cloud_impact_options.append(
-            {
-                "text": {
-                    "type": "plain_text",
-                    "text": cloud_impact,
-                },
-                "value": cloud_impact,
-            }
-        )
-
-    service_options = []
-    if services:
-        # let's get a unique set of projects with the service+project items
-        # so that the user can just select a project, rather than
-        # tying support case to a specific service within a project
-        seen_projects: set[str] = set()
-        for s in services:
-            if s.project_id and s.project_id not in seen_projects:
-                seen_projects.add(s.project_id)
-                service_options.append(
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"Project: {s.project_id}",
-                        },
-                        "value": s.project_id,
-                    }
-                )
-        # then create options for each service within each project
-        for s in services:
-            label = f"Project: {s.project_id}, Service: {s.service_id}"
-            value = f"{s.project_id}|{s.service_id}"
-            service_options.append(
-                {
-                    "text": {"type": "plain_text", "text": label},
-                    "value": value,
-                }
-            )
-
-    service_block = (
-        {
-            "type": "input",
-            "block_id": SERVICE_BLOCK_ID,
-            "label": {"type": "plain_text", "text": "Service"},
-            "element": {
-                "type": "static_select",
-                "action_id": SERVICE_ACTION_ID,
-                "placeholder": {"type": "plain_text", "text": "Select a service"},
-                "options": service_options,
-            },
-        }
-        if service_options
-        else None
+    customer_impact_block = _build_cloud_impact_dropdown(
+        cloud_impact_values=cloud_impact_values, selected_value=customer_impact
     )
 
-    customer_impact_block = (
-        {
-            "type": "input",
-            "block_id": CUSTOMER_IMPACT_BLOCK_ID,
-            "label": {"type": "plain_text", "text": "Impact"},
-            "element": {
-                "type": "static_select",
-                "action_id": CUSTOMER_IMPACT_ACTION_ID,
-                "placeholder": {"type": "plain_text", "text": "Impact"},
-                "options": cloud_impact_options,
-            },
-        }
-        if cloud_impact_options
-        else None
+    blocks = _build_new_case_form(
+        subject=subject,
+        description=description,
+        customer_impact_block=customer_impact_block,
+        service_block=service_block,
     )
-
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*New Support Case*\nPlease fill out the details below.",
-            },
-        },
-        {
-            "type": "input",
-            "block_id": SUBJECT_BLOCK_ID,
-            "label": {"type": "plain_text", "text": "Title"},
-            "element": {
-                "type": "plain_text_input",
-                "action_id": SUBJECT_ACTION_ID,
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Brief summary of the case",
-                },
-                "max_length": 200,
-            },
-        },
-        {
-            "type": "input",
-            "block_id": DESCRIPTION_BLOCK_ID,
-            "label": {"type": "plain_text", "text": "Description"},
-            "element": {
-                "type": "plain_text_input",
-                "action_id": DESCRIPTION_ACTION_ID,
-                "multiline": True,
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Detailed description of the issue",
-                },
-            },
-        },
-        *([customer_impact_block] if customer_impact_block else []),
-        *([service_block] if service_block else []),
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_SUBMIT,
-                    "style": "primary",
-                    "text": {"type": "plain_text", "text": "Submit"},
-                },
-                {
-                    "type": "button",
-                    "action_id": NEW_SALESFORCE_CASE_WORKFLOW_FORM_CANCEL,
-                    "text": {"type": "plain_text", "text": "Cancel"},
-                },
-            ],
-        },
-    ]
 
     await slack_client.chat_postEphemeral(
         channel=channel,
