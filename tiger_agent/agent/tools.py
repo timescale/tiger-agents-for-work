@@ -207,7 +207,11 @@ def create_tools(
             return "This tool can only be used by admins."
         return await find_errors(lookback_hours=lookback_hours, limit=limit)
 
-    async def _show_salesforce_case_form() -> str:
+    async def _show_salesforce_case_form(
+        subject: str | None = None,
+        description: str | None = None,
+        service_or_project: str | None = None,
+    ) -> str:
         assert isinstance(event, SlackBaseEvent)
 
         try:
@@ -217,6 +221,9 @@ def create_tools(
                 pool=hctx.pool,
                 channel=event.channel,
                 user=event.user,
+                subject=subject,
+                description=description,
+                service_or_project=service_or_project,
             )
         except Exception as e:
             return f"Sorry, I couldn't display the case creation form right now: {e}"
@@ -247,7 +254,21 @@ def create_tools(
                     "- report an issue that needs a ticket\n"
                     "- file a bug or problem report\n"
                     "- get help with a technical issue that should be tracked in Salesforce\n\n"
-                    "If this channel is not linked to a Salesforce account, the tool returns an explanatory message."
+                    "If this channel is not linked to a Salesforce account, the tool returns an explanatory message.\n\n"
+                    "Prefill the form when the Slack thread history gives you enough signal to do so. All prefill "
+                    "arguments are optional; omit any you cannot derive with confidence, and never fabricate values.\n"
+                    "- subject: a short (<=200 char) title summarizing the issue, derived from the thread. "
+                    "Do not include quotes or trailing punctuation.\n"
+                    "- description: a longer, well-formatted summary of the problem drawn from the thread — what "
+                    "the user is seeing, when it started, and any error messages or context they've shared. "
+                    "Do not invent details that aren't in the thread.\n"
+                    "- service_or_project: a service id, a project id, or a 'project_id|service_id' (or "
+                    "'service_id|project_id') pair mentioned in the thread. Project ids and service ids share "
+                    "the same shape: a 10-character lowercase alphanumeric string (e.g. 'sa0rukydmm'). Pass "
+                    "just the id if you only see one (e.g. 'sa0rukydmm'), or both joined by '|' if you see "
+                    "both (e.g. 'sa0rukydmm|k2j9pq4vwn'); order does not matter. Only pass values that appear "
+                    "verbatim in the thread — the prefill is silently dropped if it doesn't match one of the "
+                    "account's available services or projects."
                 ),
             ),
         ]

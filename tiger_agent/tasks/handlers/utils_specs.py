@@ -186,6 +186,120 @@ class TestSendNewSalesforceCaseWorkflowForm:
         )
 
 
+class TestServiceDropdownPrefill:
+    @pytest.fixture
+    def with_services(self, patch_lookups):
+        patch_lookups["get_services"].return_value = [
+            ServiceRecord(service_id="svc-1", project_id="proj-a"),
+            ServiceRecord(service_id="svc-2", project_id="proj-a"),
+            ServiceRecord(service_id="svc-3", project_id="proj-b"),
+        ]
+        return patch_lookups
+
+    async def _get_service_element(self, slack_client):
+        blocks = slack_client.chat_postEphemeral.await_args.kwargs["blocks"]
+        return next(
+            b for b in blocks if b.get("block_id") == "service_block"
+        )["element"]
+
+    async def _submit(
+        self, slack_client, salesforce_client, pool, service_or_project
+    ):
+        await send_new_salesforce_case_workflow_form(
+            slack_client=slack_client,
+            salesforce_client=salesforce_client,
+            pool=pool,
+            channel="C_CHAN",
+            user="U_USER",
+            service_or_project=service_or_project,
+        )
+
+    async def test_selects_project_only_option_when_only_a_project_id_is_given(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        await self._submit(slack_client, salesforce_client, pool, "proj-b")
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-b"
+
+    async def test_selects_pair_option_when_only_a_service_id_is_given(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        await self._submit(slack_client, salesforce_client, pool, "svc-2")
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-a|svc-2"
+
+    async def test_selects_pair_option_when_project_pipe_service_is_given(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        await self._submit(
+            slack_client, salesforce_client, pool, "proj-a|svc-1"
+        )
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-a|svc-1"
+
+    async def test_selects_pair_option_when_service_pipe_project_is_given(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        await self._submit(
+            slack_client, salesforce_client, pool, "svc-3|proj-b"
+        )
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-b|svc-3"
+
+    async def test_strips_whitespace_around_pipe_separated_pieces(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        await self._submit(
+            slack_client, salesforce_client, pool, "  proj-a  |  svc-2  "
+        )
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-a|svc-2"
+
+    async def test_prefers_service_match_over_project_match(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        # both 'proj-a' and 'svc-1' are present; service match wins.
+        await self._submit(
+            slack_client, salesforce_client, pool, "proj-a|svc-1"
+        )
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-a|svc-1"
+
+    async def test_no_initial_option_when_prefill_matches_nothing(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        await self._submit(slack_client, salesforce_client, pool, "unknown-id")
+        element = await self._get_service_element(slack_client)
+        assert "initial_option" not in element
+
+    async def test_no_initial_option_when_prefill_is_empty(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        await self._submit(slack_client, salesforce_client, pool, "   |   ")
+        element = await self._get_service_element(slack_client)
+        assert "initial_option" not in element
+
+    async def test_selects_project_only_option_when_project_has_multiple_services(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        # proj-a has two services (svc-1, svc-2); a bare project id should
+        # still select the project-only option, not either service pair.
+        await self._submit(slack_client, salesforce_client, pool, "proj-a")
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-a"
+
+    async def test_selects_correct_pair_when_project_has_multiple_services(
+        self, slack_client, salesforce_client, pool, with_services
+    ):
+        # proj-a has svc-1 and svc-2; passing 'proj-a|svc-2' must select the
+        # svc-2 pair, not svc-1.
+        await self._submit(
+            slack_client, salesforce_client, pool, "proj-a|svc-2"
+        )
+        element = await self._get_service_element(slack_client)
+        assert element["initial_option"]["value"] == "proj-a|svc-2"
+
+
 class TestParseNewCaseFormData:
     def test_returns_all_fields_when_present(self):
         result = parse_new_case_form_data(_make_body())
