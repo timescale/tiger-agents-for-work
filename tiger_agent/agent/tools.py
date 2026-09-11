@@ -210,8 +210,7 @@ def create_tools(
     async def _show_salesforce_case_form(
         subject: str | None = None,
         description: str | None = None,
-        customer_impact: str | None = None,
-        service: str | None = None,
+        service_or_project: str | None = None,
     ) -> str:
         assert isinstance(event, SlackBaseEvent)
 
@@ -224,8 +223,7 @@ def create_tools(
                 user=event.user,
                 subject=subject,
                 description=description,
-                customer_impact=customer_impact,
-                service=service,
+                service_or_project=service_or_project,
             )
         except Exception as e:
             return f"Sorry, I couldn't display the case creation form right now: {e}"
@@ -264,12 +262,13 @@ def create_tools(
                     "- description: a longer, well-formatted summary of the problem drawn from the thread — what "
                     "the user is seeing, when it started, and any error messages or context they've shared. "
                     "Do not invent details that aren't in the thread.\n"
-                    "- customer_impact: only pass this if the user has clearly stated the impact level and it "
-                    "matches one of the Salesforce Cloud Impact picklist values. If unsure, omit it.\n"
-                    "- service: a project id (e.g. 'proj-abc') or a 'project_id|service_id' string (e.g. "
-                    "'proj-abc|svc-123') mentioned in the thread. Only pass it when the id appears verbatim in "
-                    "the thread; the prefill is silently dropped if it doesn't match one of the account's "
-                    "available projects/services."
+                    "- service_or_project: a service id, a project id, or a 'project_id|service_id' (or "
+                    "'service_id|project_id') pair mentioned in the thread. Project ids and service ids share "
+                    "the same shape: a 10-character lowercase alphanumeric string (e.g. 'sa0rukydmm'). Pass "
+                    "just the id if you only see one (e.g. 'sa0rukydmm'), or both joined by '|' if you see "
+                    "both (e.g. 'sa0rukydmm|k2j9pq4vwn'); order does not matter. Only pass values that appear "
+                    "verbatim in the thread — the prefill is silently dropped if it doesn't match one of the "
+                    "account's available services or projects."
                 ),
             ),
         ]

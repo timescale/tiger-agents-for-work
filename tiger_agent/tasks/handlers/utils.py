@@ -346,16 +346,31 @@ def _build_new_case_form(
 
 
 def _build_service_dropdown(
-    services: list[ServiceRecord] | None, selected_value: str | None
+    services: list[ServiceRecord] | None, service_or_project: str | None
 ) -> dict[str, Any] | None:
     """Build the Service static_select block from an account's ServiceRecords.
 
     Project-only options are inserted at the top so the user can pick a project
     without drilling into a specific service; ``project_id|service_id`` options
     are appended below.
+
+    ``service_or_project`` accepts a bare id or a ``"<a>|<b>"`` pair; each
+    piece is stripped of surrounding whitespace. Every candidate id is matched
+    first against service ids (selecting the corresponding ``project|service``
+    option) and, failing that, against project ids (selecting the project-only
+    option). Service matches win over project matches; if nothing matches, no
+    prefill is applied.
     """
+    candidates = [
+        piece.strip()
+        for piece in (service_or_project or "").split("|")
+        if piece.strip()
+    ]
+
     options: list[dict[str, Any]] = []
     seen_projects: set[str] = set()
+    matched_service_value: str | None = None
+    matched_project_value: str | None = None
     for s in services or []:
         if s.project_id and s.project_id not in seen_projects:
             seen_projects.add(s.project_id)
@@ -369,22 +384,28 @@ def _build_service_dropdown(
                     "value": s.project_id,
                 },
             )
+        pair_value = f"{s.project_id}|{s.service_id}"
         options.append(
             {
                 "text": {
                     "type": "plain_text",
                     "text": f"Project: {s.project_id}, Service: {s.service_id}",
                 },
-                "value": f"{s.project_id}|{s.service_id}",
+                "value": pair_value,
             }
         )
+        if matched_service_value is None and s.service_id in candidates:
+            matched_service_value = pair_value
+        if matched_project_value is None and s.project_id in candidates:
+            matched_project_value = s.project_id
+
     return _build_static_select_block(
         block_id=SERVICE_BLOCK_ID,
         action_id=SERVICE_ACTION_ID,
         label="Service",
         placeholder="Select a service",
         options=options,
-        selected_value=selected_value,
+        selected_value=matched_service_value or matched_project_value,
     )
 
 
@@ -401,7 +422,7 @@ async def send_new_salesforce_case_workflow_form(
     subject: str | None = None,
     description: str | None = None,
     customer_impact: str | None = None,
-    service: str | None = None,
+    service_or_project: str | None = None,
 ):
     """Send an ephemeral message with a form to collect new Salesforce case details.
 
@@ -422,9 +443,12 @@ async def send_new_salesforce_case_workflow_form(
         description: Optional prefill for the Description input.
         customer_impact: Optional prefill for the Impact dropdown. Only applied
             when the value matches one of the picklist options.
-        service: Optional prefill for the Service dropdown. Expected to be
-            either a project id or a ``"<project_id>|<service_id>"`` string,
-            and only applied when the value matches one of the built options.
+        service_or_project: Optional prefill for the Service dropdown.
+            Accepts a bare service or project id, or a ``"<a>|<b>"`` pair in
+            either order; each piece is stripped of whitespace and matched
+            first against service ids (selecting the ``project|service``
+            option) and then against project ids (selecting the project-only
+            option). If nothing matches, no prefill is applied.
 
     Raises:
         Exception: If ``user`` is falsy, or the channel is not linked to a
@@ -452,7 +476,9 @@ async def send_new_salesforce_case_workflow_form(
         salesforce_client=salesforce_client, account_id=account_id
     )
 
-    service_block = _build_service_dropdown(services=services, selected_value=service)
+    service_block = _build_service_dropdown(
+        services=services, service_or_project=service_or_project
+    )
 
     cloud_impact_values = get_pick_list_values(
         salesforce_client.Case, CLOUD_IMPACT_FIELD
