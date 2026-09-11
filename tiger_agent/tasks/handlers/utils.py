@@ -272,7 +272,7 @@ def _build_cloud_impact_dropdown(
         block_id=CUSTOMER_IMPACT_BLOCK_ID,
         action_id=CUSTOMER_IMPACT_ACTION_ID,
         label="Impact",
-        placeholder="Impact",
+        placeholder="Selected value used to determine severity. If none given, defaults to medium severity.",
         options=options,
         selected_value=selected_value,
     )
@@ -452,9 +452,7 @@ async def send_new_salesforce_case_workflow_form(
         salesforce_client=salesforce_client, account_id=account_id
     )
 
-    service_block = _build_service_dropdown(
-        services=services, selected_value=service
-    )
+    service_block = _build_service_dropdown(services=services, selected_value=service)
 
     cloud_impact_values = get_pick_list_values(
         salesforce_client.Case, CLOUD_IMPACT_FIELD
