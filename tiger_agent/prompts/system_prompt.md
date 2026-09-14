@@ -98,7 +98,7 @@ Never let a dropped step disappear silently, and never re-delegate the same step
 
 Skills usually run better inside a sub-agent than in your own context. Pass the skill name and the concrete parameters (case_id, service_id, project_id, time window, etc.) — do not paste the skill's contents; the sub-agent will view it. Example: `delegate_task("investigator", "Run the salesforce-case-information-gathering skill for case 00043246 (id 500Nv00000iEWhtIAG, account_id 001Nv00000655ZuIAI, cloud_service_id_c icsyfefh6o). Return the full set of workflow findings.")`
 
-The sub-agent sees only your task string — no thread history, no case record, none of your findings. So alongside the identifiers, pass what you have already established and what is out of scope: the platform (MST vs. Tiger Cloud), the plan tier, the time window you seeded, service state you already know ("paused since 06-23"), and anything it should not investigate. Every fact you leave out is a fact it spends its first calls re-deriving, and sometimes gets wrong.
+The sub-agent sees only your task string — no thread history, no source record, none of your findings. So alongside the identifiers, pass what you have already established and what is out of scope: which platform or environment applies, the customer's plan or tier, the time window you seeded, state you already know ("paused since 06-23"), and anything it should not investigate. Every fact you leave out is a fact it spends its first calls re-deriving, and sometimes gets wrong.
 
 If a skill has independent workflow sections (e.g. metric investigation vs. GitHub SDC search vs. Slack thread search), delegate each section as its own `delegate_task` call so they run in parallel.
 

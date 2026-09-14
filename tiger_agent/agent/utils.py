@@ -61,13 +61,28 @@ def _build_toolset(mcp_config: McpConfig) -> AbstractToolset:
     return toolset
 
 
+def budget_capabilities() -> list:
+    """Context management plus the approaching-limit warner, for one agent.
+
+    Built per call: both capabilities hold per-agent state, so the coordinator
+    and each delegate need their own instances, not a shared list.
+    """
+    return [
+        ContextManagerCapability(
+            max_tokens=AGENT_MAX_CONTEXT_TOKENS,
+            max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
+        ),
+        make_limit_warner(),
+    ]
+
+
 def build_investigator(model, system_prompt: str) -> SubAgent:
-    """The delegate every Eon run gets, on its own request budget.
+    """The delegate a coordinating agent gets, on its own request budget.
 
     `usage_limits` switches the harness to isolated accounting, so the child's
-    150 requests are its own and exhausting them cannot end the parent's run.
-    `PartialAnswerAgent` turns that exhaustion into a finalized report rather
-    than the harness's one-line "reached its usage budget".
+    AGENT_MAX_REQUESTS are its own and exhausting them cannot end the parent's
+    run. `PartialAnswerAgent` turns that exhaustion into a finalized report
+    rather than the harness's one-line "reached its usage budget".
     """
     return SubAgent(
         PartialAnswerAgent(
@@ -78,22 +93,18 @@ def build_investigator(model, system_prompt: str) -> SubAgent:
                 description=(
                     "Delegate a self-contained investigation that would require "
                     "3+ tool calls, iterative probing, or any tool whose parameters "
-                    "are open-ended query DSLs (PromQL/Thanos metric queries, "
-                    "Elasticsearch/log-search queries, SQL against catalog or "
-                    "analytics, savannah_client::* tools, hybrid Slack search) — "
-                    "these iterate on syntax and return large payloads that will "
-                    "clutter your context. Also delegate skill workflows with "
-                    "independent sections (fan them out in parallel, one "
-                    "delegate_task per section). DO NOT delegate: a single "
-                    "structured lookup by known ID (get_case_details, "
-                    "get_account_details, get_releases, fetch by permalink), "
+                    "are open-ended query languages (metric queries, log searches, "
+                    "SQL, hybrid or semantic search) — these iterate on syntax and "
+                    "return large payloads that will clutter your context. Also "
+                    "delegate skill workflows with independent sections (fan them "
+                    "out in parallel, one delegate_task per section). DO NOT "
+                    "delegate: a single structured lookup by a known identifier, "
                     "one-shot searches whose result is your final answer, or "
                     "questions already answered by data in your context. Phrase "
                     "the task as one specific question and include every "
-                    "identifier the investigator will need (service_id, "
-                    "project_id, case_id/number, account_id, user email, time "
-                    "window) plus the facts you have already established and "
-                    "anything out of scope. The investigator returns a report: "
+                    "identifier the investigator will need and the time window, "
+                    "plus the facts you have already established and anything "
+                    "out of scope. The investigator returns a report: "
                     "answer, evidence, confidence, completed_steps, and "
                     "dropped_steps — work it could not finish, with what it "
                     "tried. Decide what to do with every dropped step: "
@@ -103,13 +114,7 @@ def build_investigator(model, system_prompt: str) -> SubAgent:
                 deps_type=dict[str, Any],
                 system_prompt=system_prompt,
                 output_type=InvestigationReport,
-                capabilities=[
-                    ContextManagerCapability(
-                        max_tokens=AGENT_MAX_CONTEXT_TOKENS,
-                        max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
-                    ),
-                    make_limit_warner(),
-                ],
+                capabilities=budget_capabilities(),
             ),
             finalize_prompt=FINALIZE_PROMPT_INVESTIGATOR,
         ),
@@ -191,11 +196,7 @@ async def create_agent_and_context(
 
     agent = Agent(
         capabilities=[
-            ContextManagerCapability(
-                max_tokens=AGENT_MAX_CONTEXT_TOKENS,
-                max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
-            ),
-            make_limit_warner(),
+            *budget_capabilities(),
             SubAgents(
                 agents=[
                     build_investigator(
