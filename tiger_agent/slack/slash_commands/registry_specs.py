@@ -21,7 +21,12 @@ def _find(group: CommandGroup, key: str):
 class TestCommandTreeTopology:
     def test_root_has_three_top_level_groups(self):
         root = _build_command_handlers()
-        assert {c.key for c in root.commands} == {"salesforce", "messages", "users"}
+        assert {c.key for c in root.commands} == {
+            "salesforce",
+            "schedules",
+            "messages",
+            "users",
+        }
 
     def test_salesforce_group_exposes_create_notification_and_customer_channel(self):
         root = _build_command_handlers()
@@ -61,7 +66,10 @@ class TestCommandTreeTopology:
 
     def test_expected_parameters_are_set_on_arg_taking_leaves(self):
         root = _build_command_handlers()
-        assert _find(_find(root, "salesforce"), "create-notification").expected_parameters == 1
+        assert (
+            _find(_find(root, "salesforce"), "create-notification").expected_parameters
+            == 1
+        )
         cc = _find(_find(root, "salesforce"), "customer-channel")
         assert _find(cc, "add").expected_parameters == 2
         assert _find(cc, "remove").expected_parameters == 1
@@ -93,7 +101,9 @@ def hctx():
 
 
 class TestHandleCommandAdminGating:
-    async def test_rejects_non_admin_user(self, hctx, make_slack_command, make_bot_info, monkeypatch):
+    async def test_rejects_non_admin_user(
+        self, hctx, make_slack_command, make_bot_info, monkeypatch
+    ):
         monkeypatch.setattr(registry, "user_is_admin", AsyncMock(return_value=False))
         cmd = make_slack_command(user_id="U_NOT_ADMIN", text="users admins list")
 

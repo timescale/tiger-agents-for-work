@@ -16,7 +16,7 @@ from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.salesforce.types import (
     SalesforceBaseEvent,
-    UserDefinedRuleMatch,
+    UserDefinedRuleExecution,
 )
 from tiger_agent.slack.utils import add_reaction, post_response
 from tiger_agent.tasks.types import Task
@@ -95,7 +95,7 @@ class TaskProcessor:
             # task would just hit the limit again, so ack it and tell the user
             # to split the request instead of requeueing.
             logger.warning("handler hit usage limit", exc_info=e)
-            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch)):
+            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleExecution)):
                 await add_reaction(hctx.app.client, event.channel, event.ts, "x")
                 await post_response(
                     client=hctx.app.client,
@@ -118,7 +118,7 @@ class TaskProcessor:
                 "Context window exceeded; not retrying",
                 event_type=type(event).__name__,
             )
-            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch)):
+            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleExecution)):
                 await add_reaction(hctx.app.client, event.channel, event.ts, "x")
                 await post_response(
                     client=hctx.app.client,
@@ -129,7 +129,7 @@ class TaskProcessor:
             return
         except Exception as e:
             logger.exception("handler failed", exc_info=e)
-            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleMatch)):
+            if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleExecution)):
                 await add_reaction(hctx.app.client, event.channel, event.ts, "x")
                 await post_response(
                     client=hctx.app.client,
@@ -142,7 +142,9 @@ class TaskProcessor:
             raise
 
         # skip rule evaluation for match events themselves to avoid loops
-        if USER_DEFINED_EVENTS_ENABLED and not isinstance(event, UserDefinedRuleMatch):
+        if USER_DEFINED_EVENTS_ENABLED and not isinstance(
+            event, UserDefinedRuleExecution
+        ):
             await evaluate_user_defined_rules(
                 pool=hctx.pool,
                 event_type=event.type,

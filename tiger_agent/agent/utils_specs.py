@@ -4,8 +4,21 @@ from pydantic_ai.models.function import FunctionModel
 from tiger_agent.agent.constants import AGENT_MAX_DELEGATIONS, AGENT_MAX_REQUESTS
 from tiger_agent.agent.limits import FINALIZE_PROMPT_INVESTIGATOR
 from tiger_agent.agent.partial_agent import PartialAnswerAgent
-from tiger_agent.agent.types import InvestigationReport
-from tiger_agent.agent.utils import budget_capabilities, build_investigator
+from tiger_agent.agent.types import (
+    AgentSalesforceResponse,
+    AssessmentReport,
+    InvestigationReport,
+)
+from tiger_agent.agent.utils import (
+    _output_type,
+    budget_capabilities,
+    build_investigator,
+)
+from tiger_agent.salesforce.types import (
+    SalesforceCreateNewCaseEvent,
+    UserDefinedRuleExecution,
+)
+from tiger_agent.slack.types import SlackAppMentionEvent
 
 
 def _static_answer(_messages, _info) -> ModelResponse:
@@ -41,6 +54,30 @@ class TestInvestigatorBudget:
 
         assert sub.resolved_name == "investigator"
         assert sub.agent.output_type is InvestigationReport
+
+
+def _rule_execution(trigger: str) -> UserDefinedRuleExecution:
+    return UserDefinedRuleExecution(
+        rule_id=1, rule_name="r", owner_slack_id="U", trigger=trigger
+    )
+
+
+class TestOutputType:
+    def test_scheduled_rule_runs_return_an_assessment_report(self):
+        assert _output_type(_rule_execution("schedule")) is AssessmentReport
+
+    def test_event_triggered_rule_runs_return_text(self):
+        assert _output_type(_rule_execution("event")) is str
+
+    def test_salesforce_and_slack_events_are_unchanged(self):
+        salesforce = SalesforceCreateNewCaseEvent(
+            subject="s", description="d", user="U", channel="C", severity="High"
+        )
+        slack = SlackAppMentionEvent(
+            ts="1.1", text="hi", channel="C", event_ts="1.1", user="U"
+        )
+        assert _output_type(salesforce) is AgentSalesforceResponse
+        assert _output_type(slack) is str
 
 
 class TestBudgetCapabilities:

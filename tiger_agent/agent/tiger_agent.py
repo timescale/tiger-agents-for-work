@@ -27,8 +27,7 @@ from tiger_agent.agent.types import (
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader
 from tiger_agent.prompts.types import PromptPackage
-from tiger_agent.salesforce.types import SalesforceBaseEvent
-from tiger_agent.slack.types import BotInfo
+from tiger_agent.slack.types import BotInfo, SlackBaseEvent
 from tiger_agent.slack.utils import download_private_file
 from tiger_agent.utils import file_type_supported
 
@@ -197,7 +196,7 @@ class TigerAgent:
         )
 
         if (
-            isinstance(ctx.mention, SalesforceBaseEvent)
+            not isinstance(ctx.mention, SlackBaseEvent)
             or ctx.mention.files is None
             or not len(ctx.mention.files)
         ):

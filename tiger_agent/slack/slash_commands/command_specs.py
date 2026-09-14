@@ -57,3 +57,21 @@ class TestCommand:
         await cmd("<@U123|nathan>", ctx)
 
         func.assert_awaited_once_with(ctx, ["<@U123|nathan>"])
+
+
+class TestOptionalParameters:
+    @pytest.mark.parametrize("args", [["a", "b"], ["a", "b", "c"]])
+    async def test_accepts_required_plus_up_to_optional(self, ctx, args):
+        func = AsyncMock(return_value="ok")
+        cmd = Command(key="do", expected_parameters=2, optional_parameters=1, func=func)
+
+        assert await cmd(args, ctx) == "ok"
+        func.assert_awaited_once_with(ctx, args)
+
+    @pytest.mark.parametrize("args", [["a"], ["a", "b", "c", "d"]])
+    async def test_rejects_outside_the_bounds(self, ctx, args):
+        func = AsyncMock()
+        cmd = Command(key="do", expected_parameters=2, optional_parameters=1, func=func)
+
+        assert await cmd(args, ctx) == "Incorrect number of parameters given for <do>"
+        func.assert_not_called()

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic_ai import BinaryContent, Tool
@@ -9,37 +11,94 @@ from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.db.utils import (
     delete_user_defined_rule,
     insert_user_defined_rule,
+    list_feedback_ratings,
+    list_feedback_ratings_for_thread,
     list_user_defined_rules,
+    toggle_user_defined_rule,
     user_is_admin,
 )
 from tiger_agent.events import EVENT_TYPE_OPTIONS, EVENT_TYPES_BY_NAME
 from tiger_agent.logfire.constants import LOGFIRE_READ_TOKEN
 from tiger_agent.logfire.utils import (
+    find_drafting_traces,
     find_errors,
     get_log_by_id,
     get_logs_for_trace,
     get_tool_calls_for_event,
+    get_tool_calls_for_traces,
     get_trace_ids_for_event,
 )
 from tiger_agent.org_calendar.utils import get_calender_events
 from tiger_agent.salesforce.types import (
     UserDefinedRule,
+    UserDefinedRuleExecution,
 )
 from tiger_agent.salesforce.utils import (
     EXT_TO_MIME,
+    create_case_url,
     download_content_version_url,
 )
 from tiger_agent.slack.types import ChannelInfo, SlackBaseEvent
 from tiger_agent.slack.utils import (
     channel_is_external,
     download_slack_hosted_file,
+    fetch_thread_messages,
     find_user_group,
     get_user_ids_in_channel,
     get_user_ids_in_user_group,
+    parse_slack_url,
+    post_response,
 )
 from tiger_agent.tasks.handlers.utils import send_new_salesforce_case_workflow_form
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
+
+
+def create_rule_action_tools(hctx: HarnessContext) -> list[Tool]:
+    """The posting tools a rule's action can use to reach people.
+
+    This is the whole tool surface of a `limited` rule execution; a `full` one
+    gets these on top of everything else.
+    """
+
+    async def _send_dm(user_id: str, message: str) -> str:
+        await post_response(
+            client=hctx.app.client, channel=user_id, thread_ts=None, text=message
+        )
+        return f"Sent a direct message to {user_id}."
+
+    async def _send_channel_message(channel_id: str, message: str) -> str:
+        await post_response(
+            client=hctx.app.client, channel=channel_id, thread_ts=None, text=message
+        )
+        return f"Posted to {channel_id}."
+
+    def _get_case_url(case_id: str) -> str:
+        return create_case_url(case_id)
+
+    return [
+        Tool(
+            _send_dm,
+            takes_ctx=False,
+            name="send_dm",
+            description="Send a direct message to a Slack user by user id.",
+        ),
+        Tool(
+            _send_channel_message,
+            takes_ctx=False,
+            name="send_channel_message",
+            description="Post a message to a Slack channel by channel id.",
+        ),
+        Tool(
+            _get_case_url,
+            takes_ctx=False,
+            name="get_case_url",
+            description=(
+                "Return the Salesforce URL for a case id. The id is often found in a "
+                "Salesforce object's ParentId field (e.g. on a FeedItem or Task)."
+            ),
+        ),
+    ]
 
 
 def create_tools(
@@ -206,6 +265,211 @@ def create_tools(
         if not await user_is_admin(pool=hctx.pool, user_id=event.user):
             return "This tool can only be used by admins."
         return await find_errors(lookback_hours=lookback_hours, limit=limit)
+
+    async def _refuse_non_admin() -> str | None:
+        """Assessment tools read other people's threads and the agent's own traces.
+        A rule execution has no requesting user; a Slack caller must be an admin."""
+        if isinstance(event, SlackBaseEvent) and not await user_is_admin(
+            pool=hctx.pool, user_id=event.user
+        ):
+            return "This tool can only be used by admins."
+        return None
+
+    def _clip(value: Any, limit: int = 500) -> Any:
+        text = value if isinstance(value, str) else json.dumps(value, default=str)
+        return (
+            text
+            if len(text) <= limit
+            else text[:limit] + f"… [+{len(text) - limit} chars]"
+        )
+
+    async def _get_thread_assessment_context(
+        permalink: str | None = None,
+    ) -> dict[str, Any] | str:
+        if refusal := await _refuse_non_admin():
+            return refusal
+
+        if permalink:
+            try:
+                parts = parse_slack_url(permalink)
+            except ValueError as e:
+                return str(e)
+            channel, thread_ts = parts.channel_id, parts.thread_ts or parts.ts
+        elif isinstance(event, SlackBaseEvent):
+            channel, thread_ts = event.channel, event.thread_ts or event.ts
+        else:
+            return "Pass a permalink: this run is not attached to a Slack thread."
+
+        gaps: list[str] = []
+        bot_user_id = hctx.bot_info.user_id if hctx.bot_info else None
+        messages = await fetch_thread_messages(
+            client=hctx.app.client, channel=channel, thread_ts=thread_ts, limit=50
+        )
+        thread = [
+            {
+                "ts": m.ts,
+                "user": m.user,
+                "from_bot": bool(m.bot_id) or m.user == bot_user_id,
+                "text": _clip(m.text, 6000),
+            }
+            for m in messages
+        ]
+
+        ratings = await list_feedback_ratings_for_thread(
+            pool=hctx.pool, channel=channel, message_ts=thread_ts
+        )
+        if not ratings:
+            gaps.append("No feedback ratings are recorded for this thread.")
+
+        drafting: dict[str, Any] | None = None
+        other_runs: list[dict[str, Any]] = []
+        tool_calls: list[dict[str, Any]] = []
+        if not LOGFIRE_READ_TOKEN:
+            gaps.append(
+                "Trace inspection is unavailable: no Logfire read token is configured."
+            )
+        else:
+            anchor = datetime.fromtimestamp(float(thread_ts), UTC)
+            bounds = {
+                "min_timestamp": anchor - timedelta(days=7),
+                "max_timestamp": anchor + timedelta(days=1),
+            }
+            try:
+                runs = await find_drafting_traces(channel, thread_ts, **bounds)
+            except Exception as e:
+                runs = []
+                gaps.append(f"Trace lookup failed: {e}")
+            if runs:
+                drafting, other_runs = runs[0], runs[1:]
+                calls = await get_tool_calls_for_traces(
+                    [drafting["trace_id"]], **bounds
+                )
+                tool_calls = [
+                    {
+                        **call,
+                        "tool_arguments": _clip(call.get("tool_arguments")),
+                        "tool_response": _clip(call.get("tool_response")),
+                    }
+                    for call in calls
+                ]
+            elif not gaps or not gaps[-1].startswith("Trace lookup failed"):
+                gaps.append(
+                    "No run that posted into this thread was found between 7 days "
+                    "before the thread and 1 day after it; older runs are outside "
+                    "the query window."
+                )
+
+        return {
+            "channel": channel,
+            "thread_ts": thread_ts,
+            "permalink": permalink,
+            "messages": thread,
+            "ratings": ratings,
+            "drafting_run": drafting,
+            "drafting_run_tool_calls": tool_calls,
+            "other_runs_in_thread": other_runs,
+            "gaps": gaps,
+        }
+
+    async def _list_recent_feedback(
+        window_hours: float | None = None,
+    ) -> list[dict[str, Any]] | str:
+        if refusal := await _refuse_non_admin():
+            return refusal
+        if window_hours is None and isinstance(event, UserDefinedRuleExecution):
+            window_hours = event.window_hours
+        if not window_hours or window_hours <= 0:
+            return "Pass window_hours: how far back to look for ratings."
+        window_hours = min(window_hours, 720.0)
+
+        until = datetime.now(UTC)
+        rows = await list_feedback_ratings(
+            pool=hctx.pool, since=until - timedelta(hours=window_hours), until=until
+        )
+
+        threads: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            key = (row.get("channel"), row.get("message_ts"))
+            if key not in threads:
+                threads[key] = {
+                    "channel": key[0],
+                    "thread_ts": key[1],
+                    "permalink": None,
+                    "comments": [],
+                }
+            threads[key]["comments"].append(
+                {
+                    "user": row.get("user"),
+                    "rating": row.get("rating"),
+                    "description": row.get("description"),
+                    "event_ts": row.get("event_ts"),
+                }
+            )
+
+        def _numeric(rating: Any) -> float | None:
+            try:
+                return float(rating)
+            except (TypeError, ValueError):
+                return None
+
+        def _average(item: dict[str, Any]) -> float:
+            values = [
+                r for c in item["comments"] if (r := _numeric(c["rating"])) is not None
+            ]
+            return sum(values) / len(values) if values else 99.0
+
+        ranked = sorted(threads.values(), key=_average)[:25]
+        for item in ranked:
+            try:
+                result = await hctx.app.client.chat_getPermalink(
+                    channel=item["channel"], message_ts=item["thread_ts"]
+                )
+                item["permalink"] = result.data.get("permalink")
+            except Exception:
+                base = (hctx.bot_info.url if hctx.bot_info else "") or ""
+                item["permalink"] = (
+                    f"{base.rstrip('/')}/archives/{item['channel']}/p"
+                    f"{str(item['thread_ts']).replace('.', '')}"
+                )
+        return ranked
+
+    async def _toggle_user_defined_rule(rule_id: int, enabled: bool) -> bool:
+        assert isinstance(event, SlackBaseEvent)
+        return await toggle_user_defined_rule(
+            pool=hctx.pool, rule_id=rule_id, owner_slack_id=event.user, enabled=enabled
+        )
+
+    assessment_tools = [
+        Tool(
+            _get_thread_assessment_context,
+            takes_ctx=False,
+            name="get_thread_assessment_context",
+            description=(
+                "Gather everything needed to assess how this agent handled one Slack thread, "
+                "in a single call: the thread's messages (with the agent's own marked), the "
+                "feedback ratings people left on it, the run that produced the agent's "
+                "content in that thread (`drafting_run`) with that run's tool calls, any later "
+                "runs in the thread, and a `gaps` list naming what could not be found.\n\n"
+                "Pass `permalink` to assess another thread; omit it to assess the thread you "
+                "were mentioned in. Use when asked why a response was rated as it was, what "
+                "the agent got wrong or right in a thread, or to assess a response. After "
+                "gathering, discover and follow any skill your deployment provides for "
+                "assessing feedback on drafted responses."
+            ),
+        ),
+        Tool(
+            _list_recent_feedback,
+            takes_ctx=False,
+            name="list_recent_feedback",
+            description=(
+                "List the Slack threads on which people rated this agent's responses in the "
+                "last `window_hours`, grouped per thread with every comment (user, rating, "
+                "description, when), worst average rating first, capped at 25 threads. Each "
+                "item has a `permalink` you can pass to `get_thread_assessment_context`. "
+                "Inside a scheduled run `window_hours` defaults to the run's window."
+            ),
+        ),
+    ]
 
     async def _show_salesforce_case_form(
         subject: str | None = None,
@@ -481,8 +745,25 @@ def create_tools(
                     if LOGFIRE_READ_TOKEN
                     else []
                 ),
+                Tool(
+                    _toggle_user_defined_rule,
+                    takes_ctx=False,
+                    name="toggle_user_defined_rule",
+                    description=(
+                        "Enable or disable a user-defined rule by id (`enabled` true/false). "
+                        "Disabling a scheduled rule stops its future runs without deleting it. "
+                        "Only the rule's owner or an admin can do this. Returns True if a rule "
+                        "was updated."
+                    ),
+                ),
+                *assessment_tools,
             ]
             if isinstance(event, SlackBaseEvent)
+            else []
+        ),
+        *(
+            [*create_rule_action_tools(hctx=hctx), *assessment_tools]
+            if isinstance(event, UserDefinedRuleExecution)
             else []
         ),
     ]
