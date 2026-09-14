@@ -12,10 +12,16 @@ from pydantic_ai_summarization import ContextManagerCapability
 
 from tiger_agent.agent.constants import (
     AGENT_MAX_CONTEXT_TOKENS,
+    AGENT_MAX_DELEGATIONS,
     AGENT_MAX_TOOL_OUTPUT_TOKENS,
     PROMPT_CACHE_MODEL_SETTINGS,
 )
-from tiger_agent.agent.limits import make_limit_warner
+from tiger_agent.agent.limits import (
+    AGENT_USAGE_LIMITS,
+    FINALIZE_PROMPT_INVESTIGATOR,
+    make_limit_warner,
+)
+from tiger_agent.agent.partial_agent import PartialAnswerAgent
 from tiger_agent.agent.tiger_agent import (
     INVESTIGATOR_SYSTEM_PROMPT_REGEX,
     TigerAgent,
@@ -25,6 +31,7 @@ from tiger_agent.agent.types import (
     AgentResponseContext,
     AgentSalesforceResponse,
     ExtraContextDict,
+    InvestigationReport,
 )
 from tiger_agent.db.utils import get_salesforce_account_id_for_channel
 from tiger_agent.mcp.types import McpConfig
@@ -52,6 +59,63 @@ def _build_toolset(mcp_config: McpConfig) -> AbstractToolset:
     if mcp_config.tool_prefix:
         toolset = toolset.prefixed(mcp_config.tool_prefix)
     return toolset
+
+
+def build_investigator(model, system_prompt: str) -> SubAgent:
+    """The delegate every Eon run gets, on its own request budget.
+
+    `usage_limits` switches the harness to isolated accounting, so the child's
+    150 requests are its own and exhausting them cannot end the parent's run.
+    `PartialAnswerAgent` turns that exhaustion into a finalized report rather
+    than the harness's one-line "reached its usage budget".
+    """
+    return SubAgent(
+        PartialAnswerAgent(
+            Agent(
+                model=model,
+                model_settings=PROMPT_CACHE_MODEL_SETTINGS,
+                name="investigator",
+                description=(
+                    "Delegate a self-contained investigation that would require "
+                    "3+ tool calls, iterative probing, or any tool whose parameters "
+                    "are open-ended query DSLs (PromQL/Thanos metric queries, "
+                    "Elasticsearch/log-search queries, SQL against catalog or "
+                    "analytics, savannah_client::* tools, hybrid Slack search) — "
+                    "these iterate on syntax and return large payloads that will "
+                    "clutter your context. Also delegate skill workflows with "
+                    "independent sections (fan them out in parallel, one "
+                    "delegate_task per section). DO NOT delegate: a single "
+                    "structured lookup by known ID (get_case_details, "
+                    "get_account_details, get_releases, fetch by permalink), "
+                    "one-shot searches whose result is your final answer, or "
+                    "questions already answered by data in your context. Phrase "
+                    "the task as one specific question and include every "
+                    "identifier the investigator will need (service_id, "
+                    "project_id, case_id/number, account_id, user email, time "
+                    "window) plus the facts you have already established and "
+                    "anything out of scope. The investigator returns a report: "
+                    "answer, evidence, confidence, completed_steps, and "
+                    "dropped_steps — work it could not finish, with what it "
+                    "tried. Decide what to do with every dropped step: "
+                    "re-delegate it as its own task (once), answer it yourself, "
+                    "or record it as a gap."
+                ),
+                deps_type=dict[str, Any],
+                system_prompt=system_prompt,
+                output_type=InvestigationReport,
+                capabilities=[
+                    ContextManagerCapability(
+                        max_tokens=AGENT_MAX_CONTEXT_TOKENS,
+                        max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
+                    ),
+                    make_limit_warner(),
+                ],
+            ),
+            finalize_prompt=FINALIZE_PROMPT_INVESTIGATOR,
+        ),
+        usage_limits=AGENT_USAGE_LIMITS,
+        max_calls=AGENT_MAX_DELEGATIONS,
+    )
 
 
 @dataclass
@@ -134,41 +198,8 @@ async def create_agent_and_context(
             make_limit_warner(),
             SubAgents(
                 agents=[
-                    SubAgent(
-                        Agent(
-                            model=agent.model,
-                            model_settings=PROMPT_CACHE_MODEL_SETTINGS,
-                            name="investigator",
-                            description=(
-                                "Delegate a self-contained investigation that would require "
-                                "3+ tool calls, iterative probing, or any tool whose parameters "
-                                "are open-ended query DSLs (PromQL/Thanos metric queries, "
-                                "Elasticsearch/log-search queries, SQL against catalog or "
-                                "analytics, savannah_client::* tools, hybrid Slack search) — "
-                                "these iterate on syntax and return large payloads that will "
-                                "clutter your context. Also delegate skill workflows with "
-                                "independent sections (fan them out in parallel, one "
-                                "delegate_task per section). DO NOT delegate: a single "
-                                "structured lookup by known ID (get_case_details, "
-                                "get_account_details, get_releases, fetch by permalink), "
-                                "one-shot searches whose result is your final answer, or "
-                                "questions already answered by data in your context. Phrase "
-                                "the task as one specific question and include every "
-                                "identifier the investigator will need (service_id, "
-                                "project_id, case_id/number, account_id, user email, time "
-                                "window). The investigator returns a distilled answer with "
-                                "evidence, not raw tool output."
-                            ),
-                            deps_type=dict[str, Any],
-                            system_prompt=investigator_prompt,
-                            capabilities=[
-                                ContextManagerCapability(
-                                    max_tokens=AGENT_MAX_CONTEXT_TOKENS,
-                                    max_tool_output_tokens=AGENT_MAX_TOOL_OUTPUT_TOKENS,
-                                ),
-                                make_limit_warner(),
-                            ],
-                        )
+                    build_investigator(
+                        model=agent.model, system_prompt=investigator_prompt
                     )
                 ],
                 inherit_tools=True,

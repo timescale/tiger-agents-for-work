@@ -12,6 +12,7 @@ class TestDefaultsAreUnchanged:
         "name,expected",
         [
             ("AGENT_MAX_REQUESTS", 150),
+            ("AGENT_MAX_DELEGATIONS", 12),
             ("AGENT_MAX_OUTPUT_TOKENS", 40_000),
             ("AGENT_MAX_CONTEXT_TOKENS", 800_000),
             ("AGENT_MAX_TOOL_OUTPUT_TOKENS", 50_000),

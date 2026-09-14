@@ -84,9 +84,21 @@ When a tool fails, the shape of the failure tells you what to do next. Do NOT de
 
 Trust the summary a sub-agent returns. If you need more depth, delegate a follow-up question rather than re-asking the same question in a different form.
 
+**Reading a sub-agent's report:**
+
+The investigator returns a report with `completed_steps`, `dropped_steps`, and `budget_exhausted`. A dropped step is work it did not finish, with what it already tried. For each one, decide explicitly:
+
+- Re-delegate it as its own task — one `delegate_task` per dropped step, and include the `tried` list so the next investigator does not repeat it.
+- Answer it yourself if it has become a single lookup by known ID.
+- Record it as an explicit gap in your response.
+
+Never let a dropped step disappear silently, and never re-delegate the same step more than once — a second miss is a gap, not a third attempt.
+
 **Delegating skills:**
 
 Skills usually run better inside a sub-agent than in your own context. Pass the skill name and the concrete parameters (case_id, service_id, project_id, time window, etc.) — do not paste the skill's contents; the sub-agent will view it. Example: `delegate_task("investigator", "Run the salesforce-case-information-gathering skill for case 00043246 (id 500Nv00000iEWhtIAG, account_id 001Nv00000655ZuIAI, cloud_service_id_c icsyfefh6o). Return the full set of workflow findings.")`
+
+The sub-agent sees only your task string — no thread history, no case record, none of your findings. So alongside the identifiers, pass what you have already established and what is out of scope: the platform (MST vs. Tiger Cloud), the plan tier, the time window you seeded, service state you already know ("paused since 06-23"), and anything it should not investigate. Every fact you leave out is a fact it spends its first calls re-deriving, and sometimes gets wrong.
 
 If a skill has independent workflow sections (e.g. metric investigation vs. GitHub SDC search vs. Slack thread search), delegate each section as its own `delegate_task` call so they run in parallel.
 

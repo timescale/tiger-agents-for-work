@@ -18,6 +18,11 @@ SPAM_DETECTION_MODEL = os.environ.get(
 AGENT_MAX_REQUESTS: int = int(os.getenv("AGENT_MAX_REQUESTS", "150"))
 AGENT_MAX_OUTPUT_TOKENS: int = int(os.getenv("AGENT_MAX_OUTPUT_TOKENS", "40000"))
 
+# Each delegation runs on its own AGENT_MAX_REQUESTS budget, so this is what bounds
+# the tree: without it a parent could spend AGENT_MAX_REQUESTS per delegation without
+# limit.
+AGENT_MAX_DELEGATIONS: int = int(os.getenv("AGENT_MAX_DELEGATIONS", "12"))
+
 AGENT_MAX_REQUEST_INPUT_TOKENS: int = int(
     os.getenv("AGENT_MAX_REQUEST_INPUT_TOKENS", "850000")
 )
