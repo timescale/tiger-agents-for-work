@@ -60,6 +60,13 @@ FINALIZE_PROMPT = (
     "rather than guessing or leaving it blank."
 )
 
+FINALIZE_PROMPT_INVESTIGATOR = (
+    FINALIZE_PROMPT + "\n\n"
+    "Set `budget_exhausted` to true. Record every part of the task you did not "
+    "finish under `dropped_steps`, each with what you already tried, so the "
+    "coordinator can decide whether to pick it up without repeating your work."
+)
+
 
 def make_limit_warner() -> LimitWarnerCapability:
     """Warn the model as it approaches its run budget.
@@ -136,7 +143,13 @@ def _close_dangling_tool_calls(messages: list[ModelMessage]) -> list[ModelMessag
 
 @logfire.instrument("run_and_return_partial", extract_args=False)
 async def run_and_return_partial(
-    agent, *, user_prompt, deps, usage_limits=None, **kwargs
+    agent,
+    *,
+    user_prompt,
+    deps,
+    usage_limits=None,
+    finalize_prompt=FINALIZE_PROMPT,
+    **kwargs,
 ):
     """Run ``agent``, degrading to a partial answer if it exhausts its budget.
 
@@ -146,6 +159,11 @@ async def run_and_return_partial(
     if the fallback attempt also fails.
     """
     limits = usage_limits if usage_limits is not None else AGENT_USAGE_LIMITS
+    # The finalize pass overrides both: the caller's toolsets would re-arm the
+    # tools the prompt says are gone, and its usage is the exhausted one.
+    finalize_kwargs = {
+        k: v for k, v in kwargs.items() if k not in ("toolsets", "usage")
+    }
 
     with capture_run_messages() as messages:
         try:
@@ -165,7 +183,7 @@ async def run_and_return_partial(
 
             history = _close_dangling_tool_calls(list(messages))
             history.append(
-                ModelRequest(parts=[UserPromptPart(content=FINALIZE_PROMPT)])
+                ModelRequest(parts=[UserPromptPart(content=finalize_prompt)])
             )
 
             result = await agent.run(
@@ -173,7 +191,7 @@ async def run_and_return_partial(
                 deps=deps,
                 usage_limits=FINALIZE_USAGE_LIMITS,
                 toolsets=[],
-                **kwargs,
+                **finalize_kwargs,
             )
             logfire.info("Returned a partial answer after hitting the usage limit")
             return result

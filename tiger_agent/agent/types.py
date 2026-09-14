@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
@@ -93,6 +94,89 @@ class SpamAssessment(BaseModel):
         default="",
         description="Slack mrkdwn notification body. Populated only when is_spam is True.",
     )
+
+
+class DroppedStep(BaseModel):
+    step: str = Field(
+        description="The part of the task that was not completed, stated so it can be delegated on its own."
+    )
+    reason: str = Field(
+        description="Why it was dropped: budget reached, tool failure, missing identifier, out of scope."
+    )
+    tried: list[str] = Field(
+        default_factory=list,
+        description="Tool calls or approaches already attempted, so a follow-up does not repeat them.",
+    )
+    suggested_next: str | None = Field(
+        default=None,
+        description="The single most promising next action, if one is known.",
+    )
+
+
+class InvestigationReport(BaseModel):
+    """What a delegated investigator hands back to the coordinator.
+
+    ``__str__`` is the wire format: the delegation tool returns ``str(output)``,
+    so the coordinator reads this rendering, not the JSON.
+    """
+
+    answer: str = Field(
+        description="Direct answer to the delegated question, one or two sentences."
+    )
+    evidence: list[str] = Field(
+        default_factory=list,
+        description="3-8 specific findings backing the answer, citing tool names and key values. No raw tool output.",
+    )
+    confidence: Literal["high", "medium", "low"]
+    confidence_reason: str = Field(
+        description="One line on what drives the confidence level."
+    )
+    completed_steps: list[str] = Field(
+        default_factory=list,
+        description="Parts of the task that were fully carried out.",
+    )
+    dropped_steps: list[DroppedStep] = Field(
+        default_factory=list,
+        description="Parts of the task not completed. Empty when the whole task was done.",
+    )
+    budget_exhausted: bool = Field(
+        default=False,
+        description="True when the run stopped because it reached its request or token budget.",
+    )
+
+    def __str__(self) -> str:
+        lines = [f"**Answer**: {self.answer}", "", "**Evidence**:"]
+        if self.evidence:
+            lines.extend(f"- {item}" for item in self.evidence)
+        else:
+            lines.append("- none")
+        lines.extend(
+            ["", f"**Confidence**: {self.confidence} — {self.confidence_reason}"]
+        )
+        if self.completed_steps:
+            lines.extend(["", "**Completed steps**:"])
+            lines.extend(f"- {item}" for item in self.completed_steps)
+        lines.append("")
+        if not self.dropped_steps:
+            lines.append("**Dropped steps**: none")
+        else:
+            lines.append(
+                "**Dropped steps** (not completed — decide whether to re-delegate):"
+            )
+            for dropped in self.dropped_steps:
+                lines.append(f"- {dropped.step} — {dropped.reason}")
+                if dropped.tried:
+                    lines.append(f"  - tried: {'; '.join(dropped.tried)}")
+                if dropped.suggested_next:
+                    lines.append(f"  - suggested next: {dropped.suggested_next}")
+        if self.budget_exhausted:
+            lines.extend(
+                [
+                    "",
+                    "**Budget exhausted**: yes — dropped steps were cut for budget, not for lack of a path.",
+                ]
+            )
+        return "\n".join(lines)
 
 
 class AgentSalesforceResponse(CaseSummary):
