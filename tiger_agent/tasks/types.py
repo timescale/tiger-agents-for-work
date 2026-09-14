@@ -8,7 +8,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
-    UserDefinedRuleMatch,
+    UserDefinedRuleExecution,
 )
 from tiger_agent.slack.types import (
     AgentFeedbackRatingEvent,
@@ -52,5 +52,5 @@ class Task(BaseModel):
         | SalesforceCaseStatusChangedEvent
         | AgentFeedbackRatingEvent
         | AgentFeedbackRequestReminderEvent
-        | UserDefinedRuleMatch
+        | UserDefinedRuleExecution
     )

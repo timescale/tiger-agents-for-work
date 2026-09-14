@@ -63,6 +63,18 @@ SPAM_DETECTION_USAGE_LIMITS = UsageLimits(
     output_tokens_limit=SPAM_DETECTION_MAX_OUTPUT_TOKENS,
 )
 
+# A "limited" rule execution relays a notification: cheaper model, only the posting
+# tools, no MCP servers or sub-agents, and a budget that cannot turn into an
+# investigation.
+LIMITED_PROFILE_MODEL = os.environ.get(
+    "LIMITED_PROFILE_MODEL", "openrouter:anthropic/claude-sonnet-5"
+)
+LIMITED_PROFILE_MAX_REQUESTS: int = int(os.getenv("LIMITED_PROFILE_MAX_REQUESTS", "10"))
+LIMITED_PROFILE_USAGE_LIMITS = UsageLimits(
+    request_limit=LIMITED_PROFILE_MAX_REQUESTS,
+    output_tokens_limit=AGENT_MAX_OUTPUT_TOKENS,
+)
+
 
 # Only the settings matching the active model's provider prefix are read; the rest are
 # ignored, so it's safe to set both Anthropic's and OpenRouter's cache keys regardless of

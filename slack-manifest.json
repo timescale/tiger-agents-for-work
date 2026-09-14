@@ -40,6 +40,8 @@
         "im:read",
         "files:read",
         "files:write",
+        "canvases:read",
+        "canvases:write",
         "team:read",
         "usergroups:read"
       ]
