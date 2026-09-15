@@ -1,7 +1,16 @@
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from pydantic_ai.messages import PartEndEvent, TextPart
+from slack_sdk.errors import SlackApiError
+from slack_sdk.web.async_client import AsyncChatStream
+
 from tiger_agent.slack.utils import (
+    append_message_to_stream,
     get_channel_link,
     get_handle_link,
     post_response,
+    stream_response_to_mention,
     user_is_external,
 )
 
@@ -87,3 +96,144 @@ class TestPostMessage:
         )
 
         assert client.chat_postMessage.call_count == 2
+
+
+def _expired_stream_error() -> SlackApiError:
+    """The error Slack returns once it has finalized an idle streaming message."""
+    return SlackApiError(
+        "The request to the Slack API failed.",
+        {"ok": False, "error": "message_not_in_streaming_state"},
+    )
+
+
+def _make_dead_stream(buffered: str) -> MagicMock:
+    """A stream whose buffer holds `buffered` and whose next flush fails.
+
+    Mirrors `AsyncChatStream.append`: the delta is added to `_buffer` before the
+    API call, and the buffer is left intact when that call fails.
+    """
+    stream = MagicMock(spec=AsyncChatStream)
+    stream._buffer = ""
+    stream._state = "in_progress"
+
+    async def append(markdown_text: str, **_):
+        stream._buffer = buffered + markdown_text
+        raise _expired_stream_error()
+
+    stream.append = AsyncMock(side_effect=append)
+    stream._flush_buffer = AsyncMock(side_effect=_expired_stream_error())
+    return stream
+
+
+def _make_live_stream() -> MagicMock:
+    stream = MagicMock(spec=AsyncChatStream)
+    stream._buffer = ""
+    stream._state = "in_progress"
+    stream.append = AsyncMock(return_value=None)
+    stream._flush_buffer = AsyncMock(return_value=None)
+    return stream
+
+
+class TestAppendMessageToStream:
+    async def test_retry_replays_the_unsent_buffer_onto_a_new_stream(
+        self, make_async_web_client_mock
+    ):
+        dead_stream = _make_dead_stream(
+            buffered="### Finding 1 — the system went read-"
+        )
+        new_stream = _make_live_stream()
+        client = make_async_web_client_mock(
+            chat_stream=AsyncMock(return_value=new_stream)
+        )
+
+        result = await append_message_to_stream(
+            client=client,
+            channel_id="channel",
+            recipient_user_id="U_USER",
+            recipient_team_id="T_HOME",
+            thread_ts="thread_ts",
+            markdown_text=" only mode because of",
+            stream=dead_stream,
+        )
+
+        assert result is new_stream
+        client.chat_stream.assert_awaited_once_with(
+            channel="channel",
+            recipient_user_id="U_USER",
+            recipient_team_id="T_HOME",
+            thread_ts="thread_ts",
+        )
+        new_stream.append.assert_awaited_once_with(
+            markdown_text="### Finding 1 — the system went read- only mode because of"
+        )
+
+    async def test_retry_falls_back_to_the_delta_when_the_buffer_is_empty(
+        self, make_async_web_client_mock
+    ):
+        dead_stream = _make_live_stream()
+        dead_stream.append = AsyncMock(side_effect=_expired_stream_error())
+        new_stream = _make_live_stream()
+        client = make_async_web_client_mock(
+            chat_stream=AsyncMock(return_value=new_stream)
+        )
+
+        await append_message_to_stream(
+            client=client,
+            channel_id="channel",
+            recipient_user_id="U_USER",
+            recipient_team_id="T_HOME",
+            thread_ts="thread_ts",
+            markdown_text="delta",
+            stream=dead_stream,
+        )
+
+        new_stream.append.assert_awaited_once_with(markdown_text="delta")
+
+    async def test_does_not_retry_twice(self, make_async_web_client_mock):
+        dead_stream = _make_dead_stream(buffered="head ")
+        second_dead_stream = _make_dead_stream(buffered="")
+        client = make_async_web_client_mock(
+            chat_stream=AsyncMock(return_value=second_dead_stream)
+        )
+
+        with pytest.raises(SlackApiError):
+            await append_message_to_stream(
+                client=client,
+                channel_id="channel",
+                recipient_user_id="U_USER",
+                recipient_team_id="T_HOME",
+                thread_ts="thread_ts",
+                markdown_text="tail",
+                stream=dead_stream,
+            )
+
+        assert client.chat_stream.await_count == 1
+
+
+class TestStreamResponseToMention:
+    async def test_part_end_flush_failure_switches_to_the_new_stream(
+        self, make_async_web_client_mock
+    ):
+        dead_stream = _make_live_stream()
+        dead_stream._buffer = "buffered tail\n\n"
+        dead_stream._flush_buffer = AsyncMock(side_effect=_expired_stream_error())
+        new_stream = _make_live_stream()
+        client = make_async_web_client_mock(
+            chat_stream=AsyncMock(return_value=new_stream)
+        )
+
+        result = await stream_response_to_mention(
+            client=client,
+            slack_stream=dead_stream,
+            stream_event=PartEndEvent(index=0, part=TextPart(content="ignored")),
+            channel_id="channel",
+            recipient_user_id="U_USER",
+            recipient_team_id="T_HOME",
+            ts="ts",
+            thread_ts="thread_ts",
+        )
+
+        assert result is new_stream
+        # "\n\n" was appended to the dead stream first, then the buffer replayed
+        dead_stream.append.assert_awaited_once_with(markdown_text="\n\n")
+        new_stream.append.assert_awaited_once_with(markdown_text="buffered tail\n\n")
