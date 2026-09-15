@@ -639,23 +639,41 @@ async def append_message_to_stream(
         await stream_to_use.append(markdown_text=markdown_text)
         return stream_to_use
     except (SlackRequestError, SlackApiError) as slack_error:
-        logfire.exception(
+        # Slack finalizes a stream that sits idle for a few minutes (e.g. while
+        # a long tool call runs) and then rejects appends with
+        # `message_not_in_streaming_state`. Replaying only `markdown_text` onto
+        # a fresh stream would drop the buffered head of the response.
+        if stream_to_use._state == "completed":
+            # `append` rejects before buffering when the stream was already
+            # stopped, and a successful stop() drained the buffer, so this
+            # delta is the only undelivered text.
+            unsent_text = markdown_text
+        else:
+            # `AsyncChatStream.append` adds the delta to `_buffer` before
+            # flushing and only clears `_buffer` after the API call succeeds,
+            # so the failed flush left everything undelivered in the buffer,
+            # this delta included.
+            unsent_text = stream_to_use._buffer
+        logfire.warn(
             "Slack Error occurred while calling append_message_to_stream",
             markdown_text=markdown_text,
+            unsent_text=unsent_text,
+            slack_error=str(slack_error),
+            will_retry=should_retry,
         )
         if not should_retry:
             raise slack_error
 
         # if we get this error, let's retry one time
         # retrying is going to create a new stream with the same
-        # params
+        # params and replay everything the dead stream never delivered
         return await append_message_to_stream(
             channel_id=channel_id,
             client=client,
             recipient_user_id=recipient_user_id,
             recipient_team_id=recipient_team_id,
             thread_ts=thread_ts,
-            markdown_text=markdown_text,
+            markdown_text=unsent_text,
             should_retry=False,
         )
     except Exception as error:
@@ -740,13 +758,15 @@ async def stream_response_to_mention(
                 await slack_stream._flush_buffer()
             except (SlackRequestError, SlackApiError) as e:
                 # Stream might already be stopped (e.g., from early stop() call), log but continue
-                logfire.exception("Failed to flush stream buffer", error=str(e))
+                logfire.warn("Failed to flush stream buffer", error=str(e))
 
                 # if there is more in the buffer, let's create a new
-                # stream and send what is in the buffer
+                # stream and send what is in the buffer. Keep using that new
+                # stream from here on: the old one is dead and every later
+                # delta appended to it would fail the same way.
                 if slack_stream._buffer:
                     logfire.info("Could not flush buffer, appending to a new stream")
-                    await append(markdown_text=slack_stream._buffer)
+                    slack_stream = await append(markdown_text=slack_stream._buffer)
 
     return slack_stream
 
