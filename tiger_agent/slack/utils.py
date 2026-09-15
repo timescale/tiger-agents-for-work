@@ -35,6 +35,7 @@ from pydantic_ai.messages import (
 from slack_bolt.context.ack.async_ack import AsyncAck
 from slack_bolt.context.respond.async_respond import AsyncRespond
 from slack_sdk.errors import SlackApiError, SlackRequestError
+from slack_sdk.models.messages.chunk import Chunk
 from slack_sdk.web.async_client import (
     AsyncChatStream,
     AsyncSlackResponse,
@@ -598,11 +599,12 @@ async def append_message_to_stream(
     recipient_user_id: str,
     recipient_team_id: str,
     thread_ts: str,
-    markdown_text: str,
+    markdown_text: str | None = None,
     should_retry: bool = True,
     stream: AsyncChatStream | None = None,
+    chunks: Sequence[Chunk] | None = None,
 ) -> AsyncChatStream:
-    """Append markdown text to a Slack chat stream.
+    """Append markdown text and/or chunks to a Slack chat stream.
 
     Args:
         client: Slack web client for API calls
@@ -610,9 +612,11 @@ async def append_message_to_stream(
         recipient_user_id: User ID of the message recipient
         recipient_team_id: Team ID of the recipient
         thread_ts: Timestamp of the thread to append to
-        markdown_text: Markdown-formatted text to append
+        markdown_text: Markdown-formatted text to append (buffered by the stream)
         should_retry: Whether to retry once on failure
         stream: Existing stream to use, or None to create new one
+        chunks: Non-text chunks (e.g. ``TaskUpdateChunk``) to append; these
+            flush the stream immediately along with any buffered text
 
     Returns:
         The chat stream that was used/created
@@ -635,7 +639,7 @@ async def append_message_to_stream(
     )
 
     try:
-        await stream_to_use.append(markdown_text=markdown_text)
+        await stream_to_use.append(markdown_text=markdown_text, chunks=chunks)
         return stream_to_use
     except (SlackRequestError, SlackApiError) as slack_error:
         # Slack finalizes a stream that sits idle for a few minutes (e.g. while
@@ -672,7 +676,8 @@ async def append_message_to_stream(
             recipient_user_id=recipient_user_id,
             recipient_team_id=recipient_team_id,
             thread_ts=thread_ts,
-            markdown_text=unsent_text,
+            markdown_text=unsent_text or None,
+            chunks=chunks,
             should_retry=False,
         )
     except Exception as error:

@@ -17,7 +17,7 @@ from tiger_agent.slack import status as status_module
 from tiger_agent.slack.status import (
     DELEGATE_TOOL_NAME,
     ResponseStatus,
-    make_subagent_status_handler,
+    make_subagent_event_handler,
 )
 
 
@@ -215,7 +215,7 @@ class TestSubtaskLifecycle:
 class TestSubagentHandler:
     async def test_forwards_events_tagged_with_the_agent_name(self, status, client):
         await status.on_event(_delegate_call("c1"))
-        handler = make_subagent_status_handler(status)
+        handler = make_subagent_event_handler(status)
         ctx = SimpleNamespace(agent=SimpleNamespace(name="investigator"))
 
         async def events():
@@ -235,7 +235,7 @@ class TestSubagentHandler:
         ]
 
     async def test_unnamed_agent_gets_a_generic_label(self, status, client):
-        handler = make_subagent_status_handler(status)
+        handler = make_subagent_event_handler(status)
         ctx = SimpleNamespace(agent=None)
 
         async def events():
