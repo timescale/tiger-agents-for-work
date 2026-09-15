@@ -207,6 +207,40 @@ async def delete_event(pool: AsyncConnectionPool, event: Event) -> None:
         await cur.execute("select agent.delete_event(%s)", (event.id,))
 
 
+@logfire.instrument("extend_event_visibility", extract_args=False)
+async def extend_event_visibility(
+    pool: AsyncConnectionPool,
+    event_id: int,
+    attempts: int,
+    invisibility_minutes: int,
+) -> bool:
+    """Push the lease on a claimed event forward while it is being worked.
+
+    `agent.claim_event` makes a row invisible for `invisibility_minutes`; a
+    handler that runs longer than that would be re-claimed by another worker
+    and processed twice. Calling this periodically keeps the row invisible.
+
+    The `attempts` guard is the ownership check: every claim increments
+    `attempts`, so if another worker has since taken the row (or it has been
+    processed and moved to `agent.event_hist`) the update matches nothing.
+
+    Returns:
+        True if this worker still holds the lease, False otherwise.
+    """
+    async with (
+        pool.connection() as con,
+        con.transaction() as _,
+        con.cursor() as cur,
+    ):
+        await cur.execute(
+            "update agent.event "
+            "set vt = clock_timestamp() + %s::int8 * interval '1m' "
+            "where id = %s and attempts = %s",
+            (invisibility_minutes, event_id, attempts),
+        )
+        return cur.rowcount == 1
+
+
 @logfire.instrument("get_event_hist", extract_args=False)
 async def get_event_hist(pool: AsyncConnectionPool, event_id: int) -> Event | None:
     """Get an event from the event_hist table by ID.
