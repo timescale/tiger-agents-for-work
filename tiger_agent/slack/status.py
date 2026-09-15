@@ -9,7 +9,7 @@ every event in the agent tree, not just the coordinator's own tool calls.
 
 ``ResponseStatus`` is fed each stream event, from the coordinator's
 ``run_stream_events`` loop and from sub-agent runs via
-``make_subagent_status_handler``. It re-sends the status whenever the text
+``make_subagent_event_handler``. It re-sends the status whenever the text
 changes and, as a keep-alive, whenever more than ``STATUS_REFRESH_SECONDS``
 have passed since the last send. There is no background timer: a single tool
 call that emits nothing for more than two minutes will let the status lapse
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import AsyncIterable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 import logfire
 from pydantic_ai.agent import EventStreamHandler
@@ -50,7 +50,7 @@ class ResponseStatus:
     """Tracks what the agent tree is doing and mirrors it into the thread status.
 
     Feed every coordinator event to :meth:`on_event`; feed sub-agent events via
-    :func:`make_subagent_status_handler`. Sub-task lifetimes are derived from the
+    :func:`make_subagent_event_handler`. Sub-task lifetimes are derived from the
     coordinator's own ``delegate_task`` call/result events, so the count of
     running sub-tasks is exact regardless of how the sub-agent's event handler
     is chunked.
@@ -83,13 +83,19 @@ class ResponseStatus:
         return len(self._subtasks)
 
     async def on_event(
-        self, event: AgentStreamEvent, *, subtask: str | None = None
+        self,
+        event: AgentStreamEvent,
+        *,
+        subtask: str | None = None,
+        prompt: str | None = None,  # noqa: ARG002 - shared sink signature
     ) -> None:
         """Update the status for one stream event.
 
         Args:
             event: An event from the coordinator (``subtask=None``) or from a
                 sub-agent run (``subtask`` is that agent's name).
+            prompt: The sub-agent run's prompt; unused here, accepted so every
+                sink shares one signature.
         """
         if isinstance(event, FunctionToolCallEvent) and subtask is None:
             if event.part.tool_name == DELEGATE_TOOL_NAME:
@@ -177,14 +183,26 @@ class ResponseStatus:
         return str(name) if name else _UNNAMED_SUBTASK
 
 
-def make_subagent_status_handler(status: ResponseStatus) -> EventStreamHandler[Any]:
+class StreamEventSink(Protocol):
+    async def on_event(
+        self,
+        event: AgentStreamEvent,
+        *,
+        subtask: str | None = None,
+        prompt: str | None = None,
+    ) -> None: ...
+
+
+def make_subagent_event_handler(*sinks: StreamEventSink) -> EventStreamHandler[Any]:
     """Build the ``event_stream_handler`` to hand to ``SubAgents``.
 
     pydantic-ai invokes the handler with the sub-agent's run context and the
-    events of one model request or tool-execution step; the sub-agent's name
-    comes from ``ctx.agent``. Every event is forwarded to ``status`` tagged with
-    that name, so sub-agent tool calls show up as ``Sub-task (<name>): <tool>``
-    and, in between, keep the status from expiring.
+    events of one model request or tool-execution step. Every event is
+    forwarded to each sink tagged with the sub-agent's name (from
+    ``ctx.agent``) and the run's prompt, which is the ``task`` the coordinator
+    delegated. ``ResponseStatus`` uses the name to show
+    ``Sub-task (<name>): <tool>``; ``TaskCards`` uses the prompt to find the
+    delegation's card.
     """
 
     async def handler(
@@ -192,7 +210,10 @@ def make_subagent_status_handler(status: ResponseStatus) -> EventStreamHandler[A
     ) -> None:
         agent = getattr(ctx, "agent", None)
         name = getattr(agent, "name", None) or _UNNAMED_SUBTASK
+        prompt = getattr(ctx, "prompt", None)
+        prompt = prompt if isinstance(prompt, str) else None
         async for event in events:
-            await status.on_event(event, subtask=name)
+            for sink in sinks:
+                await sink.on_event(event, subtask=name, prompt=prompt)
 
     return handler

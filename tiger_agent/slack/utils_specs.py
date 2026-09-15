@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic_ai.messages import PartEndEvent, TextPart
 from slack_sdk.errors import SlackApiError, SlackRequestError
+from slack_sdk.models.messages.chunk import TaskUpdateChunk
 from slack_sdk.web.async_client import AsyncChatStream
 
 from tiger_agent.slack.utils import (
@@ -164,7 +165,8 @@ class TestAppendMessageToStream:
             thread_ts="thread_ts",
         )
         new_stream.append.assert_awaited_once_with(
-            markdown_text="### Finding 1 — the system went read- only mode because of"
+            markdown_text="### Finding 1 — the system went read- only mode because of",
+            chunks=None,
         )
 
     async def test_retry_sends_only_the_delta_when_the_stream_was_stopped(
@@ -194,7 +196,7 @@ class TestAppendMessageToStream:
             stream=dead_stream,
         )
 
-        new_stream.append.assert_awaited_once_with(markdown_text="delta")
+        new_stream.append.assert_awaited_once_with(markdown_text="delta", chunks=None)
 
     async def test_does_not_retry_twice(self, make_async_web_client_mock):
         dead_stream = _make_dead_stream(buffered="head ")
@@ -242,5 +244,56 @@ class TestStreamResponseToMention:
 
         assert result is new_stream
         # "\n\n" was appended to the dead stream first, then the buffer replayed
-        dead_stream.append.assert_awaited_once_with(markdown_text="\n\n")
-        new_stream.append.assert_awaited_once_with(markdown_text="buffered tail\n\n")
+        dead_stream.append.assert_awaited_once_with(markdown_text="\n\n", chunks=None)
+        new_stream.append.assert_awaited_once_with(
+            markdown_text="buffered tail\n\n", chunks=None
+        )
+
+
+class TestAppendChunksToStream:
+    async def test_chunks_are_passed_through_to_the_stream(
+        self, make_async_web_client_mock
+    ):
+        stream = _make_live_stream()
+        client = make_async_web_client_mock()
+        chunk = TaskUpdateChunk(id="c1", title="t", status="in_progress")
+
+        result = await append_message_to_stream(
+            client=client,
+            channel_id="channel",
+            recipient_user_id="U_USER",
+            recipient_team_id="T_HOME",
+            thread_ts="thread_ts",
+            chunks=[chunk],
+            stream=stream,
+        )
+
+        assert result is stream
+        stream.append.assert_awaited_once_with(markdown_text=None, chunks=[chunk])
+
+    async def test_retry_replays_buffer_and_chunks_onto_a_new_stream(
+        self, make_async_web_client_mock
+    ):
+        dead_stream = _make_live_stream()
+        dead_stream._buffer = "buffered intro"
+        dead_stream.append = AsyncMock(side_effect=_expired_stream_error())
+        new_stream = _make_live_stream()
+        client = make_async_web_client_mock(
+            chat_stream=AsyncMock(return_value=new_stream)
+        )
+        chunk = TaskUpdateChunk(id="c1", title="t", status="in_progress")
+
+        result = await append_message_to_stream(
+            client=client,
+            channel_id="channel",
+            recipient_user_id="U_USER",
+            recipient_team_id="T_HOME",
+            thread_ts="thread_ts",
+            chunks=[chunk],
+            stream=dead_stream,
+        )
+
+        assert result is new_stream
+        new_stream.append.assert_awaited_once_with(
+            markdown_text="buffered intro", chunks=[chunk]
+        )
