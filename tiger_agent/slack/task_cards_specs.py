@@ -68,6 +68,11 @@ def _chunks(stream) -> list[dict]:
     return out
 
 
+def _card_log(stream, card_id: str) -> str:
+    """What Slack would show as the card's details: every delta concatenated."""
+    return "".join(c["details"] for c in _chunks(stream) if c["id"] == card_id)
+
+
 @pytest.fixture
 def clock() -> _Clock:
     return _Clock()
@@ -81,6 +86,11 @@ def stream():
 @pytest.fixture
 def cards(stream, clock) -> TaskCards:
     return TaskCards(stream, clock=clock)
+
+
+async def _advance_and_call(cards, clock, tool: str, prompt: str = TASK_A):
+    clock.now += task_cards_module.DETAILS_MIN_INTERVAL_SECONDS
+    await cards.on_event(_tool_start(tool), subtask="investigator", prompt=prompt)
 
 
 class TestSummarizeTask:
@@ -109,7 +119,7 @@ class TestDelegationLifecycle:
         assert (
             chunk["title"] == "Search Salesforce cases for machine-generated workloads."
         )
-        assert chunk["details"] == "investigator: starting"
+        assert chunk["details"] == "investigator: started"
         assert cards.open_cards == 1
 
     async def test_result_completes_the_card_with_elapsed_time(
@@ -123,7 +133,7 @@ class TestDelegationLifecycle:
         last = _chunks(stream)[-1]
         assert last["id"] == "c1"
         assert last["status"] == "complete"
-        assert last["details"] == "investigator: done in 91s"
+        assert last["details"] == "\n✓ done in 91s"
         assert cards.open_cards == 0
 
     async def test_retry_result_marks_the_card_as_error(self, cards, stream, clock):
@@ -134,7 +144,7 @@ class TestDelegationLifecycle:
 
         last = _chunks(stream)[-1]
         assert last["status"] == "error"
-        assert last["details"] == "investigator: failed after 12s"
+        assert last["details"] == "\n✗ failed after 12s"
         assert "exceeded its budget" in last["output"]
 
     async def test_non_delegate_tool_calls_do_not_create_cards(self, cards, stream):
@@ -161,50 +171,57 @@ class TestDelegationLifecycle:
 
 
 class TestSubagentToolCalls:
-    async def test_tool_call_updates_the_card_matched_by_prompt(self, cards, stream):
+    async def test_tool_call_appends_a_line_to_the_matching_card(
+        self, cards, stream, clock
+    ):
         await cards.on_event(_delegate_call("c1", TASK_A))
         await cards.on_event(_delegate_call("c2", TASK_B))
 
-        await cards.on_event(
-            _tool_start("tigerlabs_call_tool"), subtask="investigator", prompt=TASK_B
-        )
+        await _advance_and_call(cards, clock, "tigerlabs_call_tool", prompt=TASK_B)
 
         last = _chunks(stream)[-1]
         assert last["id"] == "c2"
         assert last["status"] == "in_progress"
-        assert last["details"] == "investigator: calling tigerlabs_call_tool"
+        assert last["details"] == "\n• tigerlabs_call_tool"
+
+    async def test_the_card_reads_as_a_log_once_slack_concatenates_details(
+        self, cards, stream, clock
+    ):
+        await cards.on_event(_delegate_call("c1", TASK_A))
+        await _advance_and_call(cards, clock, "skills_view")
+        await _advance_and_call(cards, clock, "slack_get_users")
+        clock.now += 40
+        await cards.on_event(_delegate_result("c1"))
+
+        assert _card_log(stream, "c1") == (
+            "investigator: started\n• skills_view\n• slack_get_users\n✓ done in 46s"
+        )
 
     async def test_single_open_card_is_used_when_the_prompt_is_unknown(
-        self, cards, stream
+        self, cards, stream, clock
     ):
         await cards.on_event(_delegate_call("c1", TASK_A))
 
-        await cards.on_event(
-            _tool_start("tigerlabs_discover"), subtask="investigator", prompt=None
-        )
+        await _advance_and_call(cards, clock, "tigerlabs_discover", prompt=None)
 
-        assert (
-            _chunks(stream)[-1]["details"] == "investigator: calling tigerlabs_discover"
-        )
+        assert _chunks(stream)[-1]["details"] == "\n• tigerlabs_discover"
 
-    async def test_ambiguous_tool_calls_leave_cards_alone(self, cards, stream):
+    async def test_ambiguous_tool_calls_leave_cards_alone(self, cards, stream, clock):
         await cards.on_event(_delegate_call("c1", TASK_A))
         await cards.on_event(_delegate_call("c2", TASK_B))
         before = stream.append.await_count
 
-        await cards.on_event(
-            _tool_start("tigerlabs_discover"), subtask="investigator", prompt="other"
-        )
+        await _advance_and_call(cards, clock, "tigerlabs_discover", prompt="other")
 
         assert stream.append.await_count == before
 
-    async def test_details_updates_are_throttled_and_deduplicated(
+    async def test_tool_lines_are_throttled_and_deduplicated(
         self, cards, stream, clock
     ):
         await cards.on_event(_delegate_call("c1", TASK_A))
         before = stream.append.await_count
 
-        await cards.on_event(_tool_start("a"), subtask="investigator", prompt=TASK_A)
+        await _advance_and_call(cards, clock, "a")
         assert stream.append.await_count == before + 1
 
         # a different tool inside the interval: skipped
@@ -212,7 +229,7 @@ class TestSubagentToolCalls:
         await cards.on_event(_tool_start("b"), subtask="investigator", prompt=TASK_A)
         assert stream.append.await_count == before + 1
 
-        # same tool again after the interval: nothing changed, still skipped
+        # the same tool again after the interval: nothing new to say
         clock.now += 1
         await cards.on_event(_tool_start("a"), subtask="investigator", prompt=TASK_A)
         assert stream.append.await_count == before + 1
@@ -220,6 +237,34 @@ class TestSubagentToolCalls:
         # a different tool after the interval: sent
         await cards.on_event(_tool_start("c"), subtask="investigator", prompt=TASK_A)
         assert stream.append.await_count == before + 2
+
+    async def test_long_logs_are_elided_but_still_finished(self, cards, stream, clock):
+        await cards.on_event(_delegate_call("c1", TASK_A))
+        for i in range(task_cards_module.MAX_TOOL_LINES + 5):
+            await _advance_and_call(cards, clock, f"tool_{i}")
+        await cards.on_event(_delegate_result("c1"))
+
+        log = _card_log(stream, "c1")
+        lines = log.split("\n")
+        assert lines[0] == "investigator: started"
+        assert lines[1 : task_cards_module.MAX_TOOL_LINES + 1] == [
+            f"• tool_{i}" for i in range(task_cards_module.MAX_TOOL_LINES)
+        ]
+        assert lines[task_cards_module.MAX_TOOL_LINES + 1] == "• …"
+        assert lines[-1].startswith("✓ done in")
+        assert len(lines) == task_cards_module.MAX_TOOL_LINES + 3
+
+    async def test_every_chunk_fits_slacks_task_update_limit(
+        self, cards, stream, clock
+    ):
+        await cards.on_event(_delegate_call("c1", "x" * 500))
+        await _advance_and_call(cards, clock, "t" * 400, prompt="x" * 500)
+        await cards.on_event(_delegate_failure("c1", "r" * 1000))
+
+        for chunk in _chunks(stream):
+            assert len(chunk["details"]) <= task_cards_module.DETAILS_CHUNK_MAX_CHARS
+            if chunk.get("output"):
+                assert len(chunk["output"]) <= task_cards_module.DETAILS_CHUNK_MAX_CHARS
 
     async def test_text_events_from_subagents_are_ignored(self, cards, stream):
         await cards.on_event(_delegate_call("c1", TASK_A))
@@ -242,9 +287,12 @@ class TestSubagentToolCalls:
 
 
 class TestHandlerWiring:
-    async def test_handler_passes_the_run_prompt_to_every_sink(self, cards, stream):
+    async def test_handler_passes_the_run_prompt_to_every_sink(
+        self, cards, stream, clock
+    ):
         await cards.on_event(_delegate_call("c1", TASK_A))
         await cards.on_event(_delegate_call("c2", TASK_B))
+        clock.now += task_cards_module.DETAILS_MIN_INTERVAL_SECONDS
         seen = []
 
         class _Recorder:

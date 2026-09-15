@@ -2,8 +2,10 @@
 
 Slack's streaming API accepts ``task_update`` chunks alongside markdown text.
 They render as a timeline of cards in the message, each with a title, a status
-(pending / in_progress / complete / error) and a details line; re-sending a
-chunk with the same ``id`` updates that card in place.
+(pending / in_progress / complete / error) and a details area. Re-sending a
+chunk with the same ``id`` updates the card's status and *appends* the new
+``details`` text to what is already shown (details stream like message text),
+so each update carries only the next line of an append-only log.
 
 ``TaskCards`` maps the coordinator's ``delegate_task`` calls onto those cards:
 one card per delegation, created when the call starts, updated with the tool
@@ -39,6 +41,11 @@ TITLE_MAX_CHARS = 80
 # Sub-agents call tools every few seconds; one card refresh per this interval
 # is plenty for the user and keeps chat.appendStream volume down.
 DETAILS_MIN_INTERVAL_SECONDS: float = 3.0
+# Tool lines logged per card before the log is elided; the final status line
+# is always sent. Slack caps each task_update chunk at 256 characters, so the
+# log is built from short lines rather than a growing paragraph.
+MAX_TOOL_LINES = 12
+DETAILS_CHUNK_MAX_CHARS = 200
 
 _UNNAMED_SUBTASK = "sub-task"
 
@@ -50,7 +57,8 @@ class _Card:
     agent: str
     task: str
     started: float
-    details: str | None = None
+    tool_lines: int = 0
+    last_tool: str | None = None
     details_sent_at: float | None = None
     done: bool = False
 
@@ -99,9 +107,7 @@ class TaskCards:
         ):
             card = self._card_for(prompt)
             if card is not None:
-                await self._update_details(
-                    card, f"{subtask}: calling {event.part.tool_name}"
-                )
+                await self._log_tool(card, event.part.tool_name)
 
     async def _start(self, event: FunctionToolCallEvent) -> None:
         try:
@@ -120,10 +126,9 @@ class TaskCards:
             agent=agent,
             task=task,
             started=self._clock(),
-            details=f"{agent}: starting",
         )
         self._cards[card.id] = card
-        await self._send(card, status="in_progress")
+        await self._send(card, status="in_progress", details=f"{agent}: started")
 
     async def _finish(self, event: FunctionToolResultEvent) -> None:
         card = self._cards.get(event.tool_call_id)
@@ -133,24 +138,33 @@ class TaskCards:
         elapsed = round(self._clock() - card.started)
         if isinstance(event.part, RetryPromptPart):
             reason = event.part.model_response()
-            card.details = f"{card.agent}: failed after {elapsed}s"
-            await self._send(card, status="error", output=_clip(reason, 300))
+            await self._send(
+                card,
+                status="error",
+                details=f"\n✗ failed after {elapsed}s",
+                output=_clip(reason, DETAILS_CHUNK_MAX_CHARS),
+            )
         else:
-            card.details = f"{card.agent}: done in {elapsed}s"
-            await self._send(card, status="complete")
+            await self._send(card, status="complete", details=f"\n✓ done in {elapsed}s")
 
-    async def _update_details(self, card: _Card, details: str) -> None:
-        now = self._clock()
-        if details == card.details:
+    async def _log_tool(self, card: _Card, tool_name: str) -> None:
+        """Append one "• <tool>" line to the card, throttled and deduplicated."""
+        if card.tool_lines > MAX_TOOL_LINES:
+            return  # log already elided
+        if tool_name == card.last_tool:
             return
+        now = self._clock()
         if (
             card.details_sent_at is not None
             and now - card.details_sent_at < DETAILS_MIN_INTERVAL_SECONDS
         ):
             return
-        card.details = details
+        card.last_tool = tool_name
         card.details_sent_at = now
-        await self._send(card, status="in_progress")
+        card.tool_lines += 1
+        elided = card.tool_lines > MAX_TOOL_LINES
+        line = "\n• …" if elided else f"\n• {tool_name}"
+        await self._send(card, status="in_progress", details=line)
 
     def _card_for(self, prompt: str | None) -> _Card | None:
         open_cards = [card for card in self._cards.values() if not card.done]
@@ -167,12 +181,20 @@ class TaskCards:
         # the wrong one.
         return None
 
-    async def _send(self, card: _Card, *, status: str, output: str | None = None):
+    async def _send(
+        self,
+        card: _Card,
+        *,
+        status: str,
+        details: str,
+        output: str | None = None,
+    ) -> None:
+        # `details` is appended to the card by Slack, so send only the new line
         chunk = TaskUpdateChunk(
             id=card.id,
             title=card.title,
             status=status,
-            details=card.details,
+            details=_clip(details, DETAILS_CHUNK_MAX_CHARS),
             output=output,
         )
         try:
