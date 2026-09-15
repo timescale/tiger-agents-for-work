@@ -25,7 +25,6 @@ import logfire
 import pytz
 from pydantic_ai.messages import (
     AgentStreamEvent,
-    BaseToolCallPart,
     BinaryContent,
     PartDeltaEvent,
     PartEndEvent,
@@ -715,16 +714,6 @@ async def stream_response_to_mention(
                 markdown_text=stream_event.part.content, stream=slack_stream
             )
 
-        # show tool call info in Slack Assistant status
-        if isinstance(stream_event.part, BaseToolCallPart):
-            await set_status(
-                client=client,
-                channel_id=channel_id,
-                thread_ts=thread_ts or ts,
-                is_busy=True,
-                message=f"Calling Tool: {stream_event.part.tool_name}",
-            )
-
     # when a part changes there can be more text to append
     elif isinstance(stream_event, PartDeltaEvent):
         if (
@@ -737,19 +726,11 @@ async def stream_response_to_mention(
             )
 
     # at the end of text part, add some new lines
-    # at the end of a tool call part, let's show the arguments in a codeblock
     elif isinstance(stream_event, PartEndEvent):
         if isinstance(stream_event.part, TextPart):
             slack_stream = await append(
                 markdown_text="\n\n",
                 stream=slack_stream,
-            )
-        if isinstance(stream_event.part, BaseToolCallPart):
-            await set_status(
-                client=client,
-                channel_id=channel_id,
-                thread_ts=thread_ts or ts,
-                is_busy=True,
             )
 
         # let's flush the buffer at the end of a part so that conversation is a flowin'

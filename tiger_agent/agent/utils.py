@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai import Agent
+from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import UserContent
 from pydantic_ai.toolsets.abstract import AbstractToolset
 from pydantic_ai_harness import SubAgent, SubAgents
@@ -136,7 +137,15 @@ async def create_agent_and_context(
     task: Task,
     agent: TigerAgent,
     channel_to_respond: str,
+    subagent_event_handler: EventStreamHandler[Any] | None = None,
 ) -> AgentAndContext:
+    """Build the coordinator agent and the context it runs with.
+
+    Args:
+        subagent_event_handler: Optional pydantic-ai event stream handler that
+            receives the events of every delegated sub-agent run (its model
+            streaming and tool events), e.g. to surface progress to the user.
+    """
     event = task.event
 
     destination_channel_info = await fetch_channel_info(
@@ -204,6 +213,7 @@ async def create_agent_and_context(
                     )
                 ],
                 inherit_tools=True,
+                event_stream_handler=subagent_event_handler,
             ),
         ],
         model=agent.model,
