@@ -4,11 +4,11 @@ from pydantic_ai.messages import PartDeltaEvent, PartStartEvent, TextPart, TextP
 from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import usage_limit_reached, user_ignored
+from tiger_agent.slack.status import ResponseStatus, make_subagent_status_handler
 from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
 from tiger_agent.slack.utils import (
     add_reaction,
     post_response,
-    set_status,
     stream_response_to_mention,
 )
 from tiger_agent.tasks.handlers.base import TaskHandler
@@ -47,19 +47,25 @@ class SlackTaskHandler(TaskHandler):
             )
             return
 
+        # Mirrors what the agent tree is doing into the thread's assistant
+        # status: coordinator tool calls, and tool calls made inside delegated
+        # sub-agent runs. Every stream event passes through it so the status
+        # is refreshed before Slack's two-minute expiry.
+        status = ResponseStatus(
+            client=hctx.app.client,
+            channel_id=event.channel,
+            thread_ts=event.thread_ts or event.ts,
+        )
+
         agent_and_ctx = await create_agent_and_context(
             hctx=hctx,
             task=task,
             agent=self._agent,
             channel_to_respond=event.channel,
+            subagent_event_handler=make_subagent_status_handler(status),
         )
 
-        await set_status(
-            client=hctx.app.client,
-            channel_id=event.channel,
-            thread_ts=event.thread_ts or event.ts,
-            is_busy=True,
-        )
+        await status.set(None)
         slack_stream = None
 
         # events with no originating user (e.g. Slack Workflow / bot-posted
@@ -75,6 +81,7 @@ class SlackTaskHandler(TaskHandler):
             usage_limits=AGENT_USAGE_LIMITS,
         ) as stream_events:
             async for stream_event in stream_events:
+                await status.on_event(stream_event)
                 if can_stream:
                     slack_stream = await stream_response_to_mention(
                         client=hctx.app.client,
@@ -109,10 +116,5 @@ class SlackTaskHandler(TaskHandler):
                     text=response_text,
                 )
 
-        await set_status(
-            client=hctx.app.client,
-            channel_id=event.channel,
-            thread_ts=event.thread_ts or event.ts,
-            is_busy=False,
-        )
+        await status.clear()
         await add_reaction(hctx.app.client, event.channel, event.ts, "white_check_mark")
