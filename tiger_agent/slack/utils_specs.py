@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic_ai.messages import PartEndEvent, TextPart
-from slack_sdk.errors import SlackApiError
+from slack_sdk.errors import SlackApiError, SlackRequestError
 from slack_sdk.web.async_client import AsyncChatStream
 
 from tiger_agent.slack.utils import (
@@ -167,11 +167,18 @@ class TestAppendMessageToStream:
             markdown_text="### Finding 1 — the system went read- only mode because of"
         )
 
-    async def test_retry_falls_back_to_the_delta_when_the_buffer_is_empty(
+    async def test_retry_sends_only_the_delta_when_the_stream_was_stopped(
         self, make_async_web_client_mock
     ):
+        # a stopped stream rejects the append before buffering it, and stop()
+        # already drained the buffer, so the delta is all that is undelivered
         dead_stream = _make_live_stream()
-        dead_stream.append = AsyncMock(side_effect=_expired_stream_error())
+        dead_stream._state = "completed"
+        dead_stream.append = AsyncMock(
+            side_effect=SlackRequestError(
+                "Cannot append to stream: stream state is completed"
+            )
+        )
         new_stream = _make_live_stream()
         client = make_async_web_client_mock(
             chat_stream=AsyncMock(return_value=new_stream)

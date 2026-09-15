@@ -639,14 +639,21 @@ async def append_message_to_stream(
         await stream_to_use.append(markdown_text=markdown_text)
         return stream_to_use
     except (SlackRequestError, SlackApiError) as slack_error:
-        # `AsyncChatStream.append` adds the text to its buffer before flushing
-        # and only clears the buffer after a successful API call, so on failure
-        # the buffer holds everything not yet shown in Slack, including this
-        # delta. Slack finalizes a stream that sits idle for a few minutes
-        # (e.g. while a long tool call runs) and then rejects appends with
-        # `message_not_in_streaming_state`; replaying only `markdown_text`
-        # onto a fresh stream would drop the buffered head of the response.
-        unsent_text = stream_to_use._buffer or markdown_text
+        # Slack finalizes a stream that sits idle for a few minutes (e.g. while
+        # a long tool call runs) and then rejects appends with
+        # `message_not_in_streaming_state`. Replaying only `markdown_text` onto
+        # a fresh stream would drop the buffered head of the response.
+        if stream_to_use._state == "completed":
+            # `append` rejects before buffering when the stream was already
+            # stopped, and a successful stop() drained the buffer, so this
+            # delta is the only undelivered text.
+            unsent_text = markdown_text
+        else:
+            # `AsyncChatStream.append` adds the delta to `_buffer` before
+            # flushing and only clears `_buffer` after the API call succeeds,
+            # so the failed flush left everything undelivered in the buffer,
+            # this delta included.
+            unsent_text = stream_to_use._buffer
         logfire.warn(
             "Slack Error occurred while calling append_message_to_stream",
             markdown_text=markdown_text,
