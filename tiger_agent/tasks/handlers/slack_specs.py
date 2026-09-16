@@ -211,3 +211,40 @@ class TestTargetGone:
             await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
 
         assert not hctx.cancellations.is_tracked(CHANNEL, TS)
+
+
+class TestCancelDuringSetup:
+    async def test_deletion_during_agent_setup_stops_the_run_before_it_starts(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """Registration precedes create_agent_and_context, so a cancel that
+        arrives while MCP servers and thread history are being prepared is
+        honoured instead of lost (the production repro: deleted 2.5 s in,
+        `cancelled_run=false`)."""
+        setup_started = asyncio.Event()
+        release_setup = asyncio.Event()
+        agent = MagicMock()
+        agent.run_stream_events = MagicMock(return_value=run_events)
+
+        async def slow_create_agent_and_context(**_kwargs):
+            setup_started.set()
+            await release_setup.wait()
+            return SimpleNamespace(agent=agent, user_prompt="prompt", ctx={})
+
+        monkeypatch.setattr(
+            handler_module, "create_agent_and_context", slow_create_agent_and_context
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(setup_started.wait(), timeout=1)
+
+        # already registered while setup is still in flight
+        assert hctx.cancellations.is_tracked(CHANNEL, TS)
+        assert hctx.cancellations.cancel(CHANNEL, TS) is True
+        release_setup.set()
+        await asyncio.wait_for(run, timeout=1)
+
+        agent.run_stream_events.assert_not_called()
+        client.chat_stream.assert_not_awaited()
+        client.reactions_add.assert_not_awaited()
+        assert client.assistant_threads_setStatus.await_args.kwargs["status"] == ""
+        assert not hctx.cancellations.is_tracked(CHANNEL, TS)
