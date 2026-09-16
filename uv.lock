@@ -2475,7 +2475,7 @@ requires-dist = [
     { name = "schedule", specifier = ">=1.2.2" },
     { name = "semver", specifier = ">=3.0.4" },
     { name = "simple-salesforce", specifier = ">=1.12.9" },
-    { name = "slack-bolt", specifier = ">=1.26.0" },
+    { name = "slack-bolt", specifier = ">=1.29.0" },
     { name = "summarization-pydantic-ai", specifier = ">=0.1.10" },
     { name = "tzdata", specifier = ">=2025.2" },
     { name = "websockets", specifier = ">=15.0.1,<17" },
