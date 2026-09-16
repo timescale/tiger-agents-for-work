@@ -144,3 +144,135 @@ class TestCreateCase:
         )
         assert result is None
         salesforce_client.Case.get.assert_not_called()
+
+
+class TestBuildCaseQuery:
+    def test_no_filters_selects_detail_fields_ordered_by_close_date(self):
+        from tiger_agent.salesforce.constants import CASE_DETAIL_FIELDS
+        from tiger_agent.salesforce.utils import build_case_query
+
+        soql = build_case_query()
+        assert soql.startswith(f"SELECT {', '.join(CASE_DETAIL_FIELDS)} FROM Case")
+        assert " WHERE " not in soql
+        assert soql.endswith("ORDER BY ClosedDate DESC NULLS LAST, CreatedDate DESC")
+
+    def test_each_filter_renders_its_clause(self):
+        from tiger_agent.salesforce.utils import build_case_query
+
+        soql = build_case_query(
+            case_ids=["500A", "500B"],
+            case_numbers=["00012345"],
+            case_type="How to - Consultative",
+            status="Closed",
+            closed_after="2026-06-01T00:00:00Z",
+            closed_before="2026-07-01T00:00:00Z",
+            limit=25,
+        )
+        where = soql.split(" WHERE ", 1)[1].split(" ORDER BY ", 1)[0]
+        assert where.split(" AND ") == [
+            "Id IN ('500A', '500B')",
+            "CaseNumber IN ('00012345')",
+            "Type = 'How to - Consultative'",
+            "Status = 'Closed'",
+            "ClosedDate >= 2026-06-01T00:00:00Z",
+            "ClosedDate < 2026-07-01T00:00:00Z",
+        ]
+        assert soql.endswith(" LIMIT 25")
+
+    def test_zero_limit_means_no_limit(self):
+        from tiger_agent.salesforce.utils import build_case_query
+
+        assert " LIMIT " not in build_case_query(status="Closed", limit=0)
+
+    def test_string_values_are_quoted_and_escaped(self):
+        from tiger_agent.salesforce.utils import build_case_query
+
+        soql = build_case_query(case_type="O'Reilly \\ Co")
+        assert "Type = 'O\\'Reilly \\\\ Co'" in soql
+
+    def test_custom_fields_are_used(self):
+        from tiger_agent.salesforce.utils import build_case_query
+
+        soql = build_case_query(fields=["Id", "Subject"])
+        assert soql.startswith("SELECT Id, Subject FROM Case")
+
+
+class TestGetCases:
+    def test_uses_query_all_and_returns_case_data(self):
+        from tiger_agent.salesforce.utils import get_cases
+
+        client = MagicMock()
+        client.query_all.return_value = {
+            "records": [
+                {
+                    "Id": "500A",
+                    "CaseNumber": "00000001",
+                    "Type": "How to - Consultative",
+                    "Final_Resolution__c": "Use add_retention_policy.",
+                }
+            ]
+        }
+        cases = get_cases(client, case_type="How to - Consultative", status="Closed")
+        soql = client.query_all.call_args.args[0]
+        assert "Type = 'How to - Consultative'" in soql
+        assert "Status = 'Closed'" in soql
+        assert len(cases) == 1
+        assert cases[0].Id == "500A"
+        assert cases[0].Type == "How to - Consultative"
+        assert cases[0].Final_Resolution__c == "Use add_retention_policy."
+
+    def test_returns_empty_list_on_error(self):
+        from tiger_agent.salesforce.utils import get_cases
+
+        client = MagicMock()
+        client.query_all.side_effect = RuntimeError("boom")
+        assert get_cases(client, case_ids=["500A"]) == []
+
+
+class TestGetCaseThread:
+    def test_populates_direction_and_sender_fields(self):
+        from tiger_agent.salesforce.utils import get_case_thread
+
+        client = MagicMock()
+        client.query.return_value = {
+            "records": [
+                {
+                    "Id": "02sA",
+                    "ParentId": "500A",
+                    "Incoming": True,
+                    "FromAddress": "customer@example.com",
+                    "FromName": "Customer",
+                    "TextBody": "How do I set retention?",
+                    "Subject": "Retention",
+                    "MessageDate": "2026-06-01T12:00:00.000+0000",
+                },
+                {
+                    "Id": "02sB",
+                    "ParentId": "500A",
+                    "Incoming": False,
+                    "FromAddress": "support@tigerdata.com",
+                    "FromName": "Support",
+                    "TextBody": None,
+                    "HtmlBody": "<p>Use add_retention_policy.</p>",
+                    "Subject": "Re: Retention",
+                    "MessageDate": "2026-06-01T14:00:00.000+0000",
+                },
+            ]
+        }
+        thread = get_case_thread(client, "500A")
+        soql = client.query.call_args.args[0]
+        assert "Parent.Id = '500A'" in soql
+        assert "ORDER BY MessageDate ASC" in soql
+
+        customer, support = thread
+        assert customer.Incoming is True
+        assert customer.FromAddress == "customer@example.com"
+        assert customer.TextBody == "How do I set retention?"
+        assert customer.Body == "How do I set retention?"
+        assert support.Incoming is False
+        assert support.FromName == "Support"
+        assert support.TextBody is None
+        assert support.HtmlBody == "<p>Use add_retention_policy.</p>"
+        # legacy fallback: Body falls back to Subject when TextBody is empty
+        assert support.Body == "Re: Retention"
+        assert support.CreatedBy.Email == "support@tigerdata.com"

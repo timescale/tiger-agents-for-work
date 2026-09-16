@@ -48,6 +48,14 @@ class CaseData(BaseModel):
     CreatedById: str | None = None
     Cloud_Project_ID__c: str | None = None
     Cloud_Service_ID__c: str | None = None
+    # Populated when queried with CASE_DETAIL_FIELDS (see get_cases); the
+    # streaming path selects the shorter CASE_FIELDS and leaves these None.
+    Type: str | None = None
+    ClosedDate: str | None = None
+    Platform_Name__c: str | None = None
+    Product_Area__c: str | None = None
+    Final_Resolution__c: str | None = None
+    Troubleshooting_Steps_Taken__c: str | None = None
 
 
 class SalesforceBaseEvent(BaseModel):
@@ -129,6 +137,12 @@ class SalesforceEmailMessage(SalesforceFeedItem):
     Type: str | None = "EmailMessage"
     HtmlBody: str | None = None
     Status: str | None = None
+    # Direction and sender as Salesforce records them. ``Body`` keeps the
+    # legacy ``TextBody or Subject`` fallback; ``TextBody`` is the raw column.
+    Incoming: bool | None = None
+    FromAddress: str | None = None
+    FromName: str | None = None
+    TextBody: str | None = None
 
 
 # at present, we are using these to synchronize

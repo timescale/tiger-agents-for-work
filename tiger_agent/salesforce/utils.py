@@ -18,6 +18,7 @@ from tiger_agent.salesforce.clients import (
     ClientCredentialsAuthenticator,
 )
 from tiger_agent.salesforce.constants import (
+    CASE_DETAIL_FIELDS,
     CASE_FIELDS,
     CLOUD_IMPACT_FIELD,
     SALESFORCE_DOMAIN,
@@ -507,11 +508,110 @@ def get_case_email_messages(
                 Subject=r.get("Subject"),
                 HasAttachment=r.get("HasAttachment"),
                 CreatedBy={"Name": r.get("FromName"), "Email": r.get("FromAddress")},
+                Incoming=r.get("Incoming"),
+                FromAddress=r.get("FromAddress"),
+                FromName=r.get("FromName"),
+                TextBody=r.get("TextBody"),
             )
             for r in result.get("records", [])
         ]
     except Exception:
         logfire.exception("Failed to fetch recent case email messages")
+        return []
+
+
+def get_case_thread(
+    salesforce_client: Salesforce, case_id: str
+) -> list[SalesforceEmailMessage]:
+    """Every email on a case, oldest first, with direction and sender populated.
+
+    Thin wrapper over ``get_case_email_messages`` so that anything reading a
+    case's correspondence (evals, drafting a customer reply) does it the same
+    way. ``Incoming`` is True for customer emails and False for support replies.
+    """
+    return get_case_email_messages(salesforce_client, case_id=case_id)
+
+
+def _soql_quote(value: str) -> str:
+    """Quote a string literal for SOQL, escaping backslashes and single quotes."""
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
+def build_case_query(
+    *,
+    case_ids: list[str] | None = None,
+    case_numbers: list[str] | None = None,
+    case_type: str | None = None,
+    status: str | None = None,
+    closed_after: str | None = None,
+    closed_before: str | None = None,
+    limit: int | None = None,
+    fields: list[str] = CASE_DETAIL_FIELDS,
+) -> str:
+    """Build the SOQL for ``get_cases``. Split out so the shape is testable.
+
+    ``closed_after``/``closed_before`` are SOQL datetime literals
+    (``2026-06-01T00:00:00Z``); ``closed_after`` is inclusive, ``closed_before``
+    exclusive. Any filter left as None is omitted.
+    """
+    conditions: list[str] = []
+    if case_ids:
+        conditions.append(f"Id IN ({', '.join(_soql_quote(v) for v in case_ids)})")
+    if case_numbers:
+        conditions.append(
+            f"CaseNumber IN ({', '.join(_soql_quote(v) for v in case_numbers)})"
+        )
+    if case_type is not None:
+        conditions.append(f"Type = {_soql_quote(case_type)}")
+    if status is not None:
+        conditions.append(f"Status = {_soql_quote(status)}")
+    if closed_after is not None:
+        conditions.append(f"ClosedDate >= {closed_after}")
+    if closed_before is not None:
+        conditions.append(f"ClosedDate < {closed_before}")
+
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    limit_clause = f" LIMIT {int(limit)}" if limit else ""
+    return (
+        f"SELECT {', '.join(fields)} FROM Case{where}"
+        f" ORDER BY ClosedDate DESC NULLS LAST, CreatedDate DESC{limit_clause}"
+    )
+
+
+def get_cases(
+    salesforce_client: Salesforce,
+    *,
+    case_ids: list[str] | None = None,
+    case_numbers: list[str] | None = None,
+    case_type: str | None = None,
+    status: str | None = None,
+    closed_after: str | None = None,
+    closed_before: str | None = None,
+    limit: int | None = None,
+    fields: list[str] = CASE_DETAIL_FIELDS,
+) -> list[CaseData]:
+    """Fetch cases matching any combination of filters, most recently closed first.
+
+    Uses ``query_all`` so result sets past Salesforce's 2000-row page are
+    followed. Returns an empty list (and logs) on failure, like the other
+    read helpers here.
+    """
+    try:
+        soql = build_case_query(
+            case_ids=case_ids,
+            case_numbers=case_numbers,
+            case_type=case_type,
+            status=status,
+            closed_after=closed_after,
+            closed_before=closed_before,
+            limit=limit,
+            fields=fields,
+        )
+        result = salesforce_client.query_all(soql)
+        return [CaseData(**r) for r in result.get("records", [])]
+    except Exception:
+        logfire.exception("Failed to fetch cases")
         return []
 
 
