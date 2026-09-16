@@ -31,6 +31,14 @@ CASE_FIELDS = [
 ]
 
 
+# When set (to any value), the agent still gets a Salesforce client (so tools
+# and manual debugging against real credentials work) but does not start the
+# SalesforceListener: no PushTopic streaming subscriptions, no
+# poll-for-missed-cases job, and no case feed item poller.
+DISABLE_SALESFORCE_EVENT_HANDLING = bool(
+    os.environ.get("DISABLE_SALESFORCE_EVENT_HANDLING", False)
+)
+
 SALESFORCE_DOMAIN = os.environ.get("SALESFORCE_DOMAIN", None)
 SALESFORCE_CLIENT_ID = os.environ.get("SALESFORCE_CLIENT_ID", None)
 SALESFORCE_CLIENT_SECRET = os.environ.get("SALESFORCE_CLIENT_SECRET", None)
