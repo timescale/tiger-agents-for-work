@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.app import _HANDLERS, TigerApp
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
@@ -11,7 +10,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
-    UserDefinedRuleMatch,
+    UserDefinedRuleExecution,
 )
 from tiger_agent.slack.types import (
     AgentFeedbackRatingEvent,
@@ -33,7 +32,7 @@ from tiger_agent.tasks.handlers import (
     SlackTaskHandler,
     TaskHandler,
     TaskProcessor,
-    UserDefinedRuleMatchHandler,
+    UserDefinedRuleExecutionHandler,
 )
 from tiger_agent.tasks.handlers.slack_send_new_case_form import (
     SlackSendNewCaseFormHandler,
@@ -52,11 +51,7 @@ EXPECTED_EVENT_ROUTES: dict[type, type[TaskHandler]] = {
     SalesforceCaseStatusChangedEvent: SalesforceCaseStatusChangedHandler,
     AgentFeedbackRatingEvent: AgentFeedbackRatingHandler,
     AgentFeedbackRequestReminderEvent: AgentFeedbackRequestReminderHandler,
-    **(
-        {UserDefinedRuleMatch: UserDefinedRuleMatchHandler}
-        if USER_DEFINED_EVENTS_ENABLED
-        else {}
-    ),
+    UserDefinedRuleExecution: UserDefinedRuleExecutionHandler,
 }
 
 

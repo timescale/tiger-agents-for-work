@@ -1,9 +1,12 @@
 """User-defined rule evaluation and dispatch.
 
 After a task is handled, evaluate_user_defined_rules() queries for matching rules,
-uses an LLM as a judge per rule, and enqueues a UserDefinedRuleMatch for
-any that match. The match event is then picked up by the normal task queue and
-processed by UserDefinedRuleMatchHandler via the full TigerAgent.
+uses an LLM as a judge per rule, and enqueues a UserDefinedRuleExecution for
+any that match. The execution is then picked up by the normal task queue and
+processed by UserDefinedRuleExecutionHandler via the full TigerAgent.
+
+Scheduled rules never pass through here: they carry event_type 'schedule', which
+no incoming event has, and their executions are enqueued with a future vt.
 """
 
 import json
@@ -17,7 +20,7 @@ from tiger_agent.db.utils import get_matching_user_defined_rules, insert_event
 from tiger_agent.events import EVENT_TYPE_REGISTRY
 from tiger_agent.salesforce.types import (
     UserDefinedRule,
-    UserDefinedRuleMatch,
+    UserDefinedRuleExecution,
 )
 
 USER_DEFINED_RULE_JUDGE_MODEL = "anthropic:claude-sonnet-4-6"
@@ -86,7 +89,7 @@ async def evaluate_user_defined_rules(
 ) -> None:
     """Evaluate all enabled user-defined rules for the given event type and subtype.
 
-    For each matching rule, enqueues a UserDefinedRuleMatch to be processed
+    For each matching rule, enqueues a UserDefinedRuleExecution to be processed
     by the task queue.
     """
     event_subtype = event_dict.get("subtype")
@@ -126,11 +129,13 @@ async def evaluate_user_defined_rules(
 
         await insert_event(
             pool=pool,
-            event=UserDefinedRuleMatch(
+            event=UserDefinedRuleExecution(
                 rule_id=rule.id,
                 rule_name=rule.name,
                 owner_slack_id=rule.owner_slack_id,
-                action_prompt=rule.action_prompt,
+                trigger="event",
+                channel=rule.channel,
+                execution_profile=rule.execution_profile,
                 matched_event=event_dict,
                 match_reason=result.reason,
             ).model_dump(),

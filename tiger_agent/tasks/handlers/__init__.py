@@ -30,8 +30,8 @@ from tiger_agent.tasks.handlers.slack import SlackTaskHandler
 from tiger_agent.tasks.handlers.slack_salesforce_case_thread_message import (
     SlackSalesforceCaseThreadMessageHandler,
 )
-from tiger_agent.tasks.handlers.user_defined_rule_match import (
-    UserDefinedRuleMatchHandler,
+from tiger_agent.tasks.handlers.user_defined_rule_execution import (
+    UserDefinedRuleExecutionHandler,
 )
 
 __all__ = [
@@ -47,5 +47,5 @@ __all__ = [
     "SlackTaskHandler",
     "TaskHandler",
     "TaskProcessor",
-    "UserDefinedRuleMatchHandler",
+    "UserDefinedRuleExecutionHandler",
 ]

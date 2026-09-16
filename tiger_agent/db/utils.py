@@ -11,12 +11,15 @@ from pydantic import ValidationError
 
 from tiger_agent.db.constants import PG_MAX_POOL_SIZE
 from tiger_agent.salesforce.types import (
+    SCHEDULED_RULE_EVENT_TYPE,
+    ExecutionProfile,
     SalesforceBaseEvent,
     SalesforceFeedItem,
     UserDefinedRule,
 )
 from tiger_agent.slack.types import (
     AGENT_FEEDBACK_REQUEST_REMINDER,
+    AgentFeedbackRatingEvent,
     AgentFeedbackRequestReminderEvent,
     FeedbackReminderThread,
 )
@@ -698,7 +701,7 @@ async def toggle_user_defined_rule(
     async with pool.connection() as con:
         result = await con.execute(
             f"""UPDATE agent.user_defined_rules
-               SET enabled = %s
+               SET enabled = %s, updated_at = now()
                WHERE id = %s
                {"AND owner_slack_id = %s" if should_filter_on_user else ""}""",
             (enabled, rule_id, owner_slack_id)
@@ -706,3 +709,162 @@ async def toggle_user_defined_rule(
             else (enabled, rule_id),
         )
         return result.rowcount > 0
+
+
+async def get_user_defined_rule(
+    pool: AsyncConnectionPool, rule_id: int
+) -> UserDefinedRule | None:
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "SELECT * FROM agent.user_defined_rules WHERE id = %s", (rule_id,)
+        )
+        row = await cur.fetchone()
+        return UserDefinedRule(**row) if row else None
+
+
+async def list_scheduled_rules(pool: AsyncConnectionPool) -> list[UserDefinedRule]:
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """SELECT *
+               FROM agent.user_defined_rules
+               WHERE event_type = %s
+               ORDER BY name""",
+            (SCHEDULED_RULE_EVENT_TYPE,),
+        )
+        return [UserDefinedRule(**row) for row in await cur.fetchall()]
+
+
+@logfire.instrument("upsert_scheduled_rule", extract_args=["name", "channel"])
+async def upsert_scheduled_rule(
+    pool: AsyncConnectionPool,
+    name: str,
+    owner_slack_id: str,
+    action_prompt: str,
+    period: timedelta | None,
+    channel: str,
+    execution_profile: ExecutionProfile = "full",
+) -> UserDefinedRule:
+    """Create or re-arm the scheduled rule called `name`.
+
+    An existing rule keeps its `action_prompt` -- someone may have edited it via
+    the rule tools -- and only its schedule, destination, and enabled flag change.
+    A rule with no `period` runs only on demand.
+    """
+    repeat = period is not None
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """UPDATE agent.user_defined_rules
+               SET period = %s, channel = %s, execution_profile = %s,
+                   repeat = %s, enabled = true, updated_at = now()
+               WHERE event_type = %s AND name = %s
+               RETURNING *""",
+            (
+                period,
+                channel,
+                execution_profile,
+                repeat,
+                SCHEDULED_RULE_EVENT_TYPE,
+                name,
+            ),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            await cur.execute(
+                """INSERT INTO agent.user_defined_rules
+                       (name, owner_slack_id, event_type, action_prompt,
+                        repeat, period, channel, execution_profile)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   RETURNING *""",
+                (
+                    name,
+                    owner_slack_id,
+                    SCHEDULED_RULE_EVENT_TYPE,
+                    action_prompt,
+                    repeat,
+                    period,
+                    channel,
+                    execution_profile,
+                ),
+            )
+            row = await cur.fetchone()
+        return UserDefinedRule(**row)
+
+
+async def delete_events_matching(
+    pool: AsyncConnectionPool, match: dict[str, Any]
+) -> int:
+    """Remove every queued event whose payload contains `match`. Returns the count."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            "select agent.delete_events_matching(%s)", [Jsonb(match)]
+        )
+        row = await result.fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+
+
+async def insert_event_if_absent(
+    pool: AsyncConnectionPool,
+    event: dict[str, Any],
+    vt: datetime,
+    match: dict[str, Any],
+    exclude_id: int | None = None,
+) -> bool:
+    """Enqueue `event` at `vt` unless an unclaimed future event containing `match`
+    already exists. `exclude_id` is the event being handled right now."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            "select agent.insert_event_if_absent(%s, %s::timestamptz, %s, %s)",
+            [Jsonb(event), vt, Jsonb(match), exclude_id],
+        )
+        row = await result.fetchone()
+        return bool(row[0]) if row else False
+
+
+async def list_events_matching(
+    pool: AsyncConnectionPool, match: dict[str, Any]
+) -> list[Event]:
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            "SELECT * FROM agent.event WHERE event @> %s ORDER BY vt", [Jsonb(match)]
+        )
+        return [Event(**row) for row in await cur.fetchall()]
+
+
+_FEEDBACK_RATING_TYPE = AgentFeedbackRatingEvent.model_fields["type"].default
+
+
+def _feedback_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"event_ts": row["event_ts"], **row["event"]} for row in rows]
+
+
+async def list_feedback_ratings(
+    pool: AsyncConnectionPool, since: datetime, until: datetime, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Feedback ratings submitted in [since, until), oldest first, from the event history."""
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """SELECT event_ts, event
+               FROM agent.event_hist
+               WHERE event->>'type' = %s
+                 AND event_ts >= %s AND event_ts < %s
+               ORDER BY event_ts
+               LIMIT %s""",
+            (_FEEDBACK_RATING_TYPE, since, until, limit),
+        )
+        return _feedback_rows(await cur.fetchall())
+
+
+async def list_feedback_ratings_for_thread(
+    pool: AsyncConnectionPool, channel: str, message_ts: str
+) -> list[dict[str, Any]]:
+    async with pool.connection() as con, con.cursor(row_factory=dict_row) as cur:
+        await cur.execute(
+            """SELECT event_ts, event
+               FROM agent.event_hist
+               WHERE event->>'type' = %s
+                 AND event->>'channel' = %s
+                 AND event->>'message_ts' = %s
+               ORDER BY event_ts""",
+            (_FEEDBACK_RATING_TYPE, channel, message_ts),
+        )
+        return _feedback_rows(await cur.fetchall())

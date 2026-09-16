@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import UserContent
 from pydantic_ai.toolsets.abstract import AbstractToolset
@@ -15,6 +15,8 @@ from tiger_agent.agent.constants import (
     AGENT_MAX_CONTEXT_TOKENS,
     AGENT_MAX_DELEGATIONS,
     AGENT_MAX_TOOL_OUTPUT_TOKENS,
+    LIMITED_PROFILE_MODEL,
+    LIMITED_PROFILE_USAGE_LIMITS,
     PROMPT_CACHE_MODEL_SETTINGS,
 )
 from tiger_agent.agent.limits import (
@@ -27,17 +29,23 @@ from tiger_agent.agent.tiger_agent import (
     INVESTIGATOR_SYSTEM_PROMPT_REGEX,
     TigerAgent,
 )
-from tiger_agent.agent.tools import create_tools
+from tiger_agent.agent.tools import create_rule_action_tools, create_tools
 from tiger_agent.agent.types import (
     AgentResponseContext,
     AgentSalesforceResponse,
+    AssessmentReport,
     ExtraContextDict,
     InvestigationReport,
 )
 from tiger_agent.db.utils import get_salesforce_account_id_for_channel
 from tiger_agent.mcp.types import McpConfig
 from tiger_agent.mcp.utils import filter_mcp_servers
-from tiger_agent.salesforce.types import SalesforceBaseEvent
+from tiger_agent.salesforce.types import (
+    ExecutionProfile,
+    SalesforceBaseEvent,
+    UserDefinedRuleExecution,
+)
+from tiger_agent.slack.types import SlackBaseEvent
 from tiger_agent.slack.utils import (
     fetch_channel_info,
     fetch_thread_messages,
@@ -130,6 +138,15 @@ class AgentAndContext:
     user_prompt: str | Sequence[UserContent]
     ctx: AgentResponseContext
     channel_to_respond: str
+    usage_limits: UsageLimits = field(default_factory=lambda: AGENT_USAGE_LIMITS)
+
+
+def _output_type(event) -> type:
+    if isinstance(event, SalesforceBaseEvent):
+        return AgentSalesforceResponse
+    if isinstance(event, UserDefinedRuleExecution) and event.trigger == "schedule":
+        return AssessmentReport
+    return str
 
 
 async def create_agent_and_context(
@@ -137,45 +154,55 @@ async def create_agent_and_context(
     task: Task,
     agent: TigerAgent,
     channel_to_respond: str,
+    profile: ExecutionProfile = "full",
+    extra_context: ExtraContextDict | None = None,
     subagent_event_handler: EventStreamHandler[Any] | None = None,
 ) -> AgentAndContext:
     """Build the coordinator agent and the context it runs with.
 
     Args:
+        profile: `full` is the normal agent; `limited` runs a cheaper model with
+            only the posting tools, no MCP servers or sub-agents, and a tight
+            budget -- enough to relay a notification, not to investigate.
+        extra_context: Extra template variables (e.g. the rule being executed).
         subagent_event_handler: Optional pydantic-ai event stream handler that
             receives the events of every delegated sub-agent run (its model
             streaming and tool events), e.g. to surface progress to the user.
     """
     event = task.event
+    limited = profile == "limited"
 
     destination_channel_info = await fetch_channel_info(
         client=hctx.app.client, channel_id=channel_to_respond
     )
 
-    all_mcp_servers = agent.mcp_loader()
-    agent.augment_mcp_servers(all_mcp_servers)
+    if limited:
+        mcp_servers = {}
+    else:
+        all_mcp_servers = agent.mcp_loader()
+        agent.augment_mcp_servers(all_mcp_servers)
 
-    mcp_servers = await filter_mcp_servers(
-        mcp_servers=all_mcp_servers,
-        client=hctx.app.client,
-        channel_id=channel_to_respond,
-    )
+        mcp_servers = await filter_mcp_servers(
+            mcp_servers=all_mcp_servers,
+            client=hctx.app.client,
+            channel_id=channel_to_respond,
+        )
 
-    wrap_mcp_servers_with_tool_call_guards(mcp_servers=mcp_servers)
+        wrap_mcp_servers_with_tool_call_guards(mcp_servers=mcp_servers)
 
     ctx = AgentResponseContext(
         task=task,
         mention=event,
         bot=hctx.bot_info,
         user=await fetch_user_info(client=hctx.app.client, user_id=event.user)
-        if not isinstance(event, SalesforceBaseEvent)
+        if isinstance(event, SlackBaseEvent)
         else None,
     )
 
-    extra_ctx: ExtraContextDict = {}
+    extra_ctx: ExtraContextDict = dict(extra_context or {})
     await agent.augment_context(ctx=ctx, extra_ctx=extra_ctx, mcp_servers=mcp_servers)
 
-    if not isinstance(event, SalesforceBaseEvent) and event.thread_ts and hctx.bot_info:
+    if isinstance(event, SlackBaseEvent) and event.thread_ts and hctx.bot_info:
         thread_messages = await fetch_thread_messages(
             client=hctx.app.client,
             channel=event.channel,
@@ -190,21 +217,26 @@ async def create_agent_and_context(
         ctx=ctx, extra_ctx=extra_ctx, regex=INVESTIGATOR_SYSTEM_PROMPT_REGEX
     )
 
-    toolsets = [_build_toolset(mcp_config) for mcp_config in mcp_servers.values()]
-    channel_is_linked_to_salesforce_account = bool(
-        await get_salesforce_account_id_for_channel(
-            pool=hctx.pool, channel_id=channel_to_respond
+    if limited:
+        toolsets = []
+        tools = create_rule_action_tools(hctx=hctx)
+        capabilities = budget_capabilities()
+        model = LIMITED_PROFILE_MODEL
+        usage_limits = LIMITED_PROFILE_USAGE_LIMITS
+    else:
+        toolsets = [_build_toolset(mcp_config) for mcp_config in mcp_servers.values()]
+        channel_is_linked_to_salesforce_account = bool(
+            await get_salesforce_account_id_for_channel(
+                pool=hctx.pool, channel_id=channel_to_respond
+            )
         )
-    )
-    tools = create_tools(
-        hctx=hctx,
-        task=task,
-        channel_info=destination_channel_info,
-        channel_is_linked_to_salesforce_account=channel_is_linked_to_salesforce_account,
-    )
-
-    agent = Agent(
-        capabilities=[
+        tools = create_tools(
+            hctx=hctx,
+            task=task,
+            channel_info=destination_channel_info,
+            channel_is_linked_to_salesforce_account=channel_is_linked_to_salesforce_account,
+        )
+        capabilities = [
             *budget_capabilities(),
             SubAgents(
                 agents=[
@@ -215,14 +247,17 @@ async def create_agent_and_context(
                 inherit_tools=True,
                 event_stream_handler=subagent_event_handler,
             ),
-        ],
-        model=agent.model,
+        ]
+        model = agent.model
+        usage_limits = AGENT_USAGE_LIMITS
+
+    agent = Agent(
+        capabilities=capabilities,
+        model=model,
         model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         deps_type=dict[str, Any],
         system_prompt=system_prompt,
-        output_type=AgentSalesforceResponse
-        if isinstance(event, SalesforceBaseEvent)
-        else str,
+        output_type=_output_type(event),
         tools=tools,
         toolsets=toolsets,
         retries=5,
@@ -233,4 +268,5 @@ async def create_agent_and_context(
         user_prompt=user_prompt,
         ctx=ctx,
         channel_to_respond=channel_to_respond,
+        usage_limits=usage_limits,
     )

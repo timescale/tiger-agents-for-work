@@ -10,7 +10,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCaseStatusChangedEvent,
     SalesforceCreateNewCaseEvent,
     SalesforceFeedItemEvent,
-    UserDefinedRuleMatch,
+    UserDefinedRuleExecution,
 )
 from tiger_agent.slack.types import (
     AgentFeedbackRatingEvent,
@@ -51,7 +51,7 @@ class AgentResponseContext(BaseModel):
         | SalesforceCaseStatusChangedEvent
         | AgentFeedbackRatingEvent
         | AgentFeedbackRequestReminderEvent
-        | UserDefinedRuleMatch
+        | UserDefinedRuleExecution
     )
     bot: BotInfo
     user: UserInfo | None = None
@@ -177,6 +177,21 @@ class InvestigationReport(BaseModel):
                 ]
             )
         return "\n".join(lines)
+
+
+class AssessmentReport(BaseModel):
+    """Output of a scheduled rule run: a short message plus the full report.
+
+    The handler posts ``summary`` as the message and publishes
+    ``report_markdown`` as a Slack canvas threaded under it.
+    """
+
+    summary: str = Field(
+        description="Slack mrkdwn, under ~1500 characters: what was assessed (counts, distribution) and one line per finding. Posted as the message."
+    )
+    report_markdown: str = Field(
+        description="The full report. Rendered as a Slack canvas, which supports headings, bold/italic, bullet and numbered lists, links, and code blocks. No tables."
+    )
 
 
 class AgentSalesforceResponse(CaseSummary):

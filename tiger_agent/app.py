@@ -4,7 +4,6 @@ import signal
 from datetime import timedelta
 from pathlib import Path
 
-from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.listeners.harness import ListenerHarness
 from tiger_agent.tasks.handlers import (
@@ -19,7 +18,7 @@ from tiger_agent.tasks.handlers import (
     SlackTaskHandler,
     TaskHandler,
     TaskProcessor,
-    UserDefinedRuleMatchHandler,
+    UserDefinedRuleExecutionHandler,
 )
 from tiger_agent.tasks.handlers.slack_send_new_case_form import (
     SlackSendNewCaseFormHandler,
@@ -44,7 +43,9 @@ _HANDLERS: list[type[TaskHandler]] = [
     SalesforceCaseStatusChangedHandler,
     AgentFeedbackRatingHandler,
     AgentFeedbackRequestReminderHandler,
-    *([UserDefinedRuleMatchHandler] if USER_DEFINED_EVENTS_ENABLED else []),
+    # Always registered: scheduled rules enqueue executions directly, without the
+    # event judge that USER_DEFINED_EVENTS_ENABLED gates.
+    UserDefinedRuleExecutionHandler,
 ]
 
 

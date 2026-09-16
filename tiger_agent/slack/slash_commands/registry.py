@@ -18,6 +18,16 @@ from tiger_agent.slack.slash_commands.handlers.salesforce import (
 from tiger_agent.slack.slash_commands.handlers.salesforce import (
     remove_customer_channel as sf_remove_customer_channel,
 )
+from tiger_agent.slack.slash_commands.handlers.schedules import add as schedules_add
+from tiger_agent.slack.slash_commands.handlers.schedules import (
+    list as schedules_list,
+)
+from tiger_agent.slack.slash_commands.handlers.schedules import (
+    remove as schedules_remove,
+)
+from tiger_agent.slack.slash_commands.handlers.schedules import (
+    run_now as schedules_run_now,
+)
 from tiger_agent.slack.types import BotInfo, SlackCommand
 from tiger_agent.types import HarnessContext
 
@@ -51,6 +61,29 @@ def _build_command_handlers() -> CommandGroup:
                                     func=sf_remove_customer_channel.handle,
                                 ),
                             ],
+                        ),
+                    ],
+                ),
+                CommandGroup(
+                    key="schedules",
+                    commands=[
+                        Command(
+                            key="add",
+                            expected_parameters=2,
+                            optional_parameters=1,
+                            func=schedules_add.handle,
+                        ),
+                        Command(
+                            key="remove",
+                            expected_parameters=1,
+                            func=schedules_remove.handle,
+                        ),
+                        Command(key="list", func=schedules_list.handle),
+                        Command(
+                            key="run-now",
+                            expected_parameters=1,
+                            optional_parameters=1,
+                            func=schedules_run_now.handle,
                         ),
                     ],
                 ),

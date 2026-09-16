@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, field_validator
@@ -164,16 +165,27 @@ class ServiceRecord:
     project_id: str | None
 
 
+# event_type of a rule that runs on a schedule. No incoming event carries this
+# type, so the rule judge never selects such rules; their runs are enqueued directly.
+SCHEDULED_RULE_EVENT_TYPE = "schedule"
+
+ExecutionProfile = Literal["full", "limited"]
+
+
 class UserDefinedRule(BaseModel):
     id: int
     name: str
     owner_slack_id: str
     event_type: str
     event_subtype: str | None = None
-    criteria: str
+    criteria: str | None = None
     criteria_examples: list[str] = []
     action_prompt: str
     enabled: bool = True
+    repeat: bool = False
+    period: timedelta | None = None
+    channel: str | None = None
+    execution_profile: ExecutionProfile = "full"
 
     @field_validator("criteria_examples", mode="before")
     @classmethod
@@ -181,14 +193,23 @@ class UserDefinedRule(BaseModel):
         return v or []
 
 
-class UserDefinedRuleMatch(BaseModel):
-    type: str = "custom_rule_match"
+USER_DEFINED_RULE_EXECUTION = "user_defined_rule_execution"
+
+
+class UserDefinedRuleExecution(BaseModel):
+    """One run of a rule's action_prompt, whether an event matched it or its schedule fired."""
+
+    type: str = USER_DEFINED_RULE_EXECUTION
     rule_id: int
     rule_name: str
     owner_slack_id: str
-    action_prompt: str
-    matched_event: dict
-    match_reason: str
+    trigger: Literal["event", "schedule"]
+    channel: str | None = None
+    execution_profile: ExecutionProfile = "full"
+    matched_event: dict | None = None
+    match_reason: str | None = None
+    window_hours: float | None = None
+    reschedule: bool = True
 
 
 class ContentVersion(BaseModel):

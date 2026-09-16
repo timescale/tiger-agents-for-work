@@ -399,6 +399,41 @@ async def post_response(
     return response
 
 
+@logfire.instrument("publish_canvas_in_thread", extract_args=["channel", "title"])
+async def publish_canvas_in_thread(
+    client: AsyncWebClient,
+    channel: str,
+    thread_ts: str | None,
+    title: str,
+    markdown: str,
+) -> str:
+    """Create a canvas from markdown, share it with the channel, and link it in the thread.
+
+    Canvases created through the API are private to the app until access is
+    granted, so the share step is what makes the link openable. Returns the
+    canvas permalink. Raises SlackApiError on any step so the caller can fall
+    back to another delivery.
+    """
+    created = await client.canvases_create(
+        title=title,
+        document_content={"type": "markdown", "markdown": markdown},
+    )
+    canvas_id = created.data["canvas_id"]
+    await client.canvases_access_set(
+        canvas_id=canvas_id, access_level="read", channel_ids=[channel]
+    )
+    info = await client.files_info(file=canvas_id)
+    permalink = info.data["file"]["permalink"]
+    # Unfurling is what renders the link as a canvas card.
+    await client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=f"Full report: <{permalink}|{title}>",
+        unfurl_links=True,
+    )
+    return permalink
+
+
 @logfire.instrument("fetch_team_info", extract_args=["team_id"])
 async def fetch_team_info(client: AsyncWebClient, team_id: str) -> TeamInfo | None:
     try:
