@@ -19,6 +19,7 @@ dependencies = [
     "aiosfstream-ng>=0.5.1",
     "semver>=3.0.4",
     "schedule>=1.2.2",
+    "slack-sdk>=3.44.0",
     "simple-salesforce>=1.12.9",
     "slack-bolt>=1.29.0",
     "tzdata>=2025.2",
