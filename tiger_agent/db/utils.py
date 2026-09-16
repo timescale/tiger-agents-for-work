@@ -241,6 +241,35 @@ async def extend_event_visibility(
         return cur.rowcount == 1
 
 
+@logfire.instrument("delete_unclaimed_slack_events", extract_args=("channel", "ts"))
+async def delete_unclaimed_slack_events(
+    pool: AsyncConnectionPool, *, channel: str, ts: str
+) -> int:
+    """Drop queued tasks for a Slack message that has since been deleted.
+
+    Only rows no worker currently holds (``vt <= now()``) are removed; a claimed
+    row is being answered right now and is stopped through
+    ``HarnessContext.cancellations`` instead. This is a plain delete, not
+    ``agent.delete_event``: that archives the row into ``agent.event_hist`` as
+    processed, and a deleted question never was.
+
+    Returns:
+        Number of queued tasks removed.
+    """
+    async with (
+        pool.connection() as con,
+        con.transaction() as _,
+        con.cursor() as cur,
+    ):
+        await cur.execute(
+            "delete from agent.event "
+            "where vt <= now() "
+            "and event->>'channel' = %s and event->>'ts' = %s",
+            (channel, ts),
+        )
+        return cur.rowcount
+
+
 @logfire.instrument("get_event_hist", extract_args=False)
 async def get_event_hist(pool: AsyncConnectionPool, event_id: int) -> Event | None:
     """Get an event from the event_hist table by ID.

@@ -154,6 +154,28 @@ def create_tools(
             client=hctx.app.client, user_group_id=group_id
         )
 
+    async def _cancel_my_requests() -> str:
+        """Stop the runs this user started earlier in this thread (not this one)."""
+        assert isinstance(event, SlackBaseEvent)
+        if event.user is None:
+            return "Could not tell who is asking, so nothing was cancelled."
+        cancelled = hctx.cancellations.cancel_for_user(
+            channel=event.channel,
+            thread=event.thread_ts or event.ts,
+            user=event.user,
+            except_ts=event.ts,
+        )
+        if cancelled == 0:
+            return (
+                "There is no in-progress request of yours in this thread to cancel. "
+                "Earlier requests have already finished."
+            )
+        plural = "s" if cancelled != 1 else ""
+        return (
+            f"Cancelled {cancelled} in-progress request{plural} of yours in this thread. "
+            "Any partial reply to them has been removed."
+        )
+
     async def _get_user_ids_in_channel(channel_id: str) -> list[str] | str:
         if not re.fullmatch(r"C[0-9A-Z]{10}", channel_id):
             return (
@@ -401,6 +423,21 @@ def create_tools(
                         '"list members of the on-call rotation", or "who is on the design team?". '
                         "The returned IDs can be passed to other tools (e.g. fetch_user_info) "
                         "to get names, emails, or other details for each member."
+                    ),
+                ),
+                Tool(
+                    _cancel_my_requests,
+                    takes_ctx=False,
+                    name="cancel_my_requests",
+                    description=(
+                        "Cancel the requests the current user made earlier in this thread "
+                        "that are still being worked on. Use this when the user says things "
+                        'like "nevermind", "never mind", "cancel", "cancel that", '
+                        '"stop", "forget it", "don\'t bother", or otherwise withdraws '
+                        "a question they asked in this thread. It only affects runs this user "
+                        "started in this thread, never anyone else's, and never the current "
+                        "request. Returns how many were cancelled; relay that briefly and do "
+                        "not restart the cancelled work."
                     ),
                 ),
                 Tool(

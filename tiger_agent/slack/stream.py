@@ -11,6 +11,7 @@ coordinator loop is awaiting its next event, so the two writers can interleave;
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Sequence
 
 import logfire
@@ -66,3 +67,23 @@ class ResponseStream:
                 assert self.stream is not None
                 rest = await self.stream.stop()
                 logfire.info("ended", extra={"res": rest})
+
+    async def discard(self) -> None:
+        """Remove whatever was streamed so far; used when the question was deleted.
+
+        Best effort: the stream may already be dead (Slack finalized it, or the
+        thread is gone), so every step swallows Slack errors.
+        """
+        async with self.lock:
+            stream = self.stream
+            self.stream = None
+        if stream is None:
+            return
+        message_ts = getattr(stream, "_stream_ts", None)
+        if stream._state != "completed":
+            with contextlib.suppress(Exception):
+                await stream.stop()
+        if message_ts:
+            with contextlib.suppress(Exception):
+                await self._client.chat_delete(channel=self._channel_id, ts=message_ts)
+                logfire.info("Discarded partial reply", ts=message_ts)

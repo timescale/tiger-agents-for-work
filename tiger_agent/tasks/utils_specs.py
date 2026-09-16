@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tiger_agent.db.utils import extend_event_visibility
+from tiger_agent.db.utils import (
+    delete_unclaimed_slack_events,
+    extend_event_visibility,
+)
 from tiger_agent.slack.types import SlackRequestNewCaseFormEvent
 from tiger_agent.tasks import utils as task_utils
 from tiger_agent.tasks.types import Task
@@ -173,3 +176,24 @@ class TestProcessTaskHeartbeat:
         assert ok is True
         assert _lease_updates(pool) == []
         assert _other_tasks() == set()
+
+
+class TestDeleteUnclaimedSlackEvents:
+    async def test_deletes_only_unclaimed_rows_for_that_message(self, pool):
+        pool._cursor.rowcount = 2
+
+        dropped = await delete_unclaimed_slack_events(
+            pool, channel="C_CHAN", ts="1700000000.000100"
+        )
+
+        assert dropped == 2
+        [call] = [
+            c
+            for c in pool._cursor.execute.await_args_list
+            if c.args[0].startswith("delete from agent.event")
+        ]
+        sql, params = call.args
+        assert "vt <= now()" in sql
+        assert "event->>'channel' = %s" in sql
+        assert "event->>'ts' = %s" in sql
+        assert params == ("C_CHAN", "1700000000.000100")

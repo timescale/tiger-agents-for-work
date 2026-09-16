@@ -3,6 +3,11 @@
 Tiger Agent use the Slack Events API with Socket Mode to receive `app_mention` events when your Slack users mention the bot.
 You must create a Slack App for your Tiger Agent.
 
+The manifest also subscribes to `message.channels` and `message.im`. Besides direct messages,
+these deliver `message_deleted` events, which the agent uses to stop answering a question that
+its author has since deleted (see [Cancelling a Slack run](event_harness.md#cancelling-a-slack-run)).
+Add `message.groups` if you want the same behaviour in private channels.
+
 1. Edit the [slack-manifest.json](/slack-manifest.json) file to have the names and descriptions you want to use.
 2. [Create a new Slack app](https://api.slack.com/apps?new_app=1)
 3. Choose to create an app **from a manifest**.
