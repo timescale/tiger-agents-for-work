@@ -115,16 +115,20 @@ class SlackTaskHandler(TaskHandler):
         response_text_parts: list[str] = []
         outcome: RunOutcome = "completed"
 
-        # Registered for the whole run so a `message_deleted` event for this
-        # message can stop it (see SlackListener._on_message_deleted).
-        with hctx.cancellations.track(event.channel, event.ts) as cancel_requested:
+        # Registered for the whole run so it can be stopped from outside: by a
+        # `message_deleted` event for this message (SlackListener) or by the
+        # same user saying "nevermind" in the thread (the cancel_my_requests
+        # tool in a later run).
+        with hctx.cancellations.track(
+            event.channel, event.ts, user=event.user, thread_ts=event.thread_ts
+        ) as tracked_run:
             async with agent_and_ctx.agent.run_stream_events(
                 user_prompt=agent_and_ctx.user_prompt,
                 deps=agent_and_ctx.ctx,
                 usage_limits=AGENT_USAGE_LIMITS,
             ) as stream_events:
                 watcher = asyncio.create_task(
-                    _cancel_when_requested(cancel_requested, stream_events)
+                    _cancel_when_requested(tracked_run.cancel_requested, stream_events)
                 )
                 try:
                     async for stream_event in stream_events:
@@ -182,9 +186,12 @@ class SlackTaskHandler(TaskHandler):
         if outcome != "completed":
             if outcome == "cancelled":
                 logfire.info(
-                    "Run cancelled: the triggering Slack message was deleted",
+                    "Run cancelled: the triggering Slack message was deleted"
+                    if tracked_run.reason == "message_deleted"
+                    else "Run cancelled at the user's request",
                     channel=event.channel,
                     ts=event.ts,
+                    reason=tracked_run.reason,
                 )
             if response_stream is not None:
                 await response_stream.discard()

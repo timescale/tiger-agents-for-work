@@ -211,10 +211,80 @@ class TestCreateToolsInternalChannel:
         monkeypatch.setattr(tools_module, "USER_DEFINED_EVENTS_ENABLED", True)
         monkeypatch.setattr(tools_module, "LOGFIRE_READ_TOKEN", "some-token")
         channel_info = _make_channel_info()
-        names = [t.name for t in create_tools(hctx, _make_non_slack_task(), channel_info)]
+        names = [
+            t.name for t in create_tools(hctx, _make_non_slack_task(), channel_info)
+        ]
         # The always-on, event-agnostic tools remain.
         assert names == [
             "download_slack_hosted_file",
             "download_salesforce_hosted_file",
             "get_org_calendar_events",
         ]
+
+
+class TestCancelMyRequestsTool:
+    def _tool(self, hctx, task):
+        channel_info = _make_channel_info(is_ext_shared=False, is_shared=False)
+        tools = create_tools(hctx, task, channel_info)
+        return next(t for t in tools if t.name == "cancel_my_requests")
+
+    def test_offered_for_slack_events_only(self, hctx):
+        channel_info = _make_channel_info()
+        slack_names = [
+            t.name for t in create_tools(hctx, _make_slack_task(), channel_info)
+        ]
+        other_names = [
+            t.name for t in create_tools(hctx, _make_non_slack_task(), channel_info)
+        ]
+        assert "cancel_my_requests" in slack_names
+        assert "cancel_my_requests" not in other_names
+
+    async def test_cancels_the_users_earlier_runs_in_the_thread(self, hctx):
+        from tiger_agent.tasks.cancellation import RunCancellations
+
+        hctx.cancellations = RunCancellations()
+        asking = _make_task(
+            SlackAppMentionEvent(
+                ts="1700000000.000300",
+                thread_ts="1700000000.000100",
+                text="<@U_BOT> nevermind",
+                channel="C_CHAN",
+                event_ts="1700000000.000300",
+                user="U_USER",
+            )
+        )
+        tool = self._tool(hctx, asking)
+
+        with (
+            hctx.cancellations.track(
+                "C_CHAN", "1700000000.000100", user="U_USER", thread_ts=None
+            ) as earlier,
+            hctx.cancellations.track(
+                "C_CHAN",
+                "1700000000.000200",
+                user="U_OTHER",
+                thread_ts="1700000000.000100",
+            ) as someone_else,
+            hctx.cancellations.track(
+                "C_CHAN",
+                "1700000000.000300",
+                user="U_USER",
+                thread_ts="1700000000.000100",
+            ) as itself,
+        ):
+            result = await tool.function()
+
+            assert result.startswith("Cancelled 1 in-progress request of yours")
+            assert earlier.cancel_requested.is_set()
+            assert not someone_else.cancel_requested.is_set()
+            assert not itself.cancel_requested.is_set()
+
+    async def test_reports_when_there_is_nothing_to_cancel(self, hctx):
+        from tiger_agent.tasks.cancellation import RunCancellations
+
+        hctx.cancellations = RunCancellations()
+        tool = self._tool(hctx, _make_slack_task())
+
+        result = await tool.function()
+
+        assert result.startswith("There is no in-progress request of yours")

@@ -8,10 +8,10 @@ class TestRunCancellations:
     def test_track_registers_and_unregisters(self):
         registry = RunCancellations()
 
-        with registry.track("C1", "1.0") as cancel_requested:
+        with registry.track("C1", "1.0") as run:
             assert registry.is_tracked("C1", "1.0")
             assert registry.running == 1
-            assert not cancel_requested.is_set()
+            assert not run.cancel_requested.is_set()
 
         assert not registry.is_tracked("C1", "1.0")
         assert registry.running == 0
@@ -19,19 +19,19 @@ class TestRunCancellations:
     def test_cancel_sets_the_tracked_event(self):
         registry = RunCancellations()
 
-        with registry.track("C1", "1.0") as cancel_requested:
+        with registry.track("C1", "1.0") as run:
             assert registry.cancel("C1", "1.0") is True
-            assert cancel_requested.is_set()
+            assert run.cancel_requested.is_set()
 
     def test_cancel_of_an_unknown_key_is_a_noop(self):
         registry = RunCancellations()
 
         assert registry.cancel("C1", "9.9") is False
 
-        with registry.track("C1", "1.0") as cancel_requested:
+        with registry.track("C1", "1.0") as run:
             assert registry.cancel("C1", "9.9") is False
             assert registry.cancel("C2", "1.0") is False
-            assert not cancel_requested.is_set()
+            assert not run.cancel_requested.is_set()
 
     def test_unregisters_even_when_the_run_raises(self):
         registry = RunCancellations()
@@ -54,9 +54,9 @@ class TestRunCancellations:
         ):
             assert registry.running == 3
             assert registry.cancel("C1", "2.0") is True
-            assert second.is_set()
-            assert not first.is_set()
-            assert not third.is_set()
+            assert second.cancel_requested.is_set()
+            assert not first.cancel_requested.is_set()
+            assert not third.cancel_requested.is_set()
 
     async def test_five_workers_and_a_listener_on_one_loop(self):
         """Mirror production: workers track, the listener cancels one, all on one loop."""
@@ -65,8 +65,8 @@ class TestRunCancellations:
         release = asyncio.Event()
 
         async def worker(ts: str):
-            with registry.track("C1", ts) as cancel_requested:
-                waiter = asyncio.create_task(cancel_requested.wait())
+            with registry.track("C1", ts) as run:
+                waiter = asyncio.create_task(run.cancel_requested.wait())
                 releaser = asyncio.create_task(release.wait())
                 done, _ = await asyncio.wait(
                     {waiter, releaser}, return_when=asyncio.FIRST_COMPLETED
@@ -92,3 +92,64 @@ class TestRunCancellations:
         assert not inspect.iscoroutinefunction(RunCancellations.cancel)
         assert not inspect.iscoroutinefunction(RunCancellations.track)
         assert not inspect.isasyncgenfunction(RunCancellations.track.__wrapped__)
+
+
+class TestCancelForUser:
+    def test_cancels_only_that_users_runs_in_that_thread(self):
+        registry = RunCancellations()
+
+        with (
+            registry.track("C1", "1.0", user="U_A", thread_ts=None) as root,
+            registry.track("C1", "2.0", user="U_A", thread_ts="1.0") as follow_up,
+            registry.track("C1", "3.0", user="U_B", thread_ts="1.0") as someone_else,
+            registry.track("C1", "4.0", user="U_A", thread_ts="9.0") as other_thread,
+            registry.track("C2", "1.0", user="U_A", thread_ts=None) as other_channel,
+        ):
+            cancelled = registry.cancel_for_user(
+                channel="C1", thread="1.0", user="U_A", except_ts="5.0"
+            )
+
+            assert cancelled == 2
+            assert root.cancel_requested.is_set()
+            assert follow_up.cancel_requested.is_set()
+            assert root.reason == "user_request"
+            assert not someone_else.cancel_requested.is_set()
+            assert not other_thread.cancel_requested.is_set()
+            assert not other_channel.cancel_requested.is_set()
+
+    def test_the_asking_run_is_never_cancelled(self):
+        registry = RunCancellations()
+
+        with (
+            registry.track("C1", "1.0", user="U_A", thread_ts=None) as earlier,
+            registry.track("C1", "2.0", user="U_A", thread_ts="1.0") as asking,
+        ):
+            cancelled = registry.cancel_for_user(
+                channel="C1", thread="1.0", user="U_A", except_ts="2.0"
+            )
+
+            assert cancelled == 1
+            assert earlier.cancel_requested.is_set()
+            assert not asking.cancel_requested.is_set()
+
+    def test_nothing_to_cancel_returns_zero(self):
+        registry = RunCancellations()
+
+        with registry.track("C1", "2.0", user="U_A", thread_ts="1.0"):
+            assert (
+                registry.cancel_for_user(
+                    channel="C1", thread="1.0", user="U_A", except_ts="2.0"
+                )
+                == 0
+            )
+
+    def test_already_cancelled_runs_are_not_counted_twice(self):
+        registry = RunCancellations()
+
+        with registry.track("C1", "1.0", user="U_A", thread_ts=None) as run:
+            assert registry.cancel("C1", "1.0") is True
+            assert run.reason == "message_deleted"
+
+            assert registry.cancel_for_user(channel="C1", thread="1.0", user="U_A") == 0
+            # the first reason sticks
+            assert run.reason == "message_deleted"

@@ -248,6 +248,11 @@ the harness would retry the whole run up to `max_attempts` times. Two mechanisms
    Slack keeps replies under a deleted parent as a tombstone thread), clears the assistant status,
    and returns normally so the task is acked.
 
+   The same registry backs the `cancel_my_requests` agent tool: when a user says "nevermind" or
+   "cancel" in a thread, the agent calls it and every run *that user* started in *that thread*
+   is cancelled the same way (the asking run excluded). Runs started by other users are never
+   touched, which mirrors the deletion path, where only the author can delete the message.
+
 2. **Terminal Slack errors.** If a run's Slack calls fail with an error that means the target is
    gone (see *Reply Target Gone* above), the handler cancels the run and acks the task the same
    way. This covers deletions the listener never sees: the event landed on another replica, or

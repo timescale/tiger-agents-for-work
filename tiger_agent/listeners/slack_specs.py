@@ -193,9 +193,7 @@ class TestOnMessageDeleted:
         monkeypatch.setattr(
             slack_listener_module, "delete_unclaimed_slack_events", delete_unclaimed
         )
-        with hctx.cancellations.track(
-            "C_CHAN", "1700000000.000100"
-        ) as cancel_requested:
+        with hctx.cancellations.track("C_CHAN", "1700000000.000100") as run:
             event = {
                 "type": "message",
                 "subtype": "message_deleted",
@@ -206,7 +204,8 @@ class TestOnMessageDeleted:
             }
             await listener._on_message(ack=AsyncMock(), event=event)
 
-            assert cancel_requested.is_set()
+            assert run.cancel_requested.is_set()
+            assert run.reason == "message_deleted"
         delete_unclaimed.assert_awaited_once_with(
             hctx.pool, channel="C_CHAN", ts="1700000000.000100"
         )
