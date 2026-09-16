@@ -241,7 +241,7 @@ async def extend_event_visibility(
         return cur.rowcount == 1
 
 
-@logfire.instrument("delete_unclaimed_slack_events", extract_args=False)
+@logfire.instrument("delete_unclaimed_slack_events", extract_args=("channel", "ts"))
 async def delete_unclaimed_slack_events(
     pool: AsyncConnectionPool, *, channel: str, ts: str
 ) -> int:

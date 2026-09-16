@@ -147,8 +147,15 @@ The system uses PostgreSQL's `agent.event` table as a durable work queue:
 
 - **Insert**: New tasks stored with `attempts=0`, `vt=now()`
 - **Claim**: Workers atomically claim tasks with future visibility threshold
+- **Lease heartbeat**: While a worker runs a task, `process_task` pushes `vt` forward every
+  half of `invisibility_minutes` (`extend_event_visibility`, guarded by the row's `attempts` so a
+  row another worker has re-claimed is never touched). A handler may therefore run longer than
+  the claim window without being picked up a second time.
 - **Success**: Completed tasks moved to `agent.event_hist`
 - **Failure**: Tasks remain visible for retry after threshold expires
+- **Cancellation**: A Slack task whose triggering message is deleted is stopped and acked (see
+  [Cancelling a Slack run](#cancelling-a-slack-run)); queued copies are deleted outright, not
+  archived, since they were never processed.
 - **Cleanup**: Expired tasks automatically moved to history
 
 ### 6. Worker Coordination & Load Balancing
@@ -181,9 +188,14 @@ Database function uses `ORDER BY random()` to prevent head-of-line blocking.
 - **Database Load**: Efficient with connection pooling and prepared statements
 
 ### Failure Modes & Recovery
-- **Worker Death**: Tasks auto-retry after visibility threshold
+- **Worker Death**: The lease heartbeat dies with the worker, so the task auto-retries once
+  the visibility threshold expires
 - **Database Unavailable**: Events queued in Slack until reconnection
 - **Processing Failures**: Automatic retry with visibility threshold
+- **Deleted Slack Message**: The run is cancelled and the task acked; nothing is retried
+- **Reply Target Gone**: Slack errors that mean the message or channel no longer exists
+  (`invalid_thread_ts`, `message_not_found`, `channel_not_found`, `thread_not_found`) end the
+  run and ack the task instead of consuming the remaining attempts
 - **Poisoned/Expired Tasks**: Moved to history table after max attempts or max age
 
 ### Configuration Parameters
@@ -214,6 +226,41 @@ upgrade does not kill agents mid-response:
 The default grace period (840s) is chosen to sit under the 900s
 `terminationGracePeriodSeconds` used in `tiger-agents-deploy`, so cancellation
 and cleanup happen before Kubernetes sends `SIGKILL`.
+
+### Cancelling a Slack run
+
+A user can delete their message while the agent is still answering it. Without intervention the
+run would keep spending model calls, every Slack call would fail with `invalid_thread_ts`, and
+the harness would retry the whole run up to `max_attempts` times. Two mechanisms stop that:
+
+1. **`message_deleted` events.** `SlackListener` receives them through the `message.channels`
+   and `message.im` subscriptions (they are `message` events with `subtype: message_deleted`,
+   a `deleted_ts`, and no top-level `user`). On one it:
+   - cancels the in-flight run for `(channel, deleted_ts)` via
+     `HarnessContext.cancellations` (`RunCancellations`, `tiger_agent/tasks/cancellation.py`),
+     an in-process registry every `SlackTaskHandler` run registers itself in for its duration;
+   - deletes still-queued tasks for that message (`delete_unclaimed_slack_events`, rows with
+     `vt <= now()`), so a deletion that beats the workers never starts a run at all.
+
+   The handler turns the cancellation into pydantic-ai's `AgentRunEvents.cancel()`, which
+   interrupts the run even while it is blocked on a delegated sub-agent. It then discards the
+   partial reply (`ResponseStream.discard`: stop the stream and `chat.delete` the message, since
+   Slack keeps replies under a deleted parent as a tombstone thread), clears the assistant status,
+   and returns normally so the task is acked.
+
+2. **Terminal Slack errors.** If a run's Slack calls fail with an error that means the target is
+   gone (see *Reply Target Gone* above), the handler cancels the run and acks the task the same
+   way. This covers deletions the listener never sees: the event landed on another replica, or
+   the app was not connected at the time. It fires on the first post of the run, so at most one
+   short attempt is spent.
+
+The registry is a plain dict with no lock: the listener and the `num_workers` workers are asyncio
+tasks on one event loop, and `track()`/`cancel()` never await, so they cannot interleave. Cross-
+replica cancellation of an *in-flight* run (for example via `LISTEN`/`NOTIFY`) is not implemented;
+with more than one replica, mechanism 2 is what bounds the damage.
+
+Private channels are not covered by `message_deleted`: the manifest does not subscribe to
+`message.groups`, so deletions there only reach mechanism 2.
 
 ## Monitoring & Observability
 
