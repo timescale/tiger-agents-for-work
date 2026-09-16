@@ -33,7 +33,7 @@ from pydantic_ai.messages import (
 )
 from slack_sdk.models.messages.chunk import TaskUpdateChunk
 
-from tiger_agent.slack.status import DELEGATE_TOOL_NAME
+from tiger_agent.slack.status import DELEGATE_TOOL_NAME, OUTPUT_TOOL_NAMES
 from tiger_agent.slack.stream import ResponseStream
 
 # Longest title Slack renders comfortably on one line in the card timeline.
@@ -105,6 +105,8 @@ class TaskCards:
         if isinstance(event, PartStartEvent) and isinstance(
             event.part, BaseToolCallPart
         ):
+            if event.part.tool_name in OUTPUT_TOOL_NAMES:
+                return  # the sub-agent handing back its report, not a step
             card = self._card_for(prompt)
             if card is not None:
                 await self._log_tool(card, event.part.tool_name)
@@ -136,16 +138,20 @@ class TaskCards:
             return
         card.done = True
         elapsed = round(self._clock() - card.started)
+        # the blank line closes the bullet list so the final status line
+        # renders flush left instead of indented under the last tool
         if isinstance(event.part, RetryPromptPart):
             reason = event.part.model_response()
             await self._send(
                 card,
                 status="error",
-                details=f"\n✗ failed after {elapsed}s",
+                details=f"\n\n✗ failed after {elapsed}s",
                 output=_clip(reason, DETAILS_CHUNK_MAX_CHARS),
             )
         else:
-            await self._send(card, status="complete", details=f"\n✓ done in {elapsed}s")
+            await self._send(
+                card, status="complete", details=f"\n\n✓ done in {elapsed}s"
+            )
 
     async def _log_tool(self, card: _Card, tool_name: str) -> None:
         """Append one "• <tool>" line to the card, throttled and deduplicated."""
