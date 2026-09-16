@@ -31,6 +31,32 @@ CASE_FIELDS = [
 ]
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    """Parse a boolean environment variable.
+
+    Accepts 1/true/yes/on (case-insensitive) as True and 0/false/no/off as
+    False. Unset or empty falls back to ``default``; any other value raises so
+    a typo cannot silently flip behavior.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    value = raw.strip().lower()
+    if value in ("1", "true", "yes", "on"):
+        return True
+    if value in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"{name} must be a boolean (true/false), got {raw!r}")
+
+
+# When true, the agent still gets a Salesforce client (so tools and manual
+# debugging against real credentials work) but does not start the
+# SalesforceListener: no PushTopic streaming subscriptions, no
+# poll-for-missed-cases job, and no case feed item poller.
+DISABLE_SALESFORCE_EVENT_HANDLING = _env_bool(
+    "DISABLE_SALESFORCE_EVENT_HANDLING", default=False
+)
+
 SALESFORCE_DOMAIN = os.environ.get("SALESFORCE_DOMAIN", None)
 SALESFORCE_CLIENT_ID = os.environ.get("SALESFORCE_CLIENT_ID", None)
 SALESFORCE_CLIENT_SECRET = os.environ.get("SALESFORCE_CLIENT_SECRET", None)
