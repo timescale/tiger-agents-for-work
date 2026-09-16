@@ -133,7 +133,7 @@ class TestDelegationLifecycle:
         last = _chunks(stream)[-1]
         assert last["id"] == "c1"
         assert last["status"] == "complete"
-        assert last["details"] == "\n✓ done in 91s"
+        assert last["details"] == "\n\n✓ done in 91s"
         assert cards.open_cards == 0
 
     async def test_retry_result_marks_the_card_as_error(self, cards, stream, clock):
@@ -144,7 +144,7 @@ class TestDelegationLifecycle:
 
         last = _chunks(stream)[-1]
         assert last["status"] == "error"
-        assert last["details"] == "\n✗ failed after 12s"
+        assert last["details"] == "\n\n✗ failed after 12s"
         assert "exceeded its budget" in last["output"]
 
     async def test_non_delegate_tool_calls_do_not_create_cards(self, cards, stream):
@@ -194,7 +194,7 @@ class TestSubagentToolCalls:
         await cards.on_event(_delegate_result("c1"))
 
         assert _card_log(stream, "c1") == (
-            "investigator: started\n• skills_view\n• slack_get_users\n✓ done in 46s"
+            "investigator: started\n• skills_view\n• slack_get_users\n\n✓ done in 46s"
         )
 
     async def test_single_open_card_is_used_when_the_prompt_is_unknown(
@@ -251,8 +251,9 @@ class TestSubagentToolCalls:
             f"• tool_{i}" for i in range(task_cards_module.MAX_TOOL_LINES)
         ]
         assert lines[task_cards_module.MAX_TOOL_LINES + 1] == "• …"
+        assert lines[-2] == ""  # blank line closes the bullet list
         assert lines[-1].startswith("✓ done in")
-        assert len(lines) == task_cards_module.MAX_TOOL_LINES + 3
+        assert len(lines) == task_cards_module.MAX_TOOL_LINES + 4
 
     async def test_every_chunk_fits_slacks_task_update_limit(
         self, cards, stream, clock
@@ -265,6 +266,14 @@ class TestSubagentToolCalls:
             assert len(chunk["details"]) <= task_cards_module.DETAILS_CHUNK_MAX_CHARS
             if chunk.get("output"):
                 assert len(chunk["output"]) <= task_cards_module.DETAILS_CHUNK_MAX_CHARS
+
+    async def test_the_output_tool_is_not_logged_as_a_step(self, cards, stream, clock):
+        await cards.on_event(_delegate_call("c1", TASK_A))
+        before = stream.append.await_count
+
+        await _advance_and_call(cards, clock, "final_result")
+
+        assert stream.append.await_count == before
 
     async def test_text_events_from_subagents_are_ignored(self, cards, stream):
         await cards.on_event(_delegate_call("c1", TASK_A))

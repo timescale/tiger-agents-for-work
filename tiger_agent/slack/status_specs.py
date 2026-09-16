@@ -212,6 +212,21 @@ class TestSubtaskLifecycle:
         assert status.running_subtasks == 1
 
 
+class TestOutputTool:
+    async def test_the_output_tool_does_not_change_the_status(self, status, client):
+        await status.on_event(_delegate_call("c1"))
+        await status.on_event(
+            _tool_start("tigerlabs_call_tool"), subtask="investigator"
+        )
+        before = client.assistant_threads_setStatus.await_count
+
+        await status.on_event(_tool_start("final_result"), subtask="investigator")
+        await status.on_event(_tool_end("final_result"), subtask="investigator")
+
+        assert client.assistant_threads_setStatus.await_count == before
+        assert status.message == "Sub-task (investigator): tigerlabs_call_tool"
+
+
 class TestSubagentHandler:
     async def test_forwards_events_tagged_with_the_agent_name(self, status, client):
         await status.on_event(_delegate_call("c1"))

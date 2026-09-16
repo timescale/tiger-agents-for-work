@@ -43,6 +43,11 @@ STATUS_REFRESH_SECONDS: float = 60.0
 # The tool the SubAgents capability registers for delegation.
 DELEGATE_TOOL_NAME = "delegate_task"
 
+# pydantic-ai delivers structured output through a synthetic tool call named
+# after its DEFAULT_OUTPUT_TOOL_NAME. It is the run finishing, not a step the
+# user should see as "calling a tool".
+OUTPUT_TOOL_NAMES = frozenset({"final_result"})
+
 _UNNAMED_SUBTASK = "sub-task"
 
 
@@ -112,11 +117,13 @@ class ResponseStatus:
         if isinstance(event, PartStartEvent) and isinstance(
             event.part, BaseToolCallPart
         ):
-            await self.set(self._tool_message(event.part.tool_name, subtask))
+            if event.part.tool_name not in OUTPUT_TOOL_NAMES:
+                await self.set(self._tool_message(event.part.tool_name, subtask))
             return
 
         if isinstance(event, PartEndEvent) and isinstance(event.part, BaseToolCallPart):
-            await self.set(self._idle_message(subtask))
+            if event.part.tool_name not in OUTPUT_TOOL_NAMES:
+                await self.set(self._idle_message(subtask))
             return
 
         await self.refresh()
