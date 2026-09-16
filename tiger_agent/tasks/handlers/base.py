@@ -130,15 +130,7 @@ class TaskProcessor:
         except Exception as e:
             logger.exception("handler failed", exc_info=e)
             if not isinstance(event, (SalesforceBaseEvent, UserDefinedRuleExecution)):
-                await add_reaction(hctx.app.client, event.channel, event.ts, "x")
-                await post_response(
-                    client=hctx.app.client,
-                    channel=event.channel,
-                    thread_ts=event.thread_ts if event.thread_ts else event.ts,
-                    text="I experienced an issue trying to respond. I will try again."
-                    if task.attempts < self._agent.max_attempts
-                    else "I give up. Sorry.",
-                )
+                await self._notify_failure(hctx, task)
             raise
 
         # skip rule evaluation for match events themselves to avoid loops
@@ -149,4 +141,29 @@ class TaskProcessor:
                 pool=hctx.pool,
                 event_type=event.type,
                 event_dict=task.event.model_dump(),
+            )
+
+    async def _notify_failure(self, hctx: HarnessContext, task: Task) -> None:
+        """Tell the user the run failed; never let that notification mask the failure.
+
+        The thread may be gone (the user deleted their message), in which case
+        every Slack call here fails with invalid_thread_ts and would otherwise
+        replace the real exception on its way up.
+        """
+        event = task.event
+        try:
+            await add_reaction(hctx.app.client, event.channel, event.ts, "x")
+            await post_response(
+                client=hctx.app.client,
+                channel=event.channel,
+                thread_ts=event.thread_ts if event.thread_ts else event.ts,
+                text="I experienced an issue trying to respond. I will try again."
+                if task.attempts < self._agent.max_attempts
+                else "I give up. Sorry.",
+            )
+        except Exception as notify_error:
+            logger.warning(
+                "could not notify the user about the failure",
+                exc_info=notify_error,
+                extra={"task_id": task.id},
             )

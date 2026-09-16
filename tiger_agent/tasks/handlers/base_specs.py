@@ -108,3 +108,18 @@ class TestOverflowIsNotRequeued:
         processor, hctx = _processor(handler_exc=UsageLimitExceeded("too much"))
 
         await processor(hctx, _task())  # must not raise
+
+
+class TestFailureNotification:
+    async def test_a_failing_notification_does_not_mask_the_handler_error(self):
+        """The thread may be gone; Slack then rejects the "I had an issue" post too."""
+        processor, hctx = _processor(handler_exc=RuntimeError("boom"))
+
+        with (
+            patch(
+                "tiger_agent.tasks.handlers.base.post_response",
+                new=AsyncMock(side_effect=ValueError("invalid_thread_ts")),
+            ),
+            pytest.raises(RuntimeError, match="boom"),
+        ):
+            await processor(hctx, _task())

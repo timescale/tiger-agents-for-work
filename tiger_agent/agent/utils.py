@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import UserContent
 from pydantic_ai.toolsets.abstract import AbstractToolset
 from pydantic_ai_harness import SubAgent, SubAgents
@@ -155,7 +156,19 @@ async def create_agent_and_context(
     channel_to_respond: str,
     profile: ExecutionProfile = "full",
     extra_context: ExtraContextDict | None = None,
+    subagent_event_handler: EventStreamHandler[Any] | None = None,
 ) -> AgentAndContext:
+    """Build the coordinator agent and the context it runs with.
+
+    Args:
+        profile: `full` is the normal agent; `limited` runs a cheaper model with
+            only the posting tools, no MCP servers or sub-agents, and a tight
+            budget -- enough to relay a notification, not to investigate.
+        extra_context: Extra template variables (e.g. the rule being executed).
+        subagent_event_handler: Optional pydantic-ai event stream handler that
+            receives the events of every delegated sub-agent run (its model
+            streaming and tool events), e.g. to surface progress to the user.
+    """
     event = task.event
     limited = profile == "limited"
 
@@ -232,6 +245,7 @@ async def create_agent_and_context(
                     )
                 ],
                 inherit_tools=True,
+                event_stream_handler=subagent_event_handler,
             ),
         ]
         model = agent.model

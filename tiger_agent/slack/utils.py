@@ -25,7 +25,6 @@ import logfire
 import pytz
 from pydantic_ai.messages import (
     AgentStreamEvent,
-    BaseToolCallPart,
     BinaryContent,
     PartDeltaEvent,
     PartEndEvent,
@@ -36,6 +35,7 @@ from pydantic_ai.messages import (
 from slack_bolt.context.ack.async_ack import AsyncAck
 from slack_bolt.context.respond.async_respond import AsyncRespond
 from slack_sdk.errors import SlackApiError, SlackRequestError
+from slack_sdk.models.messages.chunk import Chunk
 from slack_sdk.web.async_client import (
     AsyncChatStream,
     AsyncSlackResponse,
@@ -580,6 +580,20 @@ async def download_private_file(
         return f"Could not fetch file: {str(e)}"
 
 
+# Slack error codes that mean the message or channel we are replying to no
+# longer exists. Retrying a run that hits one of these can never succeed.
+SLACK_TARGET_GONE_ERRORS = frozenset(
+    {"invalid_thread_ts", "message_not_found", "channel_not_found", "thread_not_found"}
+)
+
+
+def slack_target_gone(error: SlackApiError) -> bool:
+    """True if ``error`` says the message/channel being replied to is gone."""
+    response = getattr(error, "response", None)
+    code = response.get("error") if response is not None else None
+    return code in SLACK_TARGET_GONE_ERRORS
+
+
 async def set_status(
     client: AsyncWebClient,
     channel_id: str,
@@ -634,11 +648,12 @@ async def append_message_to_stream(
     recipient_user_id: str,
     recipient_team_id: str,
     thread_ts: str,
-    markdown_text: str,
+    markdown_text: str | None = None,
     should_retry: bool = True,
     stream: AsyncChatStream | None = None,
+    chunks: Sequence[Chunk] | None = None,
 ) -> AsyncChatStream:
-    """Append markdown text to a Slack chat stream.
+    """Append markdown text and/or chunks to a Slack chat stream.
 
     Args:
         client: Slack web client for API calls
@@ -646,9 +661,11 @@ async def append_message_to_stream(
         recipient_user_id: User ID of the message recipient
         recipient_team_id: Team ID of the recipient
         thread_ts: Timestamp of the thread to append to
-        markdown_text: Markdown-formatted text to append
+        markdown_text: Markdown-formatted text to append (buffered by the stream)
         should_retry: Whether to retry once on failure
         stream: Existing stream to use, or None to create new one
+        chunks: Non-text chunks (e.g. ``TaskUpdateChunk``) to append; these
+            flush the stream immediately along with any buffered text
 
     Returns:
         The chat stream that was used/created
@@ -671,26 +688,45 @@ async def append_message_to_stream(
     )
 
     try:
-        await stream_to_use.append(markdown_text=markdown_text)
+        await stream_to_use.append(markdown_text=markdown_text, chunks=chunks)
         return stream_to_use
     except (SlackRequestError, SlackApiError) as slack_error:
-        logfire.exception(
+        # Slack finalizes a stream that sits idle for a few minutes (e.g. while
+        # a long tool call runs) and then rejects appends with
+        # `message_not_in_streaming_state`. Replaying only `markdown_text` onto
+        # a fresh stream would drop the buffered head of the response.
+        if stream_to_use._state == "completed":
+            # `append` rejects before buffering when the stream was already
+            # stopped, and a successful stop() drained the buffer, so this
+            # delta is the only undelivered text.
+            unsent_text = markdown_text
+        else:
+            # `AsyncChatStream.append` adds the delta to `_buffer` before
+            # flushing and only clears `_buffer` after the API call succeeds,
+            # so the failed flush left everything undelivered in the buffer,
+            # this delta included.
+            unsent_text = stream_to_use._buffer
+        logfire.warn(
             "Slack Error occurred while calling append_message_to_stream",
             markdown_text=markdown_text,
+            unsent_text=unsent_text,
+            slack_error=str(slack_error),
+            will_retry=should_retry,
         )
         if not should_retry:
             raise slack_error
 
         # if we get this error, let's retry one time
         # retrying is going to create a new stream with the same
-        # params
+        # params and replay everything the dead stream never delivered
         return await append_message_to_stream(
             channel_id=channel_id,
             client=client,
             recipient_user_id=recipient_user_id,
             recipient_team_id=recipient_team_id,
             thread_ts=thread_ts,
-            markdown_text=markdown_text,
+            markdown_text=unsent_text or None,
+            chunks=chunks,
             should_retry=False,
         )
     except Exception as error:
@@ -732,16 +768,6 @@ async def stream_response_to_mention(
                 markdown_text=stream_event.part.content, stream=slack_stream
             )
 
-        # show tool call info in Slack Assistant status
-        if isinstance(stream_event.part, BaseToolCallPart):
-            await set_status(
-                client=client,
-                channel_id=channel_id,
-                thread_ts=thread_ts or ts,
-                is_busy=True,
-                message=f"Calling Tool: {stream_event.part.tool_name}",
-            )
-
     # when a part changes there can be more text to append
     elif isinstance(stream_event, PartDeltaEvent):
         if (
@@ -754,19 +780,11 @@ async def stream_response_to_mention(
             )
 
     # at the end of text part, add some new lines
-    # at the end of a tool call part, let's show the arguments in a codeblock
     elif isinstance(stream_event, PartEndEvent):
         if isinstance(stream_event.part, TextPart):
             slack_stream = await append(
                 markdown_text="\n\n",
                 stream=slack_stream,
-            )
-        if isinstance(stream_event.part, BaseToolCallPart):
-            await set_status(
-                client=client,
-                channel_id=channel_id,
-                thread_ts=thread_ts or ts,
-                is_busy=True,
             )
 
         # let's flush the buffer at the end of a part so that conversation is a flowin'
@@ -775,13 +793,15 @@ async def stream_response_to_mention(
                 await slack_stream._flush_buffer()
             except (SlackRequestError, SlackApiError) as e:
                 # Stream might already be stopped (e.g., from early stop() call), log but continue
-                logfire.exception("Failed to flush stream buffer", error=str(e))
+                logfire.warn("Failed to flush stream buffer", error=str(e))
 
                 # if there is more in the buffer, let's create a new
-                # stream and send what is in the buffer
+                # stream and send what is in the buffer. Keep using that new
+                # stream from here on: the old one is dead and every later
+                # delta appended to it would fail the same way.
                 if slack_stream._buffer:
                     logfire.info("Could not flush buffer, appending to a new stream")
-                    await append(markdown_text=slack_stream._buffer)
+                    slack_stream = await append(markdown_text=slack_stream._buffer)
 
     return slack_stream
 
