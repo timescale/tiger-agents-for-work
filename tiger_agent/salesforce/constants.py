@@ -30,6 +30,20 @@ CASE_FIELDS = [
     "CreatedById",
 ]
 
+# The full record for reading a case after the fact (evals, drafting a customer
+# response). Kept separate from CASE_FIELDS so the streaming listener, which
+# re-queries the case on every event, does not pull the long text fields.
+CASE_DETAIL_FIELDS = [
+    *CASE_FIELDS,
+    "Type",
+    "ClosedDate",
+    "Description",
+    "Platform_Name__c",
+    "Product_Area__c",
+    "Final_Resolution__c",
+    "Troubleshooting_Steps_Taken__c",
+]
+
 
 # When set (to any value), the agent still gets a Salesforce client (so tools
 # and manual debugging against real credentials work) but does not start the
