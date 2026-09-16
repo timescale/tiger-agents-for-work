@@ -545,6 +545,20 @@ async def download_private_file(
         return f"Could not fetch file: {str(e)}"
 
 
+# Slack error codes that mean the message or channel we are replying to no
+# longer exists. Retrying a run that hits one of these can never succeed.
+SLACK_TARGET_GONE_ERRORS = frozenset(
+    {"invalid_thread_ts", "message_not_found", "channel_not_found", "thread_not_found"}
+)
+
+
+def slack_target_gone(error: SlackApiError) -> bool:
+    """True if ``error`` says the message/channel being replied to is gone."""
+    response = getattr(error, "response", None)
+    code = response.get("error") if response is not None else None
+    return code in SLACK_TARGET_GONE_ERRORS
+
+
 async def set_status(
     client: AsyncWebClient,
     channel_id: str,

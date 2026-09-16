@@ -9,6 +9,7 @@ from slack_bolt.context.ack.async_ack import AsyncAck
 from slack_bolt.context.respond.async_respond import AsyncRespond
 
 from tiger_agent.db.utils import (
+    delete_unclaimed_slack_events,
     get_event_hist,
     get_salesforce_case_thread_case_id,
     insert_event,
@@ -190,6 +191,15 @@ class SlackListener(Listener):
         if user == self._bot_info.user_id:
             return
 
+        # someone deleted a message: if it was a question we are answering (or
+        # have queued), stop. These events carry no top-level user, so this
+        # has to come before the user check below.
+        if subtype == "message_deleted":
+            deleted_ts = event.get("deleted_ts")
+            if channel and deleted_ts:
+                await self._on_message_deleted(channel=channel, deleted_ts=deleted_ts)
+            return
+
         # since Slack does not allow custom workflow event handlers to be called from external
         # users/organizations, a workaround was made so that the workflow sends a message
         # to the agent. This will only work when the sender is a bot (bot_message subtype)
@@ -285,6 +295,26 @@ class SlackListener(Listener):
                 user=user,
                 event_hist_id=event_hist_id,
             )
+
+    async def _on_message_deleted(self, channel: str, deleted_ts: str) -> None:
+        """Stop answering a message that no longer exists.
+
+        Cancels the in-flight run on this process (if any) and drops any task
+        for the message that is still queued. A run held by another replica is
+        not reachable from here; it ends itself on the first Slack error that
+        says the message is gone (see ``SlackTaskHandler``).
+        """
+        cancelled = self._hctx.cancellations.cancel(channel, deleted_ts)
+        dropped = await delete_unclaimed_slack_events(
+            self._pool, channel=channel, ts=deleted_ts
+        )
+        logfire.info(
+            "Slack message deleted",
+            channel=channel,
+            ts=deleted_ts,
+            cancelled_run=cancelled,
+            dropped_tasks=dropped,
+        )
 
     async def _handle_new_salesforce_case_workflow_form_submit(
         self, ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond

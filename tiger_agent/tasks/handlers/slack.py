@@ -1,5 +1,10 @@
+import asyncio
+from typing import Literal
+
 import logfire
+from pydantic_ai.exceptions import RunCancelled
 from pydantic_ai.messages import PartDeltaEvent, PartStartEvent, TextPart, TextPartDelta
+from slack_sdk.errors import SlackApiError
 
 from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.agent.utils import create_agent_and_context
@@ -15,10 +20,24 @@ from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
 from tiger_agent.slack.utils import (
     add_reaction,
     post_response,
+    slack_target_gone,
     stream_response_to_mention,
 )
 from tiger_agent.tasks.handlers.base import TaskHandler
 from tiger_agent.tasks.types import Task
+
+RunOutcome = Literal["completed", "cancelled", "target_gone"]
+
+
+async def _cancel_when_requested(cancel_requested: asyncio.Event, run_events) -> None:
+    """Side task: turn a cancellation request into a pydantic-ai run cancel.
+
+    The consumer loop is usually blocked in ``__anext__`` (e.g. waiting on a
+    delegated sub-agent), so it cannot poll the Event itself. ``cancel()`` is
+    safe to call from another task; the loop then sees ``RunCancelled``.
+    """
+    await cancel_requested.wait()
+    run_events.cancel()
 
 
 class SlackTaskHandler(TaskHandler):
@@ -94,37 +113,84 @@ class SlackTaskHandler(TaskHandler):
 
         await status.set(None)
         response_text_parts: list[str] = []
+        outcome: RunOutcome = "completed"
 
-        async with agent_and_ctx.agent.run_stream_events(
-            user_prompt=agent_and_ctx.user_prompt,
-            deps=agent_and_ctx.ctx,
-            usage_limits=AGENT_USAGE_LIMITS,
-        ) as stream_events:
-            async for stream_event in stream_events:
-                for sink in sinks:
-                    await sink.on_event(stream_event)
-                if response_stream is not None:
-                    # sub-agent task cards write to the same stream from the
-                    # event handler, so take the stream's lock around text too
-                    async with response_stream.lock:
-                        response_stream.stream = await stream_response_to_mention(
-                            client=hctx.app.client,
-                            slack_stream=response_stream.stream,
-                            stream_event=stream_event,
-                            channel_id=event.channel,
-                            recipient_user_id=event.user,
-                            recipient_team_id=event.user_team or hctx.bot_info.team_id,
-                            ts=event.ts,
-                            thread_ts=event.thread_ts,
-                        )
-                elif isinstance(stream_event, PartStartEvent) and isinstance(
-                    stream_event.part, TextPart
-                ):
-                    response_text_parts.append(stream_event.part.content or "")
-                elif isinstance(stream_event, PartDeltaEvent) and isinstance(
-                    stream_event.delta, TextPartDelta
-                ):
-                    response_text_parts.append(stream_event.delta.content_delta or "")
+        # Registered for the whole run so a `message_deleted` event for this
+        # message can stop it (see SlackListener._on_message_deleted).
+        with hctx.cancellations.track(event.channel, event.ts) as cancel_requested:
+            async with agent_and_ctx.agent.run_stream_events(
+                user_prompt=agent_and_ctx.user_prompt,
+                deps=agent_and_ctx.ctx,
+                usage_limits=AGENT_USAGE_LIMITS,
+            ) as stream_events:
+                watcher = asyncio.create_task(
+                    _cancel_when_requested(cancel_requested, stream_events)
+                )
+                try:
+                    async for stream_event in stream_events:
+                        for sink in sinks:
+                            await sink.on_event(stream_event)
+                        if response_stream is not None:
+                            # sub-agent task cards write to the same stream from
+                            # the event handler, so take the stream's lock
+                            # around text too
+                            async with response_stream.lock:
+                                response_stream.stream = (
+                                    await stream_response_to_mention(
+                                        client=hctx.app.client,
+                                        slack_stream=response_stream.stream,
+                                        stream_event=stream_event,
+                                        channel_id=event.channel,
+                                        recipient_user_id=event.user,
+                                        recipient_team_id=event.user_team
+                                        or hctx.bot_info.team_id,
+                                        ts=event.ts,
+                                        thread_ts=event.thread_ts,
+                                    )
+                                )
+                        elif isinstance(stream_event, PartStartEvent) and isinstance(
+                            stream_event.part, TextPart
+                        ):
+                            response_text_parts.append(stream_event.part.content or "")
+                        elif isinstance(stream_event, PartDeltaEvent) and isinstance(
+                            stream_event.delta, TextPartDelta
+                        ):
+                            response_text_parts.append(
+                                stream_event.delta.content_delta or ""
+                            )
+                except RunCancelled:
+                    outcome = "cancelled"
+                except SlackApiError as error:
+                    if not slack_target_gone(error):
+                        raise
+                    # The message (or channel) we are replying to is gone. No
+                    # retry can ever succeed, so stop the run and ack the task.
+                    outcome = "target_gone"
+                    logfire.warn(
+                        "Stopping run: the Slack message being answered is gone",
+                        channel=event.channel,
+                        ts=event.ts,
+                        slack_error=error.response.get("error")
+                        if error.response is not None
+                        else None,
+                    )
+                    stream_events.cancel()
+                finally:
+                    watcher.cancel()
+                    await asyncio.gather(watcher, return_exceptions=True)
+
+        if outcome != "completed":
+            if outcome == "cancelled":
+                logfire.info(
+                    "Run cancelled: the triggering Slack message was deleted",
+                    channel=event.channel,
+                    ts=event.ts,
+                )
+            if response_stream is not None:
+                await response_stream.discard()
+            await status.clear()
+            # a normal return acks the task; there is nothing left to answer
+            return
 
         if response_stream is not None:
             await response_stream.stop()

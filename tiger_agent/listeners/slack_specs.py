@@ -181,3 +181,54 @@ class TestHandleNewSalesforceCaseWorkflowFormSubmit:
         payload = patch_insert_event.await_args.args[1]
         assert payload["cloud_impact"] == "High"
         assert payload["severity"] is None
+
+
+class TestOnMessageDeleted:
+    """A deleted message stops the run answering it and drops queued copies."""
+
+    async def test_message_deleted_cancels_and_drops_queued_tasks(
+        self, listener, hctx, monkeypatch, patch_insert_event
+    ):
+        delete_unclaimed = AsyncMock(return_value=1)
+        monkeypatch.setattr(
+            slack_listener_module, "delete_unclaimed_slack_events", delete_unclaimed
+        )
+        with hctx.cancellations.track(
+            "C_CHAN", "1700000000.000100"
+        ) as cancel_requested:
+            event = {
+                "type": "message",
+                "subtype": "message_deleted",
+                "hidden": True,
+                "channel": "C_CHAN",
+                "ts": "1700000000.000500",
+                "deleted_ts": "1700000000.000100",
+            }
+            await listener._on_message(ack=AsyncMock(), event=event)
+
+            assert cancel_requested.is_set()
+        delete_unclaimed.assert_awaited_once_with(
+            hctx.pool, channel="C_CHAN", ts="1700000000.000100"
+        )
+        # a deletion is not a new task
+        patch_insert_event.assert_not_awaited()
+        assert hctx.trigger.qsize() == 0
+
+    async def test_message_deleted_for_an_unknown_message_is_quiet(
+        self, listener, hctx, monkeypatch
+    ):
+        delete_unclaimed = AsyncMock(return_value=0)
+        monkeypatch.setattr(
+            slack_listener_module, "delete_unclaimed_slack_events", delete_unclaimed
+        )
+        event = {
+            "type": "message",
+            "subtype": "message_deleted",
+            "channel": "C_CHAN",
+            "ts": "1700000000.000500",
+            "deleted_ts": "1700000000.000999",
+        }
+
+        await listener._on_message(ack=AsyncMock(), event=event)
+
+        delete_unclaimed.assert_awaited_once()

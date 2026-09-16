@@ -7,6 +7,7 @@ from simple_salesforce.api import Salesforce
 from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent.slack.types import BotInfo
+from tiger_agent.tasks.cancellation import RunCancellations
 
 
 @dataclass
@@ -32,6 +33,8 @@ class HarnessContext:
         max_attempts: Maximum retry attempts per task before expiring
         max_age_minutes: Maximum age of a task before it is expired
         invisibility_minutes: How long a claimed task remains invisible to other workers
+        cancellations: Registry of in-flight Slack runs, so a deleted message can
+            stop the run that was answering it
     """
 
     app: AsyncApp
@@ -48,6 +51,7 @@ class HarnessContext:
     max_age_minutes: int = 60
     invisibility_minutes: int = 10
     shutdown: Event = field(default_factory=Event)
+    cancellations: RunCancellations = field(default_factory=RunCancellations)
 
     @classmethod
     async def create(
