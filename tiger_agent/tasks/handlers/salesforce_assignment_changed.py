@@ -6,10 +6,7 @@ from tiger_agent.agent.limits import AGENT_USAGE_LIMITS, run_and_return_partial
 from tiger_agent.agent.types import AgentSalesforceResponse
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import upsert_feedback_request_reminder
-from tiger_agent.salesforce.constants import (
-    SALESFORCE_CASE_CHANNEL,
-    SALESFORCE_SLACK_THREAD_FIELD,
-)
+from tiger_agent.salesforce.constants import SALESFORCE_SLACK_THREAD_FIELD
 from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
 from tiger_agent.salesforce.utils import create_case_url, update_case
 from tiger_agent.slack.types import FeedbackReminderThread, SlackMessage
@@ -35,12 +32,15 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
     async def handle(self, task: Task) -> None:
         hctx = self._hctx
         event: SalesforceAssignmentChangedEvent = task.event
+        channel = event.destination_channel
+        if channel is None:
+            raise RuntimeError(
+                "SalesforceAssignmentChangedEvent has no destination_channel; "
+                "the listener sets it when the event is enqueued"
+            )
 
         agent_and_ctx = await create_agent_and_context(
-            hctx=hctx,
-            task=task,
-            agent=self._agent,
-            channel_to_respond=SALESFORCE_CASE_CHANNEL,
+            hctx=hctx, task=task, agent=self._agent
         )
 
         # A case summary built from partial research still helps the assignee;
@@ -57,7 +57,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
 
         original_message = await post_response(
             client=hctx.app.client,
-            channel=SALESFORCE_CASE_CHANNEL,
+            channel=channel,
             thread_ts=None,
             text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{output.short_description}\n```",
         )
@@ -67,7 +67,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             return
 
         message_to_link_to = SlackMessage(
-            channel_id=SALESFORCE_CASE_CHANNEL,
+            channel_id=channel,
             ts=original_message.data.get("ts"),
             text=output.message,
             thread_ts=None,
@@ -76,7 +76,7 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
 
         await post_response(
             client=hctx.app.client,
-            channel=SALESFORCE_CASE_CHANNEL,
+            channel=channel,
             thread_ts=message_to_link_to.ts,
             text=output.message,
         )

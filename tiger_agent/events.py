@@ -6,6 +6,7 @@ Each class in EVENT_TYPE_REGISTRY must have:
 - event_description: ClassVar[str] describing when this event fires
 """
 
+from tiger_agent.customer.types import CustomerQuestionEvent
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceCaseStatusChangedEvent,
@@ -28,6 +29,7 @@ EVENT_TYPE_REGISTRY: list[type] = [
     SalesforceFeedItemEvent,
     SalesforceCaseStatusChangedEvent,
     AgentFeedbackRatingEvent,
+    CustomerQuestionEvent,
 ]
 
 EVENT_TYPES_BY_NAME: dict[str, type] = {

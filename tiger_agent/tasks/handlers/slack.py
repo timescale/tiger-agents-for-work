@@ -121,7 +121,6 @@ class SlackTaskHandler(TaskHandler):
             hctx=hctx,
             task=task,
             agent=self._agent,
-            channel_to_respond=event.channel,
             subagent_event_handler=make_subagent_event_handler(*sinks),
         )
 

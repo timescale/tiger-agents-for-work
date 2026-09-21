@@ -27,8 +27,7 @@ from tiger_agent.agent.types import (
 from tiger_agent.mcp.types import MCPDict
 from tiger_agent.mcp.utils import MCPLoader
 from tiger_agent.prompts.types import PromptPackage
-from tiger_agent.salesforce.types import SalesforceBaseEvent
-from tiger_agent.slack.types import BotInfo
+from tiger_agent.slack.types import BotInfo, SlackBaseEvent
 from tiger_agent.slack.utils import download_private_file
 from tiger_agent.utils import file_type_supported
 
@@ -155,14 +154,10 @@ class TigerAgent:
             key=lambda tmpl: (len(tmpl), tmpl.rsplit(".md", 1)[0].lower())
         )
 
-        extra_context: dict[str, Any] = (
-            {
-                k: v.model_dump() if isinstance(v, BaseModel) else v
-                for k, v in extra_ctx.items()
-            }
-            if self.extra_context is not None and isinstance(self.extra_context, dict)
-            else {}
-        )
+        extra_context: dict[str, Any] = {
+            k: v.model_dump() if isinstance(v, BaseModel) else v
+            for k, v in (extra_ctx or {}).items()
+        }
 
         rendered_prompts = await asyncio.gather(
             *[
@@ -196,11 +191,8 @@ class TigerAgent:
             USER_PROMPT_REGEX, ctx, extra_ctx
         )
 
-        if (
-            isinstance(ctx.mention, SalesforceBaseEvent)
-            or ctx.mention.files is None
-            or not len(ctx.mention.files)
-        ):
+        # Only Slack events carry attachments.
+        if not isinstance(ctx.mention, SlackBaseEvent) or not ctx.mention.files:
             return rendered_user_prompts
 
         user_contents: list[UserContent] = [

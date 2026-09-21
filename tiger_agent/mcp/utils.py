@@ -6,11 +6,9 @@ from typing import Any
 
 import logfire
 from pydantic_ai.mcp import MCPToolset
-from slack_bolt.app.async_app import AsyncApp
 
 from tiger_agent.mcp.constants import ALL_VALID_FIELDS, VALID_MCP_SERVER_FIELDS
 from tiger_agent.mcp.types import McpConfig, MCPDict
-from tiger_agent.slack.utils import fetch_channel_info
 
 
 async def filter_unresponsive_mcp_servers(mcp_servers: MCPDict) -> MCPDict:
@@ -41,78 +39,38 @@ async def filter_unresponsive_mcp_servers(mcp_servers: MCPDict) -> MCPDict:
     return filtered_mcp_servers
 
 
-async def filter_internal_only_mcp_servers(
-    mcp_servers: MCPDict, client: AsyncApp, channel_id: str
-) -> MCPDict:
-    """Filter MCP servers based on channel sharing status.
-
-    Removes internal-only MCP servers when the channel is shared with external users
-    to prevent exposure of sensitive tools and data.
-
-    Args:
-        mcp_servers: A dictionary of {name: McpServer}
-        client: Slack app client for fetching channel information
-        channel_id: ID of the Slack channel to check
-
-    Returns:
-        Filtered dictionary containing only MCP servers appropriate for the channel type
-    """
-    channel_info = await fetch_channel_info(client=client, channel_id=channel_id)
-
-    # if channel is not shared, just return the full list
-    if (
-        channel_info is not None
-        and not channel_info.is_ext_shared
-        and not channel_info.is_shared
-    ):
-        return mcp_servers
-
-    # filter out internal-only tools
-    filtered_mcp_servers: MCPDict = {
+def drop_internal_only_mcp_servers(mcp_servers: MCPDict) -> MCPDict:
+    """Keep only the servers that may be used in front of an external audience."""
+    kept: MCPDict = {
         name: mcp_config
         for name, mcp_config in mcp_servers.items()
         if not mcp_config.internal_only
     }
-
-    total_tools = len(mcp_servers)
-    available_tools = len(filtered_mcp_servers)
-    removed_count = total_tools - available_tools
-    if removed_count > 0:
+    removed = [name for name in mcp_servers if name not in kept]
+    if removed:
         logfire.info(
-            "Tools were removed as channel is shared with external users",
-            removed_count=removed_count,
-            channel_id=channel_id,
+            "Internal-only MCP servers were removed for an external audience",
+            removed_count=len(removed),
+            removed=removed,
         )
+    return kept
 
-    return filtered_mcp_servers
 
-
-@logfire.instrument("filter_mcp_servers", extract_args=False)
-async def filter_mcp_servers(
-    mcp_servers: MCPDict, client: AsyncApp, channel_id: str
-) -> MCPDict:
-    """Filter MCP servers based on responsiveness and channel sharing status.
-
-    First removes unresponsive MCP servers, then removes internal-only MCP servers
-    when the channel is shared with external users to prevent exposure of
-    sensitive tools and data.
+@logfire.instrument("filter_mcp_servers", extract_args=["include_internal"])
+async def filter_mcp_servers(mcp_servers: MCPDict, include_internal: bool) -> MCPDict:
+    """The servers one run may use: responsive, and internal-only ones only when allowed.
 
     Args:
-        mcp_servers: A dictionary of {name: McpServer}
-        client: Slack app client for fetching channel information
-        channel_id: ID of the Slack channel to check
-
-    Returns:
-        Filtered dictionary containing only responsive MCP servers appropriate for the channel type
+        mcp_servers: A dictionary of {name: McpConfig}
+        include_internal: True when the run's audience is internal. False drops
+            every server marked ``internal_only`` (a customer question, or a
+            Slack channel shared with external users).
     """
     filtered_mcp_servers = await filter_unresponsive_mcp_servers(
         mcp_servers=mcp_servers
     )
-
-    filtered_mcp_servers = await filter_internal_only_mcp_servers(
-        mcp_servers=filtered_mcp_servers, client=client, channel_id=channel_id
-    )
-
+    if not include_internal:
+        filtered_mcp_servers = drop_internal_only_mcp_servers(filtered_mcp_servers)
     return filtered_mcp_servers
 
 

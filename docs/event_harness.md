@@ -58,6 +58,7 @@ Shared context object providing task processors with:
 
 #### **Task Model**
 - **Task**: Database representation with processing metadata (id, attempts, vt, claimed, event payload)
+- **Destination channel**: every event that reaches the coordinator says where its reply is posted through `destination_channel` (see `HasDestinationChannel` in `tiger_agent/agent/types.py`). It is fixed when the event is enqueued, never chosen by the handler: Slack events reply in the channel they arrived in, the Salesforce listener stamps the case channel on `SalesforceAssignmentChangedEvent`, and a `CustomerQuestionEvent` has none. `create_agent_and_context` reads it to look up the channel and to decide whether internal-only MCP servers may be used (never for a customer question, never in a channel shared with external users).
 
 #### **Listeners**
 - **SlackListener**: Receives Slack events via Socket Mode and enqueues tasks
