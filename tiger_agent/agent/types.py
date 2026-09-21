@@ -16,6 +16,7 @@ from tiger_agent.slack.types import (
     AgentFeedbackRatingEvent,
     AgentFeedbackRequestReminderEvent,
     BotInfo,
+    ChannelInfo,
     SlackAppMentionEvent,
     SlackMessageEvent,
     SlackSalesforceCaseThreadMessageEvent,
@@ -190,3 +191,11 @@ class AgentSalesforceResponse(CaseSummary):
 
 
 type ExtraContextDict = dict[str, BaseModel]
+
+
+class LinkedChannelInfo(ChannelInfo):
+    linked_salesforce_account_id: str | None = None
+
+    @property
+    def is_linked_to_salesforce_account(self) -> bool:
+        return self.linked_salesforce_account_id is not None

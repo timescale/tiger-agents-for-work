@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent
 from pydantic_ai.agent import EventStreamHandler
 from pydantic_ai.messages import UserContent
 from pydantic_ai.toolsets.abstract import AbstractToolset
 from pydantic_ai_harness import SubAgent, SubAgents
 from pydantic_ai_summarization import ContextManagerCapability
+from slack_sdk.web.async_client import AsyncWebClient
 
 from tiger_agent.agent.constants import (
     AGENT_MAX_CONTEXT_TOKENS,
@@ -33,6 +36,7 @@ from tiger_agent.agent.types import (
     AgentSalesforceResponse,
     ExtraContextDict,
     InvestigationReport,
+    LinkedChannelInfo,
 )
 from tiger_agent.db.utils import get_salesforce_account_id_for_channel
 from tiger_agent.mcp.types import McpConfig
@@ -148,9 +152,17 @@ async def create_agent_and_context(
     """
     event = task.event
 
-    destination_channel_info = await fetch_channel_info(
-        client=hctx.app.client, channel_id=channel_to_respond
+    destination_channel_info = await fetch_linked_channel_info(
+        client=hctx.app.client, pool=hctx.pool, channel_id=channel_to_respond
     )
+    if destination_channel_info is None:
+        # fetch_channel_info swallows Slack errors. A run that cannot see the
+        # channel it must post to is misconfigured (bot not a member, bad id);
+        # fail here so the task retries and the error is visible, rather than
+        # answering with a quietly reduced tool set.
+        raise RuntimeError(
+            f"Could not read Slack channel {channel_to_respond!r} for the run's destination"
+        )
 
     all_mcp_servers = agent.mcp_loader()
     agent.augment_mcp_servers(all_mcp_servers)
@@ -191,18 +203,11 @@ async def create_agent_and_context(
     )
 
     toolsets = [_build_toolset(mcp_config) for mcp_config in mcp_servers.values()]
-    channel_is_linked_to_salesforce_account = bool(
-        await get_salesforce_account_id_for_channel(
-            pool=hctx.pool, channel_id=channel_to_respond
-        )
-    )
     tools = create_tools(
         hctx=hctx,
         task=task,
         channel_info=destination_channel_info,
-        channel_is_linked_to_salesforce_account=channel_is_linked_to_salesforce_account,
     )
-
     agent = Agent(
         capabilities=[
             *budget_capabilities(),
@@ -233,4 +238,18 @@ async def create_agent_and_context(
         user_prompt=user_prompt,
         ctx=ctx,
         channel_to_respond=channel_to_respond,
+    )
+
+
+async def fetch_linked_channel_info(
+    client: AsyncWebClient, pool: AsyncConnectionPool, channel_id: str
+) -> LinkedChannelInfo | None:
+    channel_info, account_id = await asyncio.gather(
+        fetch_channel_info(client=client, channel_id=channel_id),
+        get_salesforce_account_id_for_channel(pool=pool, channel_id=channel_id),
+    )
+    if channel_info is None:
+        return None
+    return LinkedChannelInfo(
+        **channel_info.model_dump(), linked_salesforce_account_id=account_id
     )

@@ -1,27 +1,32 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
 
 from tiger_agent.agent import tools as tools_module
 from tiger_agent.agent.tools import create_tools
+from tiger_agent.agent.types import LinkedChannelInfo
 from tiger_agent.salesforce.types import SalesforceCreateNewCaseEvent
-from tiger_agent.slack.types import ChannelInfo, SlackAppMentionEvent
+from tiger_agent.slack.types import SlackAppMentionEvent
 from tiger_agent.tasks.types import Task
 
+LINKED_ACCOUNT = "001SFACCOUNT"
 
-def _make_channel_info(**overrides) -> ChannelInfo:
+
+def _make_channel_info(
+    linked_account: str | None = None, **overrides
+) -> LinkedChannelInfo:
     defaults: dict = {"id": "C_CHAN", "name": "general"}
     defaults.update(overrides)
-    return ChannelInfo(**defaults)
+    return LinkedChannelInfo(**defaults, linked_salesforce_account_id=linked_account)
 
 
 def _make_task(event) -> Task:
     return Task(
         id=1,
-        event_ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        event_ts=datetime(2026, 1, 1, tzinfo=UTC),
         attempts=0,
-        vt=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        vt=datetime(2026, 1, 1, tzinfo=UTC),
         claimed=[],
         event=event,
     )
@@ -68,74 +73,51 @@ def disable_feature_flags(monkeypatch):
     monkeypatch.setattr(tools_module, "LOGFIRE_READ_TOKEN", "")
 
 
+class TestCreateToolsNoDestination:
+    def test_event_without_a_slack_destination_gets_no_tools(self, hctx, monkeypatch):
+        monkeypatch.setattr(tools_module, "USER_DEFINED_EVENTS_ENABLED", True)
+        monkeypatch.setattr(tools_module, "LOGFIRE_READ_TOKEN", "token")
+        assert create_tools(hctx, _make_slack_task(), None) == []
+        assert create_tools(hctx, _make_non_slack_task(), None) == []
+
+
 class TestCreateToolsExternalChannel:
     def test_ext_shared_channel_linked_to_sf_returns_only_case_form_tool(self, hctx):
-        channel_info = _make_channel_info(is_ext_shared=True, is_shared=False)
-        tool_list = create_tools(
-            hctx,
-            _make_slack_task(),
-            channel_info,
-            channel_is_linked_to_salesforce_account=True,
+        channel_info = _make_channel_info(
+            LINKED_ACCOUNT, is_ext_shared=True, is_shared=False
         )
+        tool_list = create_tools(hctx, _make_slack_task(), channel_info)
         assert [t.name for t in tool_list] == ["show_salesforce_case_form"]
 
     def test_shared_channel_linked_to_sf_returns_only_case_form_tool(self, hctx):
-        channel_info = _make_channel_info(is_ext_shared=False, is_shared=True)
-        tool_list = create_tools(
-            hctx,
-            _make_slack_task(),
-            channel_info,
-            channel_is_linked_to_salesforce_account=True,
+        channel_info = _make_channel_info(
+            LINKED_ACCOUNT, is_ext_shared=False, is_shared=True
         )
+        tool_list = create_tools(hctx, _make_slack_task(), channel_info)
         assert [t.name for t in tool_list] == ["show_salesforce_case_form"]
 
     def test_ext_shared_channel_not_linked_returns_no_tools(self, hctx):
         channel_info = _make_channel_info(is_ext_shared=True, is_shared=False)
-        tool_list = create_tools(
-            hctx,
-            _make_slack_task(),
-            channel_info,
-            channel_is_linked_to_salesforce_account=False,
-        )
+        tool_list = create_tools(hctx, _make_slack_task(), channel_info)
         assert tool_list == []
 
     def test_shared_channel_not_linked_returns_no_tools(self, hctx):
         channel_info = _make_channel_info(is_ext_shared=False, is_shared=True)
-        tool_list = create_tools(
-            hctx,
-            _make_slack_task(),
-            channel_info,
-            channel_is_linked_to_salesforce_account=False,
-        )
-        assert tool_list == []
-
-    def test_external_channel_defaults_to_no_tools_when_link_flag_omitted(self, hctx):
-        channel_info = _make_channel_info(is_ext_shared=True)
         tool_list = create_tools(hctx, _make_slack_task(), channel_info)
         assert tool_list == []
 
     def test_external_channel_ignores_feature_flags(self, hctx, monkeypatch):
         monkeypatch.setattr(tools_module, "USER_DEFINED_EVENTS_ENABLED", True)
         monkeypatch.setattr(tools_module, "LOGFIRE_READ_TOKEN", "token")
-        channel_info = _make_channel_info(is_ext_shared=True)
-        tool_list = create_tools(
-            hctx,
-            _make_slack_task(),
-            channel_info,
-            channel_is_linked_to_salesforce_account=True,
-        )
+        channel_info = _make_channel_info(LINKED_ACCOUNT, is_ext_shared=True)
+        tool_list = create_tools(hctx, _make_slack_task(), channel_info)
         assert [t.name for t in tool_list] == ["show_salesforce_case_form"]
 
     def test_external_channel_with_non_slack_event_still_returns_only_case_form(
         self, hctx
     ):
-        channel_info = _make_channel_info(is_ext_shared=True)
-        tool_list = create_tools(
-            hctx,
-            _make_non_slack_task(),
-            channel_info,
-            channel_is_linked_to_salesforce_account=True,
-        )
+        channel_info = _make_channel_info(LINKED_ACCOUNT, is_ext_shared=True)
+        tool_list = create_tools(hctx, _make_non_slack_task(), channel_info)
         assert [t.name for t in tool_list] == ["show_salesforce_case_form"]
 
 
@@ -152,25 +134,14 @@ class TestCreateToolsInternalChannel:
         assert "get_user_ids_in_user_group" in names
         assert "get_user_ids_in_channel" in names
 
-    def test_internal_channel_ignores_salesforce_link_flag(self, hctx):
-        channel_info = _make_channel_info(is_ext_shared=False, is_shared=False)
-        linked_names = [
-            t.name
-            for t in create_tools(
-                hctx,
-                _make_slack_task(),
-                channel_info,
-                channel_is_linked_to_salesforce_account=True,
-            )
-        ]
+    def test_internal_channel_ignores_salesforce_link(self, hctx):
+        linked = _make_channel_info(
+            LINKED_ACCOUNT, is_ext_shared=False, is_shared=False
+        )
+        unlinked = _make_channel_info(is_ext_shared=False, is_shared=False)
+        linked_names = [t.name for t in create_tools(hctx, _make_slack_task(), linked)]
         unlinked_names = [
-            t.name
-            for t in create_tools(
-                hctx,
-                _make_slack_task(),
-                channel_info,
-                channel_is_linked_to_salesforce_account=False,
-            )
+            t.name for t in create_tools(hctx, _make_slack_task(), unlinked)
         ]
         assert linked_names == unlinked_names
         assert "show_salesforce_case_form" not in linked_names
