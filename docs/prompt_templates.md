@@ -94,7 +94,7 @@ Templates have access to a comprehensive context object with the following varia
 | Variable     | Description                                    |
 | ------------ | ---------------------------------------------- |
 | `task`       | Complete Task object with processing metadata  |
-| `mention`    | AppMentionEvent with Slack message details     |
+| `mention`    | The event being handled; branch on `mention.type` |
 | `bot`        | Bot information (name, team, capabilities)     |
 | `user`       | User profile (real_name, timezone, etc.)       |
 | `local_time` | Event timestamp in user's timezone             |
@@ -112,13 +112,11 @@ Task (see [tiger_agent/tasks/types.py](/tiger_agent/tasks/types.py)):
 
 #### `mention`
 
-AppMentionEvent (see [tiger_agent/slack/types.py](/tiger_agent/slack/types.py)):
+The event the run is answering. Templates branch on `mention.type`:
 
-- `text`: The message content
-- `channel`: Channel ID where the message was sent
-- `user`: User ID who sent the message
-- `ts`: Message timestamp
-- `thread_ts`: Thread timestamp (if in a thread)
+- `app_mention` / `message` — a Slack event (see [tiger_agent/slack/types.py](/tiger_agent/slack/types.py)): `text`, `channel`, `user`, `ts`, `thread_ts` (if in a thread)
+- `salesforce_event` — a Salesforce case event with `mention.case` (see [tiger_agent/salesforce/types.py](/tiger_agent/salesforce/types.py))
+- `customer_question` — a question from a customer with no Slack channel behind it (see [tiger_agent/customer/types.py](/tiger_agent/customer/types.py)): `text`, and optionally `subject`, `platform`, `product_area`, `source`, `source_id`. The core templates render a customer-facing branch for it and skip the Slack-specific sections.
 
 #### `bot`
 

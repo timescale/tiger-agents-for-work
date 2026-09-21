@@ -6,6 +6,7 @@ from typing import Any
 from pydantic_ai import BinaryContent, Tool
 
 from tiger_agent.agent.constants import USER_DEFINED_EVENTS_ENABLED
+from tiger_agent.agent.types import LinkedChannelInfo
 from tiger_agent.db.utils import (
     delete_user_defined_rule,
     insert_user_defined_rule,
@@ -29,7 +30,7 @@ from tiger_agent.salesforce.utils import (
     EXT_TO_MIME,
     download_content_version_url,
 )
-from tiger_agent.slack.types import ChannelInfo, SlackBaseEvent
+from tiger_agent.slack.types import SlackBaseEvent
 from tiger_agent.slack.utils import (
     channel_is_external,
     download_slack_hosted_file,
@@ -45,9 +46,15 @@ from tiger_agent.types import HarnessContext
 def create_tools(
     hctx: HarnessContext,
     task: Task,
-    channel_info: ChannelInfo,
-    channel_is_linked_to_salesforce_account: bool = False,
+    channel_info: LinkedChannelInfo | None,
 ) -> list[Tool]:
+    """Slack-side tools for one run.
+
+    ``channel_info`` is the destination channel, or ``None`` when the event has
+    no Slack destination at all (a customer question); then there is nothing for
+    these tools to act on and none are given. A destination whose lookup failed
+    is the caller's error to raise, not a reason to run without tools.
+    """
     event = task.event
 
     def _download_salesforce_hosted_file(
@@ -255,11 +262,14 @@ def create_tools(
             "Only you can see it — fill it out and submit when ready."
         )
 
+    if channel_info is None:
+        return []
+
     # if the handling of this event has a destination output in a customer-facing
     # channel, we do not want to expose all of the available tooling, but just a list of
     # tools that are deemed customer facing.
     if channel_is_external(channel_info=channel_info):
-        if not channel_is_linked_to_salesforce_account:
+        if not channel_info.is_linked_to_salesforce_account:
             return []
         return [
             Tool(

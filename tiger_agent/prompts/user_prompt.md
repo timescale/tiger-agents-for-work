@@ -75,4 +75,21 @@ The following is the prior message history from the Slack thread that contains t
 ## Respond to this message
 
 {{ mention.text }}
+
+{% elif mention.type == "customer_question" %}
+
+## Event Type
+
+A customer has asked a question. Write the reply they will receive.
+
+## Question
+
+{% if mention.subject %}- Subject: {{ mention.subject }}{% endif %}
+{% if mention.platform %}- Platform: {{ mention.platform }}{% endif %}
+{% if mention.product_area %}- Product area: {{ mention.product_area }}{% endif %}
+- Received: {{ task.event_ts }}
+
+## The customer's message
+
+{{ mention.text }}
 {% endif %}

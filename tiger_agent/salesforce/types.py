@@ -86,6 +86,10 @@ class SalesforceCreateNewCaseEvent(SalesforceBaseEvent):
     service_id: str | None = None
     cloud_impact: str | None = None
 
+    @property
+    def destination_channel(self) -> str:
+        return self.channel
+
 
 class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
     """Pydantic model for Salesforce new case event."""
@@ -97,6 +101,9 @@ class SalesforceAssignmentChangedEvent(SalesforceBaseEvent):
     )
     case: CaseData
     update_link_to_thread: bool = True
+    # Slack channel the case summary is posted to. The listener sets it when it
+    # enqueues the event, so the handler never has to know the configuration.
+    destination_channel: str | None = None
 
 
 class SalesforceCaseCreatedEvent(SalesforceBaseEvent):

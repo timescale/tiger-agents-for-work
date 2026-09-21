@@ -1,9 +1,10 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Protocol
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field
 
+from tiger_agent.customer.types import CustomerQuestionEvent
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceCaseCreatedEvent,
@@ -16,6 +17,7 @@ from tiger_agent.slack.types import (
     AgentFeedbackRatingEvent,
     AgentFeedbackRequestReminderEvent,
     BotInfo,
+    ChannelInfo,
     SlackAppMentionEvent,
     SlackMessageEvent,
     SlackSalesforceCaseThreadMessageEvent,
@@ -52,6 +54,7 @@ class AgentResponseContext(BaseModel):
         | AgentFeedbackRatingEvent
         | AgentFeedbackRequestReminderEvent
         | UserDefinedRuleMatch
+        | CustomerQuestionEvent
     )
     bot: BotInfo
     user: UserInfo | None = None
@@ -190,3 +193,23 @@ class AgentSalesforceResponse(CaseSummary):
 
 
 type ExtraContextDict = dict[str, BaseModel]
+
+
+class HasDestinationChannel(Protocol):
+    """An event that says where the run answering it posts.
+
+    The channel is fixed when the event is enqueued, never chosen by the
+    handler: Slack events reply where they arrived, the Salesforce listener
+    stamps the case channel, and a customer question has no channel at all.
+    """
+
+    @property
+    def destination_channel(self) -> str | None: ...
+
+
+class LinkedChannelInfo(ChannelInfo):
+    linked_salesforce_account_id: str | None = None
+
+    @property
+    def is_linked_to_salesforce_account(self) -> bool:
+        return self.linked_salesforce_account_id is not None

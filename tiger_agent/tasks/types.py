@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from tiger_agent.customer.types import CustomerQuestionEvent
 from tiger_agent.salesforce.types import (
     SalesforceAssignmentChangedEvent,
     SalesforceCaseCreatedEvent,
@@ -53,4 +54,5 @@ class Task(BaseModel):
         | AgentFeedbackRatingEvent
         | AgentFeedbackRequestReminderEvent
         | UserDefinedRuleMatch
+        | CustomerQuestionEvent
     )

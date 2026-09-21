@@ -262,6 +262,11 @@ class SlackBaseEvent(BaseModel):
     files: list[SlackFile] | None = None
     user_team: str | None = None
 
+    @property
+    def destination_channel(self) -> str:
+        """A reply to a Slack event is posted in the channel it arrived in."""
+        return self.channel
+
 
 class SlackAppMentionEvent(SlackBaseEvent):
     """Pydantic model for Slack app_mention events."""
