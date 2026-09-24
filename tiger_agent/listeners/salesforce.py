@@ -12,6 +12,7 @@ from tiger_agent.db.utils import (
     get_salesforce_case_thread_thread_id,
     insert_event,
     is_case_assignment_new,
+    is_case_status_change_new,
 )
 from tiger_agent.listeners import Listener
 from tiger_agent.salesforce.case_feed_item_poller import SalesforceCaseFeedItemPoller
@@ -234,6 +235,12 @@ class SalesforceListener(Listener):
         if not result:
             # at present, we only care about Salesforce case status changes
             # on cases that are correlated with Slack threads
+            return
+
+        if not await is_case_status_change_new(
+            pool=self._pool, case_id=case.Id, status=case.Status
+        ):
+            logfire.info("Ignoring case status change event as status has not changed")
             return
 
         full_case_data = self._salesforce_client.Case.get(case.Id)
