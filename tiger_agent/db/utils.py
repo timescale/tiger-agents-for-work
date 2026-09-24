@@ -442,6 +442,87 @@ async def is_case_assignment_new(
         return True
 
 
+@logfire.instrument("is_case_status_change_new", extract_args=False)
+async def is_case_status_change_new(
+    pool: AsyncConnectionPool, case_id: str, status: str | None
+) -> bool:
+    """
+    Verifies if a Salesforce case status change is new, i.e. debounces repeated
+    pushes of the same status for a case. This is done by reading the event and
+    event_hist tables for the most recent case_status_changed event for that case.
+
+    Args:
+        case_id: The ID of the Salesforce case
+        status: The new status reported for the case
+
+    Returns:
+        True if the given status differs from the most recently
+        processed/unprocessed case_status_changed event for this case
+    """
+    async with (
+        pool.connection() as con,
+        con.cursor(row_factory=dict_row) as cur,
+    ):
+        result = await cur.execute(
+            """select * from agent.event
+                WHERE
+                    event->>'type' = 'salesforce_event'
+                    AND event->>'subtype' = 'case_status_changed'
+                    AND event->'case'->>'Id' = %s
+                    order by event_ts desc limit 1;""",
+            (case_id,),
+        )
+        current_row: dict[str, Any] | None = await result.fetchone()
+
+        if current_row:
+            try:
+                event = Event(**current_row)
+
+                # there is an unprocessed case_status_changed event
+                # that has the same status
+                if (
+                    isinstance(event.event, SalesforceBaseEvent)
+                    and event.event.case.Status == status
+                ):
+                    return False
+            except ValidationError as e:
+                logfire.error(
+                    "failed to parse historical event",
+                    exc_info=e,
+                    extra={"row": current_row},
+                )
+
+        result = await cur.execute(
+            """select * from agent.event_hist
+                WHERE
+                    event->>'type' = 'salesforce_event'
+                    AND event->>'subtype' = 'case_status_changed'
+                    AND event->'case'->>'Id' = %s
+                    order by event_ts desc limit 1;""",
+            (case_id,),
+        )
+        processed_row: dict[str, Any] | None = await result.fetchone()
+        if processed_row:
+            try:
+                event = Event(**processed_row)
+
+                # there is a processed case_status_changed event
+                # that has the same status
+                if (
+                    isinstance(event.event, SalesforceBaseEvent)
+                    and event.event.case.Status == status
+                ):
+                    return False
+            except ValidationError as e:
+                logfire.error(
+                    "failed to parse historical event",
+                    exc_info=e,
+                    extra={"row": processed_row},
+                )
+
+        return True
+
+
 async def get_salesforce_account_id_for_channel(
     pool: AsyncConnectionPool, channel_id: str
 ) -> str | None:
