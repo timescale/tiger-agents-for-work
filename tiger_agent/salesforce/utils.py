@@ -472,15 +472,25 @@ def get_case_feed_items(
 def get_case_email_messages(
     salesforce_client: Salesforce,
     case_id: str | None = None,
-    created_after: str | None = None,
+    modified_after: str | None = None,
     incoming_only: bool = False,
     exclude_creator_id: str | None = None,
 ) -> list[SalesforceEmailMessage]:
     """Fetch recent EmailMessages on Cases and normalize them into SalesforceFeedItem shape."""
     try:
-        conditions = ["MessageDate != null", "ParentId != null"]
-        if created_after is not None:
-            conditions.append(f"MessageDate > {created_after}")
+        # Only sent messages (Status '3') so drafts never leak out. The time
+        # window uses LastModifiedDate, not MessageDate — a draft gets its
+        # MessageDate at creation, so a MessageDate window would miss any
+        # message sent after its draft window passed. LastModifiedDate bumps on
+        # send; the extra re-entries it causes are absorbed by the Id-based
+        # dedup in filter_new_feed_items.
+        conditions = [
+            "MessageDate != null",
+            "ParentId != null",
+            "Status = '3'",
+        ]
+        if modified_after is not None:
+            conditions.append(f"LastModifiedDate > {modified_after}")
         if incoming_only:
             conditions.append("Incoming = true")
         if exclude_creator_id is not None:
