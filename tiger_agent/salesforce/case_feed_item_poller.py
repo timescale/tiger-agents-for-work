@@ -78,7 +78,7 @@ class SalesforceCaseFeedItemPoller:
             )
             + get_case_email_messages(
                 salesforce_client=self._salesforce_client,
-                created_after=since_str,
+                modified_after=since_str,
                 # the agent will create EmailMessages when syncing Slack messages
                 # so we do not want to create an infinite loop!
                 exclude_creator_id=self._get_bot_sf_user_id(),
