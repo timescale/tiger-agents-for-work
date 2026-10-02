@@ -1,7 +1,13 @@
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from tiger_agent.mcp.types import McpConfig
-from tiger_agent.mcp.utils import drop_internal_only_mcp_servers, filter_mcp_servers
+from tiger_agent.mcp.utils import (
+    create_mcp_servers,
+    drop_internal_only_mcp_servers,
+    filter_mcp_servers,
+)
 
 
 def _server(internal_only: bool, responsive: bool = True) -> McpConfig:
@@ -39,3 +45,54 @@ class TestFilterMcpServers:
             "slab"
         ]
         assert await filter_mcp_servers(servers, include_internal=False) == {}
+
+
+class TestCreateMcpServers:
+    def test_internal_only_defaults_to_true_when_omitted(self):
+        servers = create_mcp_servers({"docs": {"url": "http://x"}})
+        assert servers["docs"].internal_only is True
+
+    def test_explicit_false_opts_a_server_into_external_audiences(self):
+        servers = create_mcp_servers(
+            {"docs": {"url": "http://x", "internal_only": False}}
+        )
+        assert servers["docs"].internal_only is False
+
+    def test_explicit_true_is_preserved(self):
+        servers = create_mcp_servers(
+            {"salesforce": {"url": "http://x", "internal_only": True}}
+        )
+        assert servers["salesforce"].internal_only is True
+
+    def test_omitted_flag_is_dropped_for_external_audiences(self):
+        servers = create_mcp_servers(
+            {
+                "docs": {"url": "http://x", "internal_only": False},
+                "slab": {"url": "http://y"},
+            }
+        )
+        assert list(drop_internal_only_mcp_servers(servers)) == ["docs"]
+
+    def test_disabled_servers_are_skipped(self):
+        servers = create_mcp_servers(
+            {"docs": {"url": "http://x", "disabled": True}, "slab": {"url": "http://y"}}
+        )
+        assert list(servers) == ["slab"]
+
+    def test_tool_prefix_falls_back_to_the_server_name(self):
+        servers = create_mcp_servers(
+            {
+                "docs": {"url": "http://x"},
+                "slab": {"url": "http://y", "tool_prefix": "wiki"},
+            }
+        )
+        assert servers["docs"].tool_prefix == "docs"
+        assert servers["slab"].tool_prefix == "wiki"
+
+    def test_missing_url_raises(self):
+        with pytest.raises(ValueError, match="missing a 'url'"):
+            create_mcp_servers({"docs": {"internal_only": False}})
+
+    def test_unknown_key_raises(self):
+        with pytest.raises(ValueError, match="invalid key"):
+            create_mcp_servers({"docs": {"url": "http://x", "internal-only": False}})
