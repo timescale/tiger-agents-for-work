@@ -98,7 +98,7 @@ def create_mcp_servers(mcp_config: dict[str, dict[str, Any]]) -> MCPDict:
         if cfg.get("disabled", False):
             continue
 
-        internal_only = cfg.get("internal_only", False)
+        internal_only = cfg.get("internal_only", True)
         invalid_keys = [k for k in cfg if k not in ALL_VALID_FIELDS]
 
         if len(invalid_keys) > 0:

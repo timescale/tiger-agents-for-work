@@ -22,7 +22,7 @@ MCP servers are configured via a JSON configuration file (typically `mcp_config.
     "url": "http://example.com/mcp",
     "allow_sampling": true,
     "disabled": false,
-    "internal_only": false // if this is true, the tool can only be used in non-shared slack channels
+    "internal_only": false // defaults to true; when true, the tool is only usable in internal (non-shared) Slack channels. Set to false to opt a server into external audiences.
   }
 }
 ```
