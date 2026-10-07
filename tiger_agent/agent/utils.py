@@ -156,7 +156,7 @@ async def build_agent_and_context(
     agent: TigerAgent,
     task: Task,
     bot: BotInfo,
-    internal_only: bool,
+    include_internal_mcps: bool,
     user: UserInfo | None = None,
     tools: Sequence[Tool] = (),
     extra_context: ExtraContextDict | None = None,
@@ -168,10 +168,10 @@ async def build_agent_and_context(
     Needs neither Slack nor the database: everything channel- or user-specific
     arrives through `user`, `tools` and `extra_context`. `create_agent_and_context`
     is the production wrapper that supplies them from a `HarnessContext`; the
-    eval suite calls this directly with `internal_only=False`.
+    eval suite calls this directly with `include_internal_mcps=False`.
 
     Args:
-        internal_only: True when the audience is internal, so MCP servers marked
+        include_internal_mcps: True when the audience is internal, so MCP servers marked
             `internal_only` may be loaded. False for anything a customer sees.
         user: The Slack user behind the event, when there is one.
         tools: Slack-side tools for the run (see `create_tools`).
@@ -186,7 +186,7 @@ async def build_agent_and_context(
     all_mcp_servers = agent.mcp_loader()
     agent.augment_mcp_servers(all_mcp_servers)
     mcp_servers = await filter_mcp_servers(
-        mcp_servers=all_mcp_servers, include_internal=internal_only
+        mcp_servers=all_mcp_servers, include_internal=include_internal_mcps
     )
     wrap_mcp_servers_with_tool_call_guards(mcp_servers=mcp_servers)
 
@@ -258,7 +258,7 @@ async def create_agent_and_context(
                 f"Could not read Slack channel {destination!r} for the run's destination"
             )
 
-    internal_only = not isinstance(event, CustomerQuestionEvent) and not (
+    include_internal_mcps = not isinstance(event, CustomerQuestionEvent) and not (
         channel_info is not None and channel_is_external(channel_info)
     )
 
@@ -278,7 +278,7 @@ async def create_agent_and_context(
         agent=agent,
         task=task,
         bot=hctx.bot_info,
-        internal_only=internal_only,
+        include_internal_mcps=include_internal_mcps,
         user=user,
         tools=create_tools(hctx=hctx, task=task, channel_info=channel_info),
         extra_context=extra_context,
