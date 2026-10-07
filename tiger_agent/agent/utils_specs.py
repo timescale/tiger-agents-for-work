@@ -97,7 +97,7 @@ def _channel(**overrides) -> LinkedChannelInfo:
 @pytest.fixture
 def wrapper(monkeypatch):
     """Stub everything around create_agent_and_context and capture what it hands
-    the core: the decision under test is the internal_only flag and the tools."""
+    the core: the decision under test is the include_internal_mcps flag and the tools."""
     stubs = SimpleNamespace(
         fetch_linked_channel_info=AsyncMock(return_value=_channel()),
         build=AsyncMock(return_value="built"),
@@ -138,7 +138,7 @@ class TestCreateAgentAndContext:
             "C_CHAN"
         )
         kwargs = wrapper.build.await_args.kwargs
-        assert kwargs["internal_only"] is True
+        assert kwargs["include_internal_mcps"] is True
         assert kwargs["tools"] == ["tool"]
         assert wrapper.create_tools.call_args.kwargs["channel_info"] == _channel()
 
@@ -147,7 +147,7 @@ class TestCreateAgentAndContext:
 
         await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
 
-        assert wrapper.build.await_args.kwargs["internal_only"] is False
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
 
     async def test_customer_question_is_external_and_has_no_slack_side(
         self, wrapper, hctx
@@ -159,7 +159,7 @@ class TestCreateAgentAndContext:
         wrapper.fetch_linked_channel_info.assert_not_awaited()
         wrapper.fetch_user_info.assert_not_awaited()
         kwargs = wrapper.build.await_args.kwargs
-        assert kwargs["internal_only"] is False
+        assert kwargs["include_internal_mcps"] is False
         assert kwargs["user"] is None
         assert wrapper.create_tools.call_args.kwargs["channel_info"] is None
 
@@ -177,7 +177,7 @@ class TestCreateAgentAndContext:
         assert wrapper.fetch_linked_channel_info.await_args.kwargs["channel_id"] == (
             "C_CASES"
         )
-        assert wrapper.build.await_args.kwargs["internal_only"] is True
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
         wrapper.fetch_user_info.assert_not_awaited()
 
     async def test_unreadable_destination_channel_fails_loudly(self, wrapper, hctx):

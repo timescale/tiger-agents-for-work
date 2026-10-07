@@ -95,7 +95,7 @@ class TestBuildAgentAndContextForACustomerQuestion:
             agent=TigerAgent(model="test"),
             task=_customer_task(),
             bot=BOT,
-            internal_only=False,
+            include_internal_mcps=False,
         )
 
         assert built.ctx.user is None
