@@ -23,6 +23,8 @@ Plenty of legitimate cases arrive that way, so never call a case spam on that ba
 - Billing, account, and cancellation requests.
 - Automated alerts or monitoring notifications from a customer's own systems.
 - A case in a language other than English.
+- A payment remittance notice such as "<customer> has sent you a <amount> payment" when
+  the case Owner's Username is `Billing`.
 
 When the evidence is mixed or you are unsure, answer `is_spam: false`. A real case wrongly
 filtered as spam is far more costly than a spam case that reaches an engineer.

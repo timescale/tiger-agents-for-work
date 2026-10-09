@@ -32,6 +32,7 @@ from tiger_agent.salesforce.types import (
     SalesforceFeedItemEvent,
 )
 from tiger_agent.salesforce.utils import (
+    get_case,
     should_ignore_new_case,
     subscribe_to_topic,
 )
@@ -173,7 +174,13 @@ class SalesforceListener(Listener):
             logfire.info("Ignoring case event as owner has not changed")
             return
 
-        full_case_data = CaseData(**self._salesforce_client.Case.get(case.Id))
+        full_case_data = get_case(self._salesforce_client, case.Id)
+        if full_case_data is None:
+            logfire.warn(
+                "Ignoring event, case not found in Salesforce",
+                extra={"case_id": case.Id},
+            )
+            return
 
         await insert_event(
             pool=self._pool,
@@ -197,7 +204,13 @@ class SalesforceListener(Listener):
             logfire.info("Ignoring case")
             return
 
-        full_case_data = CaseData(**self._salesforce_client.Case.get(case.Id))
+        full_case_data = get_case(self._salesforce_client, case.Id)
+        if full_case_data is None:
+            logfire.warn(
+                "Ignoring event, case not found in Salesforce",
+                extra={"case_id": case.Id},
+            )
+            return
 
         await insert_event(
             pool=self._pool,
@@ -243,7 +256,13 @@ class SalesforceListener(Listener):
             logfire.info("Ignoring case status change event as status has not changed")
             return
 
-        full_case_data = self._salesforce_client.Case.get(case.Id)
+        full_case_data = get_case(self._salesforce_client, case.Id)
+        if full_case_data is None:
+            logfire.warn(
+                "Ignoring event, case not found in Salesforce",
+                extra={"case_id": case.Id},
+            )
+            return
         [channel_id, thread_ts] = result
         await insert_event(
             pool=self._pool,

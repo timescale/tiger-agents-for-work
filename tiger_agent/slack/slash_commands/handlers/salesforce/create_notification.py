@@ -3,6 +3,7 @@ import logfire
 from tiger_agent.db.utils import insert_event
 from tiger_agent.salesforce.constants import SALESFORCE_CASE_CHANNEL
 from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
+from tiger_agent.salesforce.utils import get_case
 from tiger_agent.slack.slash_commands.base import CommandContext
 
 
@@ -15,7 +16,7 @@ async def handle(ctx: CommandContext, args: list[str]) -> str:
     if not SALESFORCE_CASE_CHANNEL:
         return "Salesforce thread channel not configured"
 
-    case = salesforce_client.Case.get(_case_id)
+    case = get_case(salesforce_client, _case_id)
 
     if not case:
         return "Could not find case"

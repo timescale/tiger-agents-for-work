@@ -46,6 +46,7 @@ async def assess_case_for_spam(
             f"Case Number: {case.CaseNumber or '(none)'}",
             f"Subject: {case.Subject or '(none)'}",
             f"Origin: {case.Origin or '(unknown)'}",
+            f"Owner: {case.Owner or '(unknown)'}",
             f"Supplied Name: {case.SuppliedName or '(none)'}",
             f"Supplied Email: {case.SuppliedEmail or case.ContactEmail or '(none)'}",
             f"Account Id: {case.AccountId or '(none)'}",

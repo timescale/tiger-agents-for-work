@@ -47,6 +47,13 @@ class SalesforceCreateCaseHandler(TaskHandler):
             cloud_impact=event.cloud_impact,
             origin="Slack",
         )
+        if new_case is None:
+            logfire.error(
+                "Salesforce case creation failed; not posting a Slack thread",
+                channel=channel_to_respond,
+                user=event.user,
+            )
+            return
 
         await create_slack_thread_for_case(
             hctx=hctx,
