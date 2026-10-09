@@ -38,6 +38,7 @@ CASE_DETAIL_FIELDS = [
     "Type",
     "ClosedDate",
     "Description",
+    "Origin",
     "Platform_Name__c",
     "Product_Area__c",
     "Final_Resolution__c",

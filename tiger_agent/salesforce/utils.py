@@ -214,7 +214,7 @@ def create_case(
     service_id: str | None = None,
     cloud_impact: str | None = None,
     origin: str | None = None,
-) -> CaseData:
+) -> CaseData | None:
     payload = {
         "Subject": subject,
         "Description": description,
@@ -235,8 +235,7 @@ def create_case(
     if not result["success"] or not result["id"]:
         logfire.error("Could not create a new salesforce case")
         return
-    case = salesforce_client.Case.get(result["id"])
-    return CaseData(**case)
+    return get_case(salesforce_client, result["id"])
 
 
 def get_pick_list_values(sf_object: SFType, field_name: str) -> list[str]:
@@ -827,3 +826,19 @@ def update_case(
         fields_to_update,
         headers=SALESFORCE_SKIP_AUTO_ASSIGNMENT_HEADERS,
     )
+
+
+# prefer this over client.Cases.get() since it properly grabs the owner
+# when the owner is a queue. When the owner is a queue (e.g. Billing), we will
+# get the queue name as the Username
+def get_case(client: Salesforce, case_id: str) -> CaseData | None:
+    result = client.query(
+        build_case_query(case_ids=[case_id], fields=CASE_DETAIL_FIELDS)
+    )
+
+    cases = result.get("records", [])
+
+    if not cases:
+        return
+
+    return CaseData(**cases[0])

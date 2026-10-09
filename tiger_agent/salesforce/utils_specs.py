@@ -2,18 +2,28 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tiger_agent.salesforce.constants import CLOUD_IMPACT_FIELD, SEVERITY_FIELD
-from tiger_agent.salesforce.utils import create_case
+from tiger_agent.salesforce.constants import (
+    CASE_DETAIL_FIELDS,
+    CLOUD_IMPACT_FIELD,
+    SEVERITY_FIELD,
+)
+from tiger_agent.salesforce.utils import create_case, get_case
 
 
 @pytest.fixture
 def salesforce_client():
     client = MagicMock()
     client.Case.create.return_value = {"success": True, "id": "500Nv00000ABCDE"}
-    client.Case.get.return_value = {
-        "Id": "500Nv00000ABCDE",
-        "CaseNumber": "00012345",
-        "Subject": "Cannot connect",
+    # create_case re-reads the new case through get_case, which uses a SOQL
+    # query (not Case.get) so a queue owner comes back with its name.
+    client.query.return_value = {
+        "records": [
+            {
+                "Id": "500Nv00000ABCDE",
+                "CaseNumber": "00012345",
+                "Subject": "Cannot connect",
+            }
+        ]
     }
     return client
 
@@ -107,7 +117,7 @@ class TestCreateCase:
         payload = salesforce_client.Case.create.call_args.args[0]
         assert SEVERITY_FIELD not in payload
 
-    def test_returns_case_data_hydrated_from_get(self, salesforce_client):
+    def test_returns_case_data_hydrated_from_get_case(self, salesforce_client):
         case = create_case(
             salesforce_client=salesforce_client,
             subject="Cannot connect",
@@ -115,7 +125,9 @@ class TestCreateCase:
             severity="Severity 3 - Medium",
             account_id="0011x00000ABCDE",
         )
-        salesforce_client.Case.get.assert_called_once_with("500Nv00000ABCDE")
+        salesforce_client.query.assert_called_once()
+        soql = salesforce_client.query.call_args.args[0]
+        assert "Id IN ('500Nv00000ABCDE')" in soql
         assert case is not None
         assert case.Id == "500Nv00000ABCDE"
         assert case.CaseNumber == "00012345"
@@ -131,7 +143,7 @@ class TestCreateCase:
             account_id="0011x00000ABCDE",
         )
         assert result is None
-        salesforce_client.Case.get.assert_not_called()
+        salesforce_client.query.assert_not_called()
 
     def test_returns_none_when_create_returns_no_id(self, salesforce_client):
         salesforce_client.Case.create.return_value = {"success": True, "id": None}
@@ -143,7 +155,80 @@ class TestCreateCase:
             account_id="0011x00000ABCDE",
         )
         assert result is None
-        salesforce_client.Case.get.assert_not_called()
+        salesforce_client.query.assert_not_called()
+
+
+class TestGetCase:
+    def test_queries_by_id_with_the_detail_fields(self):
+        client = MagicMock()
+        client.query.return_value = {
+            "records": [
+                {
+                    "Id": "500Nv00000ABCDE",
+                    "CaseNumber": "00012345",
+                    "Subject": "Cannot connect",
+                    "Origin": "Email",
+                    "Description": "It times out.",
+                }
+            ]
+        }
+
+        case = get_case(client, "500Nv00000ABCDE")
+
+        client.query.assert_called_once()
+        assert client.query.call_args.kwargs == {}
+        soql = client.query.call_args.args[0]
+        assert soql.startswith("SELECT ")
+        assert "Id IN ('500Nv00000ABCDE')" in soql
+        for field in CASE_DETAIL_FIELDS:
+            assert field in soql
+        assert case is not None
+        assert case.Id == "500Nv00000ABCDE"
+        assert case.Origin == "Email"
+        assert case.Description == "It times out."
+
+    def test_queue_owner_comes_back_with_its_name_as_username(self):
+        # The reason get_case exists: Case.get drops the Owner relationship, and
+        # a queue (Group) owner has no email, only a name.
+        client = MagicMock()
+        client.query.return_value = {
+            "records": [
+                {
+                    "Id": "500Nv00000ABCDE",
+                    "OwnerId": "00G3s0000025GRtEAM",
+                    "Owner": {
+                        "Id": "00G3s0000025GRtEAM",
+                        "Username": "Customer Care",
+                        "FirstName": None,
+                        "LastName": None,
+                        "Email": None,
+                    },
+                }
+            ]
+        }
+
+        case = get_case(client, "500Nv00000ABCDE")
+
+        assert case is not None
+        assert case.Owner is not None
+        assert case.Owner.Id == "00G3s0000025GRtEAM"
+        assert case.Owner.Username == "Customer Care"
+        assert case.Owner.Email is None
+
+    def test_returns_none_when_the_case_does_not_exist(self):
+        client = MagicMock()
+        client.query.return_value = {"records": []}
+
+        assert get_case(client, "500Nv00000MISSING") is None
+
+    def test_quotes_the_id_in_soql(self):
+        client = MagicMock()
+        client.query.return_value = {"records": []}
+
+        get_case(client, "500' OR Id != '")
+
+        soql = client.query.call_args.args[0]
+        assert "Id IN ('500\\' OR Id != \\'')" in soql
 
 
 class TestBuildCaseQuery:
