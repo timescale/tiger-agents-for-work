@@ -193,6 +193,44 @@ class TestCreateToolsInternalChannel:
         ]
 
 
+class TestCreateToolsReducedToolset:
+    def test_internal_channel_gets_no_tools_when_the_toolset_is_reduced(self, hctx):
+        channel_info = _make_channel_info(is_ext_shared=False, is_shared=False)
+        assert (
+            create_tools(hctx, _make_slack_task(), channel_info, use_full_toolset=False)
+            == []
+        )
+
+    def test_the_same_channel_gets_tools_when_the_toolset_is_full(self, hctx):
+        channel_info = _make_channel_info(is_ext_shared=False, is_shared=False)
+        tools = create_tools(
+            hctx, _make_slack_task(), channel_info, use_full_toolset=True
+        )
+        assert [t.name for t in tools] != []
+
+    def test_an_external_channel_keeps_its_case_form_when_reduced(self, hctx):
+        # The external branch returns before the reduced-toolset check: a
+        # customer in a shared channel can still open a support case.
+        channel_info = _make_channel_info(
+            LINKED_ACCOUNT, is_ext_shared=True, is_shared=False
+        )
+        tools = create_tools(
+            hctx, _make_slack_task(), channel_info, use_full_toolset=False
+        )
+        assert [t.name for t in tools] == ["show_salesforce_case_form"]
+
+    def test_defaults_to_the_full_toolset(self, hctx):
+        channel_info = _make_channel_info(is_ext_shared=False, is_shared=False)
+        assert [
+            t.name for t in create_tools(hctx, _make_slack_task(), channel_info)
+        ] == [
+            t.name
+            for t in create_tools(
+                hctx, _make_slack_task(), channel_info, use_full_toolset=True
+            )
+        ]
+
+
 class TestCancelMyRequestsTool:
     def _tool(self, hctx, task):
         channel_info = _make_channel_info(is_ext_shared=False, is_shared=False)

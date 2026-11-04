@@ -228,6 +228,19 @@ class TestCreateAgentAndContext:
 
         assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
 
+    async def test_the_same_decision_gates_the_local_tools(self, wrapper, hctx):
+        # Servers and tools must not disagree about what the run may reach.
+        wrapper.slack_profile_has_internal_email_domain.return_value = False
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is False
+
+    async def test_a_full_run_gets_the_full_toolset(self, wrapper, hctx):
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is True
+
     async def test_a_limited_channel_still_wins_over_an_internal_user(
         self, wrapper, hctx
     ):

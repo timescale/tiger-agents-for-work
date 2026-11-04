@@ -47,6 +47,7 @@ def create_tools(
     hctx: HarnessContext,
     task: Task,
     channel_info: LinkedChannelInfo | None,
+    use_full_toolset: bool = True,
 ) -> list[Tool]:
     """Slack-side tools for one run.
 
@@ -54,6 +55,11 @@ def create_tools(
     no Slack destination at all (a customer question); then there is nothing for
     these tools to act on and none are given. A destination whose lookup failed
     is the caller's error to raise, not a reason to run without tools.
+
+    ``use_full_toolset`` is False when the run may not reach internal-only
+    tooling. It gates only the internal toolset at the end: an external channel
+    still gets its Salesforce case form from the branch above, which is
+    customer-facing by design.
     """
     event = task.event
 
@@ -304,6 +310,13 @@ def create_tools(
                 ),
             ),
         ]
+
+    # Reached only for an internal, non-external destination: the customer-facing
+    # paths above have already returned their own reduced sets. False here means
+    # the channel was limited by an admin, or the asker is not on the internal
+    # email domain, so the internal-only tools below are withheld.
+    if not use_full_toolset:
+        return []
 
     return [
         Tool(

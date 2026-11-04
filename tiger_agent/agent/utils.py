@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import logfire
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, Tool
 from pydantic_ai.agent import EventStreamHandler
@@ -261,7 +262,7 @@ async def create_agent_and_context(
             # the channel it must post to is misconfigured (bot not a member,
             # bad id); fail here so the task retries and the error is visible,
             # rather than answering with a quietly reduced tool set.
-            raise RuntimeError(
+            logfire.error(
                 f"Could not read Slack channel {destination!r} for the run's destination"
             )
 
@@ -279,7 +280,7 @@ async def create_agent_and_context(
     # access based on the user's Slack profile email address
     user_has_internal_access = slack_profile_has_internal_email_domain(user)
 
-    include_internal_mcps = (
+    use_full_toolset = (
         not isinstance(event, CustomerQuestionEvent)
         and not (channel_info is not None and channel_is_external(channel_info))
         and not limited_access_in_channel
@@ -298,9 +299,14 @@ async def create_agent_and_context(
         agent=agent,
         task=task,
         bot=hctx.bot_info,
-        include_internal_mcps=include_internal_mcps,
+        include_internal_mcps=use_full_toolset,
         user=user,
-        tools=create_tools(hctx=hctx, task=task, channel_info=channel_info),
+        tools=create_tools(
+            hctx=hctx,
+            task=task,
+            channel_info=channel_info,
+            use_full_toolset=use_full_toolset,
+        ),
         extra_context=extra_context,
         subagent_event_handler=subagent_event_handler,
     )
