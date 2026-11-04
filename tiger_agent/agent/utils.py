@@ -52,6 +52,7 @@ from tiger_agent.slack.utils import (
     fetch_channel_info,
     fetch_thread_messages,
     fetch_user_info,
+    slack_profile_has_internal_email_domain,
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -243,7 +244,9 @@ async def create_agent_and_context(
     servers and tools may be used is decided here: never for a
     `CustomerQuestionEvent`, not when the destination channel is shared
     with external users, and not when the channel has been marked
-    limited-access by an admin.
+    limited-access by an admin. When `INTERNAL_DOMAIN` is configured the asker
+    must additionally be on that email domain, which is what lets a DM (where
+    there is no channel to judge) still reach internal servers.
     """
     event = task.event
     destination = destination_channel_of(event)
@@ -262,27 +265,34 @@ async def create_agent_and_context(
                 f"Could not read Slack channel {destination!r} for the run's destination"
             )
 
-    limited_access = destination is not None and await channel_has_limited_access(
-        pool=hctx.pool, channel_id=destination
-    )
-
-    include_internal_mcps = (
-        not isinstance(event, CustomerQuestionEvent)
-        and not (channel_info is not None and channel_is_external(channel_info))
-        and not limited_access
+    limited_access_in_channel = (
+        destination is not None
+        and await channel_has_limited_access(pool=hctx.pool, channel_id=destination)
     )
 
     user: UserInfo | None = None
     extra_context: ExtraContextDict = {}
     if isinstance(event, SlackBaseEvent):
         user = await fetch_user_info(client=hctx.app.client, user_id=event.user)
-        if event.thread_ts and hctx.bot_info:
-            thread_messages = await fetch_thread_messages(
-                client=hctx.app.client,
-                channel=event.channel,
-                thread_ts=event.thread_ts,
-            )
-            extra_context["thread_history"] = pretty_print_models(thread_messages)
+
+    # If the internal_domain environment variable is defined, filter
+    # access based on the user's Slack profile email address
+    user_has_internal_access = slack_profile_has_internal_email_domain(user)
+
+    include_internal_mcps = (
+        not isinstance(event, CustomerQuestionEvent)
+        and not (channel_info is not None and channel_is_external(channel_info))
+        and not limited_access_in_channel
+        and user_has_internal_access
+    )
+
+    if isinstance(event, SlackBaseEvent) and event.thread_ts and hctx.bot_info:
+        thread_messages = await fetch_thread_messages(
+            client=hctx.app.client,
+            channel=event.channel,
+            thread_ts=event.thread_ts,
+        )
+        extra_context["thread_history"] = pretty_print_models(thread_messages)
 
     return await build_agent_and_context(
         agent=agent,

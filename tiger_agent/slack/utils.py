@@ -47,6 +47,7 @@ from tiger_agent.slack.constants import (
     CONFIRM_PROACTIVE_PROMPT,
     FEEDBACK_FORM_SUBMIT,
     FEEDBACK_FORM_TRIGGER,
+    INTERNAL_DOMAIN,
     MAXIMUM_LENGTH_OF_MARKDOWN_BLOCK,
     NEW_SALESFORCE_CASE_WORKFLOW_FORM_TRIGGER,
     REJECT_PROACTIVE_PROMPT,
@@ -1048,6 +1049,29 @@ def get_channel_link(channel_id: str) -> str:
 
 def channel_is_external(channel_info: ChannelInfo) -> bool:
     return channel_info.is_ext_shared or channel_info.is_shared
+
+
+def slack_profile_has_internal_email_domain(user_info: UserInfo | None) -> bool:
+    """Whether the user's Slack profile email is on the configured internal domain.
+
+    Governed by the `INTERNAL_DOMAIN` environment variable (e.g. "tigerdata.com").
+    When it is unset there is no internal domain to match, so this is always
+    False and callers fall back to their other checks.
+
+    Slack only returns `profile.email` when the app has the `users:read.email`
+    scope, so a missing email is treated as "not provably internal" rather than
+    as an error.
+
+    If the INTERNAL_DOMAIN is not configured, True is returned
+    """
+    if not INTERNAL_DOMAIN:
+        return True
+    if user_info is None or not user_info.profile.email:
+        return False
+    domain = INTERNAL_DOMAIN.strip().lower().lstrip("@")
+    if not domain:
+        return False
+    return user_info.profile.email.strip().lower().endswith(f"@{domain}")
 
 
 def user_is_external(bot_info: BotInfo, user_info: UserInfo) -> bool:

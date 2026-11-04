@@ -8,6 +8,12 @@ AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL = os.environ.get(
     "AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL", None
 )
 
+# Email domain that marks a Slack user as internal, e.g. "tigerdata.com".
+# Unset (the default) disables the check: no user is treated as internal on the
+# strength of their email alone, and the gate is decided by event type and
+# channel exactly as it was before.
+INTERNAL_DOMAIN = os.environ.get("INTERNAL_DOMAIN", None)
+
 CONFIRM_PROACTIVE_PROMPT = "confirm_proactive_prompt"
 REJECT_PROACTIVE_PROMPT = "reject_proactive_prompt"
 

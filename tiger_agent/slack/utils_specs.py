@@ -6,12 +6,15 @@ from slack_sdk.errors import SlackApiError, SlackRequestError
 from slack_sdk.models.messages.chunk import TaskUpdateChunk
 from slack_sdk.web.async_client import AsyncChatStream
 
+from tiger_agent.slack import utils as slack_utils
+from tiger_agent.slack.types import UserProfile
 from tiger_agent.slack.utils import (
     append_message_to_stream,
     get_channel_link,
     get_handle_link,
     parse_slack_channel,
     post_response,
+    slack_profile_has_internal_email_domain,
     stream_response_to_mention,
     user_is_external,
 )
@@ -46,6 +49,80 @@ class TestParseSlackChannel:
 
     def test_returns_none_for_a_bare_channel_id(self):
         assert parse_slack_channel("C98765") is None
+
+
+class TestSlackProfileHasInternalEmailDomain:
+    @pytest.fixture
+    def internal_domain(self, monkeypatch):
+        def _set(value):
+            monkeypatch.setattr(slack_utils, "INTERNAL_DOMAIN", value)
+
+        return _set
+
+    def test_matches_the_configured_domain(self, internal_domain, make_user_info):
+        internal_domain("tigerdata.com")
+        user = make_user_info(profile=UserProfile(email="greg@tigerdata.com"))
+        assert slack_profile_has_internal_email_domain(user) is True
+
+    def test_match_is_case_insensitive(self, internal_domain, make_user_info):
+        internal_domain("TigerData.com")
+        user = make_user_info(profile=UserProfile(email="Greg@TIGERDATA.COM"))
+        assert slack_profile_has_internal_email_domain(user) is True
+
+    def test_rejects_a_different_domain(self, internal_domain, make_user_info):
+        internal_domain("tigerdata.com")
+        user = make_user_info(profile=UserProfile(email="someone@example.com"))
+        assert slack_profile_has_internal_email_domain(user) is False
+
+    def test_rejects_a_domain_that_merely_ends_with_the_internal_one(
+        self, internal_domain, make_user_info
+    ):
+        # "nottigerdata.com".endswith("tigerdata.com") is True -- the leading
+        # "@" in the comparison is what keeps a lookalike domain out.
+        internal_domain("tigerdata.com")
+        user = make_user_info(profile=UserProfile(email="evil@nottigerdata.com"))
+        assert slack_profile_has_internal_email_domain(user) is False
+
+    def test_rejects_the_domain_appearing_in_the_local_part(
+        self, internal_domain, make_user_info
+    ):
+        internal_domain("tigerdata.com")
+        user = make_user_info(profile=UserProfile(email="tigerdata.com@evil.io"))
+        assert slack_profile_has_internal_email_domain(user) is False
+
+    def test_tolerates_a_leading_at_sign_in_the_configured_domain(
+        self, internal_domain, make_user_info
+    ):
+        internal_domain("@tigerdata.com")
+        user = make_user_info(profile=UserProfile(email="greg@tigerdata.com"))
+        assert slack_profile_has_internal_email_domain(user) is True
+
+    def test_vouches_for_everyone_when_the_domain_is_not_configured(
+        self, internal_domain, make_user_info
+    ):
+        # Unset is a no-op: callers fall back to their channel checks alone.
+        internal_domain(None)
+        user = make_user_info(profile=UserProfile(email="someone@example.com"))
+        assert slack_profile_has_internal_email_domain(user) is True
+
+    def test_vouches_for_a_user_with_no_email_when_the_domain_is_not_configured(
+        self, internal_domain, make_user_info
+    ):
+        internal_domain(None)
+        user = make_user_info(profile=UserProfile(email=None))
+        assert slack_profile_has_internal_email_domain(user) is True
+
+    def test_is_false_when_the_profile_has_no_email(
+        self, internal_domain, make_user_info
+    ):
+        # Slack omits profile.email without the users:read.email scope.
+        internal_domain("tigerdata.com")
+        user = make_user_info(profile=UserProfile(email=None))
+        assert slack_profile_has_internal_email_domain(user) is False
+
+    def test_is_false_when_there_is_no_user(self, internal_domain):
+        internal_domain("tigerdata.com")
+        assert slack_profile_has_internal_email_domain(None) is False
 
 
 class TestUserIsExternal:
