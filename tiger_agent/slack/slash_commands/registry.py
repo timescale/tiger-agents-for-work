@@ -5,6 +5,15 @@ from tiger_agent.slack.slash_commands.group import CommandGroup
 from tiger_agent.slack.slash_commands.handlers.admins import add as admins_add
 from tiger_agent.slack.slash_commands.handlers.admins import list as admins_list
 from tiger_agent.slack.slash_commands.handlers.admins import remove as admins_remove
+from tiger_agent.slack.slash_commands.handlers.channels import (
+    add_access_limit as channels_add_access_limit,
+)
+from tiger_agent.slack.slash_commands.handlers.channels import (
+    list as channels_list,
+)
+from tiger_agent.slack.slash_commands.handlers.channels import (
+    remove_access_limit as channels_remove_access_limit,
+)
 from tiger_agent.slack.slash_commands.handlers.ignored import add as ignored_add
 from tiger_agent.slack.slash_commands.handlers.ignored import list as ignored_list
 from tiger_agent.slack.slash_commands.handlers.ignored import remove as ignored_remove
@@ -52,6 +61,22 @@ def _build_command_handlers() -> CommandGroup:
                                 ),
                             ],
                         ),
+                    ],
+                ),
+                CommandGroup(
+                    key="channels",
+                    commands=[
+                        Command(
+                            key="add_access_limit",
+                            expected_parameters=1,
+                            func=channels_add_access_limit.handle,
+                        ),
+                        Command(
+                            key="remove_access_limit",
+                            expected_parameters=1,
+                            func=channels_remove_access_limit.handle,
+                        ),
+                        Command(key="list", func=channels_list.handle),
                     ],
                 ),
                 CommandGroup(

@@ -104,6 +104,7 @@ def wrapper(monkeypatch):
         create_tools=MagicMock(return_value=["tool"]),
         fetch_user_info=AsyncMock(return_value=None),
         fetch_thread_messages=AsyncMock(return_value=[]),
+        channel_has_limited_access=AsyncMock(return_value=False),
     )
     monkeypatch.setattr(
         utils_module, "fetch_linked_channel_info", stubs.fetch_linked_channel_info
@@ -113,6 +114,9 @@ def wrapper(monkeypatch):
     monkeypatch.setattr(utils_module, "fetch_user_info", stubs.fetch_user_info)
     monkeypatch.setattr(
         utils_module, "fetch_thread_messages", stubs.fetch_thread_messages
+    )
+    monkeypatch.setattr(
+        utils_module, "channel_has_limited_access", stubs.channel_has_limited_access
     )
     return stubs
 
@@ -148,6 +152,27 @@ class TestCreateAgentAndContext:
         await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
 
         assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
+
+    async def test_slack_event_in_a_limited_channel_may_not_use_internal_servers(
+        self, wrapper, hctx
+    ):
+        wrapper.channel_has_limited_access.return_value = True
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.channel_has_limited_access.await_args.kwargs["channel_id"] == (
+            "C_CHAN"
+        )
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
+
+    async def test_customer_question_does_not_check_the_limited_channel_table(
+        self, wrapper, hctx
+    ):
+        task = _task(CustomerQuestionEvent(text="How do I add a retention policy?"))
+
+        await create_agent_and_context(hctx=hctx, task=task, agent=MagicMock())
+
+        wrapper.channel_has_limited_access.assert_not_awaited()
 
     async def test_customer_question_is_external_and_has_no_slack_side(
         self, wrapper, hctx

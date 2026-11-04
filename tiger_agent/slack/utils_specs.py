@@ -10,6 +10,7 @@ from tiger_agent.slack.utils import (
     append_message_to_stream,
     get_channel_link,
     get_handle_link,
+    parse_slack_channel,
     post_response,
     stream_response_to_mention,
     user_is_external,
@@ -24,6 +25,27 @@ class TestGetHandleLink:
 class TestGetChannelLink:
     def test_wraps_channel_id_in_slack_channel_syntax(self):
         assert get_channel_link("C98765") == "<#C98765>"
+
+
+class TestParseSlackChannel:
+    def test_parses_a_channel_mention(self):
+        assert parse_slack_channel("<#C98765|support>") == "C98765"
+
+    def test_parses_a_channel_mention_without_a_name(self):
+        # Slack omits the trailing `|name` in some clients.
+        assert parse_slack_channel("<#C09DL0P0XGS>") == "C09DL0P0XGS"
+
+    def test_parses_a_channel_mention_with_an_empty_name(self):
+        assert parse_slack_channel("<#C98765|>") == "C98765"
+
+    def test_returns_none_for_a_user_mention(self):
+        assert parse_slack_channel("<@U98765|nathan>") is None
+
+    def test_returns_none_for_a_plain_channel_name(self):
+        assert parse_slack_channel("#support") is None
+
+    def test_returns_none_for_a_bare_channel_id(self):
+        assert parse_slack_channel("C98765") is None
 
 
 class TestUserIsExternal:

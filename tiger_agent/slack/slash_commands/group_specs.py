@@ -60,9 +60,7 @@ class TestCommandGroupRouting:
         assert "remove" in result
 
     async def test_returns_help_text_when_no_input_provided(self, ctx):
-        group = CommandGroup(
-            commands=[Command(key="add", func=AsyncMock())]
-        )
+        group = CommandGroup(commands=[Command(key="add", func=AsyncMock())])
 
         result = await group("", ctx)
 

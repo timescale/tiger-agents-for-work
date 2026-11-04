@@ -39,7 +39,10 @@ from tiger_agent.agent.types import (
     LinkedChannelInfo,
 )
 from tiger_agent.customer.types import CustomerQuestionEvent
-from tiger_agent.db.utils import get_salesforce_account_id_for_channel
+from tiger_agent.db.utils import (
+    channel_has_limited_access,
+    get_salesforce_account_id_for_channel,
+)
 from tiger_agent.mcp.types import McpConfig
 from tiger_agent.mcp.utils import filter_mcp_servers
 from tiger_agent.salesforce.types import SalesforceBaseEvent
@@ -238,8 +241,9 @@ async def create_agent_and_context(
     The destination channel comes from the event (`destination_channel`, set
     when it was enqueued), never from the caller. Whether internal-only MCP
     servers and tools may be used is decided here: never for a
-    `CustomerQuestionEvent`, and not when the destination channel is shared
-    with external users.
+    `CustomerQuestionEvent`, not when the destination channel is shared
+    with external users, and not when the channel has been marked
+    limited-access by an admin.
     """
     event = task.event
     destination = destination_channel_of(event)
@@ -258,8 +262,14 @@ async def create_agent_and_context(
                 f"Could not read Slack channel {destination!r} for the run's destination"
             )
 
-    include_internal_mcps = not isinstance(event, CustomerQuestionEvent) and not (
-        channel_info is not None and channel_is_external(channel_info)
+    limited_access = destination is not None and await channel_has_limited_access(
+        pool=hctx.pool, channel_id=destination
+    )
+
+    include_internal_mcps = (
+        not isinstance(event, CustomerQuestionEvent)
+        and not (channel_info is not None and channel_is_external(channel_info))
+        and not limited_access
     )
 
     user: UserInfo | None = None
