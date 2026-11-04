@@ -269,15 +269,26 @@ class TestCreateAgentAndContext:
         passed = wrapper.slack_profile_has_internal_email_domain.call_args.args[0]
         assert passed is wrapper.fetch_user_info.return_value
 
-    async def test_unreadable_destination_channel_fails_loudly(self, wrapper, hctx):
+    async def test_unreadable_destination_channel_still_answers(self, wrapper, hctx):
         wrapper.fetch_linked_channel_info.return_value = None
 
-        with pytest.raises(RuntimeError, match="Could not read Slack channel 'C_CHAN'"):
-            await create_agent_and_context(
-                hctx=hctx, task=_slack_task(), agent=MagicMock()
-            )
+        result = await create_agent_and_context(
+            hctx=hctx, task=_slack_task(), agent=MagicMock()
+        )
 
-        wrapper.build.assert_not_awaited()
+        assert result == "built"
+
+    async def test_unreadable_destination_channel_is_not_trusted(self, wrapper, hctx):
+        # The bot could not confirm the channel is internal, so it does not get
+        # the benefit of the doubt -- it is treated like an external one.
+        wrapper.fetch_linked_channel_info.return_value = None
+        wrapper.slack_profile_has_internal_email_domain.return_value = True
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        kwargs = wrapper.build.await_args.kwargs
+        assert kwargs["include_internal_mcps"] is False
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is False
 
     async def test_thread_history_is_passed_as_extra_context(self, wrapper, hctx):
         wrapper.fetch_thread_messages.return_value = []

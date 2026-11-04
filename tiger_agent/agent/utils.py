@@ -177,7 +177,8 @@ async def build_agent_and_context(
 
     Args:
         include_internal_mcps: True when the audience is internal, so MCP servers marked
-            `internal_only` may be loaded. False for anything a customer sees.
+            `internal_only` may be loaded, and the investigator sub-agent is
+            offered. False for anything a customer sees.
         user: The Slack user behind the event, when there is one.
         tools: Slack-side tools for the run (see `create_tools`).
         extra_context: Extra template variables, e.g. the thread history.
@@ -202,13 +203,17 @@ async def build_agent_and_context(
 
     system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
     user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
-    investigator_prompt = await agent.render_prompts(
-        ctx=ctx, extra_ctx=extra_ctx, regex=INVESTIGATOR_SYSTEM_PROMPT_REGEX
-    )
 
-    coordinator = Agent(
-        capabilities=[
-            *budget_capabilities(),
+    # The investigator inherits the coordinator's (already filtered) toolsets, so
+    # it is not a way around the gate. It is dropped on a restricted run because
+    # there is little left for it to dig through: the delegation machinery and
+    # its separate request budget would be overhead for no reach.
+    capabilities: list = [*budget_capabilities()]
+    if include_internal_mcps:
+        investigator_prompt = await agent.render_prompts(
+            ctx=ctx, extra_ctx=extra_ctx, regex=INVESTIGATOR_SYSTEM_PROMPT_REGEX
+        )
+        capabilities.append(
             SubAgents(
                 agents=[
                     build_investigator(
@@ -217,8 +222,11 @@ async def build_agent_and_context(
                 ],
                 inherit_tools=True,
                 event_stream_handler=subagent_event_handler,
-            ),
-        ],
+            )
+        )
+
+    coordinator = Agent(
+        capabilities=capabilities,
         model=agent.model,
         model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         deps_type=dict[str, Any],
@@ -260,8 +268,9 @@ async def create_agent_and_context(
         if channel_info is None:
             # fetch_channel_info swallows Slack errors. A run that cannot see
             # the channel it must post to is misconfigured (bot not a member,
-            # bad id); fail here so the task retries and the error is visible,
-            # rather than answering with a quietly reduced tool set.
+            # bad id). The run still answers, but an unread channel cannot be
+            # shown to be internal, so it is treated as untrusted below rather
+            # than defaulting into the full toolset.
             logfire.error(
                 f"Could not read Slack channel {destination!r} for the run's destination"
             )
@@ -280,9 +289,16 @@ async def create_agent_and_context(
     # access based on the user's Slack profile email address
     user_has_internal_access = slack_profile_has_internal_email_domain(user)
 
+    # An unreadable destination (channel_info is None despite having one) is
+    # treated as external: we could not confirm it is internal, so it does not
+    # get the benefit of the doubt.
+    destination_is_trusted = channel_info is not None and not channel_is_external(
+        channel_info
+    )
+
     use_full_toolset = (
         not isinstance(event, CustomerQuestionEvent)
-        and not (channel_info is not None and channel_is_external(channel_info))
+        and (destination is None or destination_is_trusted)
         and not limited_access_in_channel
         and user_has_internal_access
     )
