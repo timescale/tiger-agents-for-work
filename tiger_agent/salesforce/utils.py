@@ -477,12 +477,13 @@ def get_case_email_messages(
 ) -> list[SalesforceEmailMessage]:
     """Fetch recent EmailMessages on Cases and normalize them into SalesforceFeedItem shape."""
     try:
-        # Only sent messages (Status '3') so drafts never leak out. The time
-        # window uses LastModifiedDate, not MessageDate — a draft gets its
-        # MessageDate at creation, so a MessageDate window would miss any
-        # message sent after its draft window passed. LastModifiedDate bumps on
-        # send; the extra re-entries it causes are absorbed by the Id-based
-        # dedup in filter_new_feed_items.
+        # This includes all email statuses, except for Draft
+        # 0 - New (inbound, unread)
+        # 1 - Read (inbound, read)
+        # 2 - Replied (inbound)
+        # 3 - Sent (output)
+        # 4 - Forwarded
+        # 5 - Draft
         conditions = [
             "MessageDate != null",
             "ParentId != null",
