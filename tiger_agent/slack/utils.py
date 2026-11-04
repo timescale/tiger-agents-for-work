@@ -88,6 +88,31 @@ def parse_slack_user_name(mention_string: str) -> tuple[str, str] | None:
     return (None, None)
 
 
+def parse_slack_channel(mention_string: str) -> str | None:
+    """Parse Slack channel mention format <#CHANNEL_ID|name> and return the channel id.
+
+    Slack omits the trailing `|name` in some clients, so the name is optional.
+
+    Args:
+        mention_string: String in format '<#C06S8H0V94P|general>' or '<#C06S8H0V94P>'
+
+    Returns:
+        The channel id, or None if pattern doesn't match.
+
+    Example:
+        parse_slack_channel('<#C06S8H0V94P|general>') -> 'C06S8H0V94P'
+        parse_slack_channel('<#C06S8H0V94P>') -> 'C06S8H0V94P'
+    """
+    match = re.match(r"<#([A-Z0-9]+)(?:\|([^>]*))?>", mention_string)
+    if match:
+        channel_id, _ = match.groups()
+        return channel_id
+    logfire.warning(
+        "Argument was not of expected format for a <#CHANNEL_ID|name> formatted Slack channel"
+    )
+    return None
+
+
 def parse_slack_url(url: str) -> SlackUrlParts:
     """Parse a Slack message URL into its component parts."""
 

@@ -571,6 +571,33 @@ async def remove_salesforce_account_id_for_channel(
         )
 
 
+async def channel_has_limited_access(
+    pool: AsyncConnectionPool, channel_id: str
+) -> bool:
+    """Check if a channel is limited to public MCP servers and tools."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            "SELECT enabled FROM agent.limited_channels WHERE channel_id = %s",
+            (channel_id,),
+        )
+        row = await result.fetchone()
+        return bool(row[0]) if row and row[0] is not None else False
+
+
+async def set_channel_limited_access(
+    pool: AsyncConnectionPool, channel_id: str, enabled: bool
+) -> None:
+    """Enable or lift the limited-access restriction for a channel."""
+    async with pool.connection() as con:
+        await con.execute(
+            """INSERT INTO agent.limited_channels (channel_id, enabled)
+               VALUES (%s, %s)
+               ON CONFLICT (channel_id) DO UPDATE
+               SET enabled = EXCLUDED.enabled, updated_at = now()""",
+            (channel_id, enabled),
+        )
+
+
 async def filter_new_feed_items(
     pool: AsyncConnectionPool, feed_items: list[SalesforceFeedItem]
 ) -> list[SalesforceFeedItem]:

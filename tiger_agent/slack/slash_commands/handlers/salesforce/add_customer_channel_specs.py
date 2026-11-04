@@ -28,9 +28,13 @@ def patch_collaborators(monkeypatch):
 class TestSalesforceAddCustomerChannelHandler:
     async def test_returns_confirmation_message(self, ctx):
         result = await add_customer_channel.handle(ctx, ["C_CHAN", "0011x00000ABCDE"])
-        assert result == "Assigned channel C_CHAN to Salesforce account id 0011x00000ABCDE"
+        assert (
+            result == "Assigned channel C_CHAN to Salesforce account id 0011x00000ABCDE"
+        )
 
-    async def test_upserts_link_between_channel_and_account(self, ctx, patch_collaborators):
+    async def test_upserts_link_between_channel_and_account(
+        self, ctx, patch_collaborators
+    ):
         await add_customer_channel.handle(ctx, ["C_CHAN", "0011x00000ABCDE"])
         patch_collaborators["upsert"].assert_awaited_once_with(
             ctx.hctx.pool,
