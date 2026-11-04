@@ -105,6 +105,9 @@ def wrapper(monkeypatch):
         fetch_user_info=AsyncMock(return_value=None),
         fetch_thread_messages=AsyncMock(return_value=[]),
         channel_has_limited_access=AsyncMock(return_value=False),
+        # True is the unset-INTERNAL_DOMAIN default: the predicate vouches for
+        # everyone, so the channel checks alone decide.
+        slack_profile_has_internal_email_domain=MagicMock(return_value=True),
     )
     monkeypatch.setattr(
         utils_module, "fetch_linked_channel_info", stubs.fetch_linked_channel_info
@@ -117,6 +120,11 @@ def wrapper(monkeypatch):
     )
     monkeypatch.setattr(
         utils_module, "channel_has_limited_access", stubs.channel_has_limited_access
+    )
+    monkeypatch.setattr(
+        utils_module,
+        "slack_profile_has_internal_email_domain",
+        stubs.slack_profile_has_internal_email_domain,
     )
     return stubs
 
@@ -205,15 +213,82 @@ class TestCreateAgentAndContext:
         assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
         wrapper.fetch_user_info.assert_not_awaited()
 
-    async def test_unreadable_destination_channel_fails_loudly(self, wrapper, hctx):
+    async def test_a_vouched_for_user_may_use_internal_servers(self, wrapper, hctx):
+        # True is also what the predicate returns when INTERNAL_DOMAIN is unset.
+        wrapper.slack_profile_has_internal_email_domain.return_value = True
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
+
+    async def test_a_user_off_the_internal_domain_may_not(self, wrapper, hctx):
+        wrapper.slack_profile_has_internal_email_domain.return_value = False
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
+
+    async def test_the_same_decision_gates_the_local_tools(self, wrapper, hctx):
+        # Servers and tools must not disagree about what the run may reach.
+        wrapper.slack_profile_has_internal_email_domain.return_value = False
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is False
+
+    async def test_a_full_run_gets_the_full_toolset(self, wrapper, hctx):
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is True
+
+    async def test_a_limited_channel_still_wins_over_an_internal_user(
+        self, wrapper, hctx
+    ):
+        wrapper.slack_profile_has_internal_email_domain.return_value = True
+        wrapper.channel_has_limited_access.return_value = True
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
+
+    async def test_an_external_channel_still_wins_over_an_internal_user(
+        self, wrapper, hctx
+    ):
+        wrapper.slack_profile_has_internal_email_domain.return_value = True
+        wrapper.fetch_linked_channel_info.return_value = _channel(is_ext_shared=True)
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
+
+    async def test_the_user_is_fetched_before_the_access_decision(self, wrapper, hctx):
+        # The gate reads the asker's profile, so the fetch must precede it.
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        wrapper.fetch_user_info.assert_awaited_once()
+        passed = wrapper.slack_profile_has_internal_email_domain.call_args.args[0]
+        assert passed is wrapper.fetch_user_info.return_value
+
+    async def test_unreadable_destination_channel_still_answers(self, wrapper, hctx):
         wrapper.fetch_linked_channel_info.return_value = None
 
-        with pytest.raises(RuntimeError, match="Could not read Slack channel 'C_CHAN'"):
-            await create_agent_and_context(
-                hctx=hctx, task=_slack_task(), agent=MagicMock()
-            )
+        result = await create_agent_and_context(
+            hctx=hctx, task=_slack_task(), agent=MagicMock()
+        )
 
-        wrapper.build.assert_not_awaited()
+        assert result == "built"
+
+    async def test_unreadable_destination_channel_is_not_trusted(self, wrapper, hctx):
+        # The bot could not confirm the channel is internal, so it does not get
+        # the benefit of the doubt -- it is treated like an external one.
+        wrapper.fetch_linked_channel_info.return_value = None
+        wrapper.slack_profile_has_internal_email_domain.return_value = True
+
+        await create_agent_and_context(hctx=hctx, task=_slack_task(), agent=MagicMock())
+
+        kwargs = wrapper.build.await_args.kwargs
+        assert kwargs["include_internal_mcps"] is False
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is False
 
     async def test_thread_history_is_passed_as_extra_context(self, wrapper, hctx):
         wrapper.fetch_thread_messages.return_value = []

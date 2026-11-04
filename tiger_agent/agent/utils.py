@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import logfire
 from psycopg_pool import AsyncConnectionPool
 from pydantic_ai import Agent, Tool
 from pydantic_ai.agent import EventStreamHandler
@@ -52,6 +53,7 @@ from tiger_agent.slack.utils import (
     fetch_channel_info,
     fetch_thread_messages,
     fetch_user_info,
+    slack_profile_has_internal_email_domain,
 )
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -175,7 +177,8 @@ async def build_agent_and_context(
 
     Args:
         include_internal_mcps: True when the audience is internal, so MCP servers marked
-            `internal_only` may be loaded. False for anything a customer sees.
+            `internal_only` may be loaded, and the investigator sub-agent is
+            offered. False for anything a customer sees.
         user: The Slack user behind the event, when there is one.
         tools: Slack-side tools for the run (see `create_tools`).
         extra_context: Extra template variables, e.g. the thread history.
@@ -200,13 +203,17 @@ async def build_agent_and_context(
 
     system_prompt = await agent.make_system_prompt(ctx=ctx, extra_ctx=extra_ctx)
     user_prompt = await agent.make_user_prompt(ctx=ctx, extra_ctx=extra_ctx)
-    investigator_prompt = await agent.render_prompts(
-        ctx=ctx, extra_ctx=extra_ctx, regex=INVESTIGATOR_SYSTEM_PROMPT_REGEX
-    )
 
-    coordinator = Agent(
-        capabilities=[
-            *budget_capabilities(),
+    # The investigator inherits the coordinator's (already filtered) toolsets, so
+    # it is not a way around the gate. It is dropped on a restricted run because
+    # there is little left for it to dig through: the delegation machinery and
+    # its separate request budget would be overhead for no reach.
+    capabilities: list = [*budget_capabilities()]
+    if include_internal_mcps:
+        investigator_prompt = await agent.render_prompts(
+            ctx=ctx, extra_ctx=extra_ctx, regex=INVESTIGATOR_SYSTEM_PROMPT_REGEX
+        )
+        capabilities.append(
             SubAgents(
                 agents=[
                     build_investigator(
@@ -215,8 +222,11 @@ async def build_agent_and_context(
                 ],
                 inherit_tools=True,
                 event_stream_handler=subagent_event_handler,
-            ),
-        ],
+            )
+        )
+
+    coordinator = Agent(
+        capabilities=capabilities,
         model=agent.model,
         model_settings=PROMPT_CACHE_MODEL_SETTINGS,
         deps_type=dict[str, Any],
@@ -243,7 +253,9 @@ async def create_agent_and_context(
     servers and tools may be used is decided here: never for a
     `CustomerQuestionEvent`, not when the destination channel is shared
     with external users, and not when the channel has been marked
-    limited-access by an admin.
+    limited-access by an admin. When `INTERNAL_DOMAIN` is configured the asker
+    must additionally be on that email domain, which is what lets a DM (where
+    there is no channel to judge) still reach internal servers.
     """
     event = task.event
     destination = destination_channel_of(event)
@@ -256,41 +268,61 @@ async def create_agent_and_context(
         if channel_info is None:
             # fetch_channel_info swallows Slack errors. A run that cannot see
             # the channel it must post to is misconfigured (bot not a member,
-            # bad id); fail here so the task retries and the error is visible,
-            # rather than answering with a quietly reduced tool set.
-            raise RuntimeError(
+            # bad id). The run still answers, but an unread channel cannot be
+            # shown to be internal, so it is treated as untrusted below rather
+            # than defaulting into the full toolset.
+            logfire.error(
                 f"Could not read Slack channel {destination!r} for the run's destination"
             )
 
-    limited_access = destination is not None and await channel_has_limited_access(
-        pool=hctx.pool, channel_id=destination
-    )
-
-    include_internal_mcps = (
-        not isinstance(event, CustomerQuestionEvent)
-        and not (channel_info is not None and channel_is_external(channel_info))
-        and not limited_access
+    limited_access_in_channel = (
+        destination is not None
+        and await channel_has_limited_access(pool=hctx.pool, channel_id=destination)
     )
 
     user: UserInfo | None = None
     extra_context: ExtraContextDict = {}
     if isinstance(event, SlackBaseEvent):
         user = await fetch_user_info(client=hctx.app.client, user_id=event.user)
-        if event.thread_ts and hctx.bot_info:
-            thread_messages = await fetch_thread_messages(
-                client=hctx.app.client,
-                channel=event.channel,
-                thread_ts=event.thread_ts,
-            )
-            extra_context["thread_history"] = pretty_print_models(thread_messages)
+
+    # If the internal_domain environment variable is defined, filter
+    # access based on the user's Slack profile email address
+    user_has_internal_access = slack_profile_has_internal_email_domain(user)
+
+    # An unreadable destination (channel_info is None despite having one) is
+    # treated as external: we could not confirm it is internal, so it does not
+    # get the benefit of the doubt.
+    destination_is_trusted = channel_info is not None and not channel_is_external(
+        channel_info
+    )
+
+    use_full_toolset = (
+        not isinstance(event, CustomerQuestionEvent)
+        and (destination is None or destination_is_trusted)
+        and not limited_access_in_channel
+        and user_has_internal_access
+    )
+
+    if isinstance(event, SlackBaseEvent) and event.thread_ts and hctx.bot_info:
+        thread_messages = await fetch_thread_messages(
+            client=hctx.app.client,
+            channel=event.channel,
+            thread_ts=event.thread_ts,
+        )
+        extra_context["thread_history"] = pretty_print_models(thread_messages)
 
     return await build_agent_and_context(
         agent=agent,
         task=task,
         bot=hctx.bot_info,
-        include_internal_mcps=include_internal_mcps,
+        include_internal_mcps=use_full_toolset,
         user=user,
-        tools=create_tools(hctx=hctx, task=task, channel_info=channel_info),
+        tools=create_tools(
+            hctx=hctx,
+            task=task,
+            channel_info=channel_info,
+            use_full_toolset=use_full_toolset,
+        ),
         extra_context=extra_context,
         subagent_event_handler=subagent_event_handler,
     )
