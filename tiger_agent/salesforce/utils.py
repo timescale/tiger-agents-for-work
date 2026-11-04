@@ -486,7 +486,7 @@ def get_case_email_messages(
         conditions = [
             "MessageDate != null",
             "ParentId != null",
-            "Status = '3'",
+            "Status != '5'",
         ]
         if modified_after is not None:
             conditions.append(f"LastModifiedDate > {modified_after}")
