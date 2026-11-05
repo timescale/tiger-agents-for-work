@@ -1,0 +1,7 @@
+> I am seeing a lot of empty tables that should have data.
+
+You mean empty hypertables? That is expected until the first batch lands.
+
+> Storage is not increasing.
+
+Could you share which tables?

@@ -1,0 +1,10 @@
+Hello Andrea,
+
+> Uncompressed chunks are about 900 MB. Do they need to be loaded entirely when the
+> query runs?
+
+No, chunks are not read from disk in full.
+
+Tagging <mailto:engineer@tigerdata.com|@engineer@tigerdata.com> to assist.
+
+Evan

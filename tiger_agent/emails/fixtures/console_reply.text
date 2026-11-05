@@ -1,0 +1,5 @@
+[Replied via Tiger Cloud Console]
+
+Thank you, I will keep monitoring how fast the queue drains.  Please let me know if it is using all workers, especially for prod-db1 (ab12cd34ef).
+
+If possible, could we add more tiering workers?

@@ -1,5 +1,4 @@
 import logfire
-from htmlslacker import HTMLSlacker
 
 from tiger_agent.db.utils import get_salesforce_case_thread_thread_id
 from tiger_agent.salesforce.types import SalesforceFeedItemEvent
@@ -33,9 +32,11 @@ class SalesforceFeedItemHandler(TaskHandler):
 
         [channel_id, thread_ts] = result
 
-        markdown_conversion = HTMLSlacker(event.feed_item.Body).get_output().strip()
-        body = add_quote_block(markdown_conversion)
-        text = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_\n\n{body}"
+        # The listener stores Body already converted to Slack mrkdwn; quoting it
+        # line by line keeps its line breaks and formatting inside the quote.
+        header = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_"
+        body = event.feed_item.Body
+        text = f"{header}\n\n{add_quote_block(body)}" if body else header
 
         attachment_ids = get_feed_attachment_ids(
             hctx.salesforce_client, event.feed_item.Id
