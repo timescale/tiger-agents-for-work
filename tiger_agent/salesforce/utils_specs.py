@@ -7,7 +7,12 @@ from tiger_agent.salesforce.constants import (
     CLOUD_IMPACT_FIELD,
     SEVERITY_FIELD,
 )
-from tiger_agent.salesforce.utils import create_case, get_case
+from tiger_agent.salesforce.types import SalesforceEmailMessage, SalesforceFeedItem
+from tiger_agent.salesforce.utils import (
+    case_message_body_to_slack_mrkdwn,
+    create_case,
+    get_case,
+)
 
 
 @pytest.fixture
@@ -361,3 +366,42 @@ class TestGetCaseThread:
         # legacy fallback: Body falls back to Subject when TextBody is empty
         assert support.Body == "Re: Retention"
         assert support.CreatedBy.Email == "support@tigerdata.com"
+
+
+class TestCaseMessageBodyToSlackMrkdwn:
+    REPLY_HTML = (
+        '<div>Thanks!</div><div class="gmail_quote gmail_quote_container">'
+        '<div class="gmail_attr">On Thu, Tiger Data Support wrote:</div>'
+        '<blockquote class="gmail_quote">Earlier message</blockquote></div>'
+    )
+    REPLY_TEXT = "Thanks!\n\nOn Thu, Tiger Data Support wrote:\n\n> Earlier message\n"
+
+    def test_prefers_the_email_html_body(self):
+        email = SalesforceEmailMessage(
+            Id="02s1", Body="text body", HtmlBody=self.REPLY_HTML
+        )
+        assert case_message_body_to_slack_mrkdwn(email) == "Thanks!"
+
+    def test_keeps_the_quoted_email_of_a_forward(self):
+        email = SalesforceEmailMessage(
+            Id="02s1",
+            Subject="FW: Invoice 1234",
+            HtmlBody=(
+                '<div>See below</div><div id="divRplyFwdMsg"><b>From:</b> Billing<br>'
+                "<b>Sent:</b> Monday</div><div>Invoice 1234 is attached.</div>"
+            ),
+        )
+        assert case_message_body_to_slack_mrkdwn(email) == (
+            "See below\n*From:* Billing\n*Sent:* Monday\nInvoice 1234 is attached."
+        )
+
+    def test_falls_back_to_the_email_text_body(self):
+        email = SalesforceEmailMessage(Id="02s1", Body=self.REPLY_TEXT)
+        assert case_message_body_to_slack_mrkdwn(email) == "Thanks!"
+
+    def test_treats_a_feed_post_body_as_html(self):
+        post = SalesforceFeedItem(Id="0D51", Body="<p>One</p><p>Two</p>")
+        assert case_message_body_to_slack_mrkdwn(post) == "One\n\nTwo"
+
+    def test_returns_none_without_a_body(self):
+        assert case_message_body_to_slack_mrkdwn(SalesforceFeedItem(Id="0D51")) is None

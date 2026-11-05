@@ -1,5 +1,4 @@
 import asyncio
-import re
 from asyncio import TaskGroup
 from collections.abc import Callable, Coroutine
 from datetime import datetime
@@ -32,6 +31,7 @@ from tiger_agent.salesforce.types import (
     SalesforceFeedItemEvent,
 )
 from tiger_agent.salesforce.utils import (
+    case_message_body_to_slack_mrkdwn,
     get_case,
     should_ignore_new_case,
     subscribe_to_topic,
@@ -282,17 +282,11 @@ class SalesforceListener(Listener):
             dt = datetime.fromisoformat(feed_item.CreatedDate)
             event_ts = str(dt.timestamp())
 
-        # strip off any of the replied-to emails (e.g. after Original Message)
-        if feed_item.Body:
-            feed_item = feed_item.model_copy(
-                update={
-                    "Body": re.split(
-                        r"-{5,}\s*Original Message\s*-{5,}",
-                        feed_item.Body,
-                        flags=re.IGNORECASE,
-                    )[0].strip()
-                }
-            )
+        # Body carries only the new text, as Slack mrkdwn, without the
+        # quoted conversation underneath it.
+        feed_item = feed_item.model_copy(
+            update={"Body": case_message_body_to_slack_mrkdwn(feed_item)}
+        )
 
         await insert_event(
             pool=self._pool,

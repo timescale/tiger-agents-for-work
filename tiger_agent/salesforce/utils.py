@@ -14,6 +14,11 @@ from slack_sdk.web.async_client import (
     AsyncWebClient,
 )
 
+from tiger_agent.emails.utils import (
+    html_to_slack_mrkdwn,
+    is_forward_subject,
+    plain_text_to_slack_mrkdwn,
+)
 from tiger_agent.salesforce.clients import (
     ClientCredentialsAuthenticator,
 )
@@ -843,3 +848,17 @@ def get_case(client: Salesforce, case_id: str) -> CaseData | None:
         return
 
     return CaseData(**cases[0])
+
+
+def case_message_body_to_slack_mrkdwn(feed_item: SalesforceFeedItem) -> str | None:
+    """The new text of a case feed item or email, as Slack mrkdwn."""
+    if isinstance(feed_item, SalesforceEmailMessage):
+        forwarded = is_forward_subject(feed_item.Subject)
+        if feed_item.HtmlBody:
+            return html_to_slack_mrkdwn(feed_item.HtmlBody, forwarded=forwarded)
+        if feed_item.Body:
+            return plain_text_to_slack_mrkdwn(feed_item.Body, forwarded=forwarded)
+        return None
+    if feed_item.Body:
+        return html_to_slack_mrkdwn(feed_item.Body)
+    return None
