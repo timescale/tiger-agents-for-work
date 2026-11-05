@@ -34,7 +34,7 @@ class SalesforceFeedItemHandler(TaskHandler):
 
         # The listener stores Body already converted to Slack mrkdwn; quoting it
         # line by line keeps its line breaks and formatting inside the quote.
-        header = f"_From_ *{event.feed_item.CreatedBy.Name}* _via Tigerdata Support_"
+        header = f"_From_ *{event.feed_item.CreatedBy.Name}*"
         body = event.feed_item.Body
         text = f"{header}\n\n{add_quote_block(body)}" if body else header
 
