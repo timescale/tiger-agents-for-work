@@ -259,6 +259,39 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
         return None
 
 
+async def fetch_user_id_by_email(client: AsyncWebClient, email: str) -> str | None:
+    """Resolve a Slack user id from an email address.
+
+    One `users.lookupByEmail` call. Returns None when no Slack user has that
+    email (`users_not_found`), when the address is empty, or when the lookup
+    fails for any other reason; callers treat None as "no one to mention".
+
+    Args:
+        client: Slack AsyncWebClient for API calls
+        email: The email address to look up
+
+    Returns:
+        The Slack user id, or None
+    """
+    email = (email or "").strip()
+    if not email:
+        return None
+    try:
+        resp = await client.users_lookupByEmail(email=email)
+        assert isinstance(resp.data, dict)
+        assert resp.data["ok"]
+        return resp.data["user"]["id"]
+    except SlackApiError as e:
+        if e.response.get("error") == "users_not_found":
+            logfire.info("No Slack user for email", email=email)
+            return None
+        logfire.exception("Failed to look up Slack user by email", email=email)
+        return None
+    except Exception:
+        logfire.exception("Failed to look up Slack user by email", email=email)
+        return None
+
+
 async def fetch_end_of_day_for_user(client: AsyncWebClient, user_id: str) -> datetime:
     """Gets the end of day for a given user (e.g. 3pm their timezone). If we are beyond their end of day,
     return the next day at that time.
