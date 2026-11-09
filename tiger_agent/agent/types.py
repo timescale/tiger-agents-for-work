@@ -183,11 +183,7 @@ class InvestigationReport(BaseModel):
 
 
 class AgentSalesforceResponse(CaseSummary):
-    """Structured response for Salesforce case events.
-
-    The case owner's Slack id is resolved by the handler from the owner's
-    email, not by the model.
-    """
+    """Structured response for Salesforce case events."""
 
     message: str
 

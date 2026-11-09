@@ -262,9 +262,7 @@ async def fetch_user_info(client: AsyncWebClient, user_id: str) -> UserInfo | No
 async def fetch_user_id_by_email(client: AsyncWebClient, email: str) -> str | None:
     """Resolve a Slack user id from an email address.
 
-    One `users.lookupByEmail` call. Returns None when no Slack user has that
-    email (`users_not_found`), when the address is empty, or when the lookup
-    fails for any other reason; callers treat None as "no one to mention".
+    Returns None when there is an error calling the api, when there are no matches or when the given email is empty.
 
     Args:
         client: Slack AsyncWebClient for API calls
