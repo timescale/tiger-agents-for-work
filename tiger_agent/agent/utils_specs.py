@@ -213,6 +213,24 @@ class TestCreateAgentAndContext:
         assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
         wrapper.fetch_user_info.assert_not_awaited()
 
+    async def test_an_event_without_a_slack_user_skips_the_email_domain_check(
+        self, wrapper, hctx
+    ):
+        # With INTERNAL_DOMAIN set the predicate is False for a missing user, but a
+        # Salesforce event has no asker to check: the channel alone decides.
+        wrapper.slack_profile_has_internal_email_domain.return_value = False
+        task = _task(
+            SalesforceAssignmentChangedEvent(
+                case={"Id": "500", "CaseNumber": "1"}, destination_channel="C_CASES"
+            )
+        )
+
+        await create_agent_and_context(hctx=hctx, task=task, agent=MagicMock())
+
+        wrapper.slack_profile_has_internal_email_domain.assert_not_called()
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is True
+
     async def test_a_vouched_for_user_may_use_internal_servers(self, wrapper, hctx):
         # True is also what the predicate returns when INTERNAL_DOMAIN is unset.
         wrapper.slack_profile_has_internal_email_domain.return_value = True

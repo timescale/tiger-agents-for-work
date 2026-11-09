@@ -285,9 +285,12 @@ async def create_agent_and_context(
     if isinstance(event, SlackBaseEvent):
         user = await fetch_user_info(client=hctx.app.client, user_id=event.user)
 
-    # If the internal_domain environment variable is defined, filter
-    # access based on the user's Slack profile email address
-    user_has_internal_access = slack_profile_has_internal_email_domain(user)
+    # The email-domain check applies to the Slack user who asked. Events with no
+    # asker (Salesforce case events) have no profile to check, so the event type
+    # and destination channel alone decide their access.
+    user_has_internal_access = not isinstance(
+        event, SlackBaseEvent
+    ) or slack_profile_has_internal_email_domain(user)
 
     # An unreadable destination (channel_info is None despite having one) is
     # treated as external: we could not confirm it is internal, so it does not
