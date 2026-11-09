@@ -1,8 +1,9 @@
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 from slack_sdk.errors import SlackApiError
 
 from tiger_agent.salesforce.types import CaseData, SalesforceUser
+from tiger_agent.tasks.handlers import salesforce_assignment_changed as handler_module
 from tiger_agent.tasks.handlers.salesforce_assignment_changed import (
     resolve_case_owner_slack_user_id,
 )
@@ -63,3 +64,50 @@ async def test_lookup_failure_resolves_to_none(make_async_web_client_mock):
     owner = SalesforceUser(Id="005Nv000007cRRNIA2", Email="owner@tigerdata.com")
 
     assert await resolve_case_owner_slack_user_id(client, _case(owner)) is None
+
+
+async def test_old_domain_address_retries_on_the_internal_domain(
+    make_async_web_client_mock, monkeypatch
+):
+    monkeypatch.setattr(handler_module, "INTERNAL_DOMAIN", "new.example")
+    client = make_async_web_client_mock(
+        users_lookupByEmail=AsyncMock(
+            side_effect=[
+                _slack_error("users_not_found"),
+                MagicMock(data={"ok": True, "user": {"id": "U_OWNER"}}),
+            ]
+        )
+    )
+    owner = SalesforceUser(Id="005Nv000007cRRNIA2", Email="Owner@old.example")
+
+    assert await resolve_case_owner_slack_user_id(client, _case(owner)) == "U_OWNER"
+    assert client.users_lookupByEmail.await_args_list == [
+        call(email="owner@old.example"),
+        call(email="owner@new.example"),
+    ]
+
+
+async def test_no_retry_when_already_on_the_internal_domain(
+    make_async_web_client_mock, monkeypatch
+):
+    monkeypatch.setattr(handler_module, "INTERNAL_DOMAIN", "new.example")
+    client = make_async_web_client_mock(
+        users_lookupByEmail=AsyncMock(side_effect=_slack_error("users_not_found"))
+    )
+    owner = SalesforceUser(Id="005Nv000007cRRNIA2", Email="gone@new.example")
+
+    assert await resolve_case_owner_slack_user_id(client, _case(owner)) is None
+    client.users_lookupByEmail.assert_awaited_once()
+
+
+async def test_no_retry_without_an_internal_domain(
+    make_async_web_client_mock, monkeypatch
+):
+    monkeypatch.setattr(handler_module, "INTERNAL_DOMAIN", None)
+    client = make_async_web_client_mock(
+        users_lookupByEmail=AsyncMock(side_effect=_slack_error("users_not_found"))
+    )
+    owner = SalesforceUser(Id="005Nv000007cRRNIA2", Email="owner@old.example")
+
+    assert await resolve_case_owner_slack_user_id(client, _case(owner)) is None
+    client.users_lookupByEmail.assert_awaited_once()
