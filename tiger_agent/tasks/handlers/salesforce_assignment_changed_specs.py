@@ -82,3 +82,55 @@ async def test_lookup_failure_resolves_to_none(make_async_web_client_mock):
     owner = SalesforceUser(Id=USER_ID, Username="owner@new.example")
 
     assert await resolve_case_owner_slack_user_id(client, _case(owner)) is None
+
+
+def test_case_details_lines_render_the_event_and_facts():
+    from tiger_agent.salesforce.types import CaseFacts
+    from tiger_agent.tasks.handlers.salesforce_assignment_changed import (
+        case_details_lines,
+    )
+
+    case = CaseData(
+        Id="500Nv00000mi2s5IAA",
+        CaseNumber="00044897",
+        Severity__c="Severity 3 - Medium",
+        Cloud_Impact__c="Production Down",
+        Cloud_Service_ID__c="abc123defg",
+        Cloud_Project_ID__c="proj456",
+        CreatedDate="2026-11-09T10:00:00.000+0000",
+        Customer_Slack_Thread__c="https://slack.example/p1",
+        Owner=SalesforceUser(Id=USER_ID, FirstName="Ada", LastName="Lovelace"),
+    )
+    facts = CaseFacts(
+        platform="Tiger Cloud",
+        account_name="Acme",
+        account_tier="Scale",
+        billing_category="Enterprise",
+        cloud_region="us-east-1",
+        is_production=True,
+    )
+
+    assert case_details_lines(case, facts) == [
+        "*Severity:* Severity 3 - Medium",
+        "*Customer Impact:* Production Down",
+        "*Platform:* Tiger Cloud",
+        "*Account:* Acme",
+        "*Tier:* Scale",
+        "*Billing Category:* Enterprise",
+        "*Service ID:* abc123defg",
+        "*Project ID:* proj456",
+        "*Region:* us-east-1 (prod)",
+        "*Case Owner:* Ada Lovelace",
+        "*Created:* 2026-11-09T10:00:00.000+0000",
+        "*Customer Thread:* <https://slack.example/p1|link>",
+    ]
+
+
+def test_case_details_lines_skip_unset_fields_and_missing_facts():
+    from tiger_agent.tasks.handlers.salesforce_assignment_changed import (
+        case_details_lines,
+    )
+
+    case = CaseData(Id="500Nv00000mi2s5IAA", CaseNumber="00044897", Severity__c="Sev 1")
+
+    assert case_details_lines(case, None) == ["*Severity:* Sev 1"]

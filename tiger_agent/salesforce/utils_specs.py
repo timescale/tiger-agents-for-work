@@ -4,14 +4,20 @@ import pytest
 
 from tiger_agent.salesforce.constants import (
     CASE_DETAIL_FIELDS,
+    CASE_FACT_FIELDS,
     CLOUD_IMPACT_FIELD,
     SEVERITY_FIELD,
 )
-from tiger_agent.salesforce.types import SalesforceEmailMessage, SalesforceFeedItem
+from tiger_agent.salesforce.types import (
+    CaseFacts,
+    SalesforceEmailMessage,
+    SalesforceFeedItem,
+)
 from tiger_agent.salesforce.utils import (
     case_message_body_to_slack_mrkdwn,
     create_case,
     get_case,
+    get_case_facts,
 )
 
 
@@ -405,3 +411,67 @@ class TestCaseMessageBodyToSlackMrkdwn:
 
     def test_returns_none_without_a_body(self):
         assert case_message_body_to_slack_mrkdwn(SalesforceFeedItem(Id="0D51")) is None
+
+
+class TestGetCaseFacts:
+    def _record(self, **overrides):
+        record = {
+            "Id": "500Nv00000ABCDE",
+            "Platform_Name__c": "Cloud",
+            "Cloud_Region__c": "us-east-1",
+            "Cloud_Is_Production__c": True,
+            "Account": {
+                "Name": "Acme",
+                "MST__c": False,
+                "Account_Tier__c": "Scale",
+                "Billing_Category__c": "Enterprise",
+                "Support_Tier__c": "Production",
+            },
+        }
+        record.update(overrides)
+        return record
+
+    def test_queries_the_fact_fields_for_the_case(self, salesforce_client):
+        salesforce_client.query.return_value = {"records": [self._record()]}
+
+        facts = get_case_facts(salesforce_client, "500Nv00000ABCDE")
+
+        soql = salesforce_client.query.call_args.args[0]
+        assert soql.startswith(f"SELECT {', '.join(CASE_FACT_FIELDS)} FROM Case")
+        assert soql.endswith("WHERE Id = '500Nv00000ABCDE'")
+        assert facts == CaseFacts(
+            platform="Tiger Cloud",
+            account_name="Acme",
+            account_tier="Scale",
+            billing_category="Enterprise",
+            support_tier="Production",
+            cloud_region="us-east-1",
+            is_production=True,
+        )
+
+    def test_account_mst_flag_wins_over_a_cloud_platform_name(self, salesforce_client):
+        record = self._record()
+        record["Account"]["MST__c"] = True
+        salesforce_client.query.return_value = {"records": [record]}
+
+        facts = get_case_facts(salesforce_client, "500Nv00000ABCDE")
+
+        assert facts is not None and facts.platform == "MST"
+
+    def test_unknown_platform_name_is_passed_through(self, salesforce_client):
+        salesforce_client.query.return_value = {
+            "records": [self._record(Platform_Name__c="PopSQL", Account=None)]
+        }
+
+        facts = get_case_facts(salesforce_client, "500Nv00000ABCDE")
+
+        assert facts is not None
+        assert facts.platform == "PopSQL"
+        assert facts.account_tier is None
+
+    def test_no_record_or_query_failure_gives_none(self, salesforce_client):
+        salesforce_client.query.return_value = {"records": []}
+        assert get_case_facts(salesforce_client, "500Nv00000ABCDE") is None
+
+        salesforce_client.query.side_effect = RuntimeError("boom")
+        assert get_case_facts(salesforce_client, "500Nv00000ABCDE") is None

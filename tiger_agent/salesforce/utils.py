@@ -24,6 +24,7 @@ from tiger_agent.salesforce.clients import (
 )
 from tiger_agent.salesforce.constants import (
     CASE_DETAIL_FIELDS,
+    CASE_FACT_FIELDS,
     CASE_FIELDS,
     CLOUD_IMPACT_FIELD,
     SALESFORCE_DOMAIN,
@@ -33,6 +34,7 @@ from tiger_agent.salesforce.constants import (
 )
 from tiger_agent.salesforce.types import (
     CaseData,
+    CaseFacts,
     ContentVersion,
     EmailAttachment,
     FileAttachment,
@@ -837,6 +839,27 @@ def update_case(
 # prefer this over client.Cases.get() since it properly grabs the owner
 # when the owner is a queue. When the owner is a queue (e.g. Billing), we will
 # get the queue name as the Username
+def get_case_facts(client: Salesforce, case_id: str) -> CaseFacts | None:
+    """Platform, tier and region for a case, or None when the lookup fails.
+
+    One query over ``CASE_FACT_FIELDS``. A failure is logged and swallowed:
+    the notification still posts, the agent just has to establish the facts
+    itself.
+    """
+    try:
+        result = client.query(
+            f"SELECT {', '.join(CASE_FACT_FIELDS)} FROM Case"
+            f" WHERE Id = {_soql_quote(case_id)}"
+        )
+    except Exception:
+        logfire.exception("Failed to fetch case facts", case_id=case_id)
+        return None
+    records = result.get("records", [])
+    if not records:
+        return None
+    return CaseFacts.from_record(records[0])
+
+
 def get_case(client: Salesforce, case_id: str) -> CaseData | None:
     result = client.query(
         build_case_query(case_ids=[case_id], fields=CASE_DETAIL_FIELDS)
