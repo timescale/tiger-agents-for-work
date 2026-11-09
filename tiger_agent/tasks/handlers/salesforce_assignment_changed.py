@@ -19,9 +19,8 @@ from tiger_agent.slack.utils import (
     request_feedback,
 )
 from tiger_agent.tasks.handlers.base import TaskHandler
+from tiger_agent.tasks.handlers.constants import SALESFORCE_QUEUE_ID_PREFIX
 from tiger_agent.tasks.types import Task
-
-QUEUE_ID_PREFIX = "00G"
 
 
 async def resolve_case_owner_slack_user_id(
@@ -40,7 +39,7 @@ async def resolve_case_owner_slack_user_id(
     owner = case.Owner
     if owner is None or not owner.Username:
         return None
-    if owner.Id and owner.Id.startswith(QUEUE_ID_PREFIX):
+    if owner.Id and owner.Id.startswith(SALESFORCE_QUEUE_ID_PREFIX):
         return None
     username = owner.Username.strip().lower()
     if "@" not in username:
