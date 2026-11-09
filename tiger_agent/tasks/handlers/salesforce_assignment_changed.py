@@ -10,7 +10,6 @@ from tiger_agent.db.utils import upsert_feedback_request_reminder
 from tiger_agent.salesforce.constants import SALESFORCE_SLACK_THREAD_FIELD
 from tiger_agent.salesforce.types import CaseData, SalesforceAssignmentChangedEvent
 from tiger_agent.salesforce.utils import create_case_url, update_case
-from tiger_agent.slack.constants import INTERNAL_DOMAIN
 from tiger_agent.slack.types import FeedbackReminderThread, SlackMessage
 from tiger_agent.slack.utils import (
     fetch_end_of_day_for_user,
@@ -32,28 +31,21 @@ async def resolve_case_owner_slack_user_id(
 
     The owner is a Salesforce User (id prefix `005`) or a Queue (prefix `00G`).
     A queue has no Slack user, so it resolves to None without a lookup. A user
-    resolves through `users.lookupByEmail` on the owner's email, then once more
-    with the same local part on INTERNAL_DOMAIN when the first lookup misses
-    and the domains differ; a customer contact or an unknown address returns
-    None.
+    resolves through one `users.lookupByEmail` call on the owner's Salesforce
+    *username*, which is the login address on the current company domain;
+    the Email field still carries pre-rename addresses for some staff, so it
+    is not used. A username that is not an address, or one Slack does not
+    know, resolves to None.
     """
     owner = case.Owner
-    if owner is None or not owner.Email:
+    if owner is None or not owner.Username:
         return None
     if owner.Id and owner.Id.startswith(QUEUE_ID_PREFIX):
         return None
-    email = owner.Email.strip().lower()
-    user_id = await fetch_user_id_by_email(client, email)
-    if user_id is not None:
-        return user_id
-    # Salesforce still carries pre-rename addresses for some staff while
-    # every Slack profile is on the internal domain. Retry once with the
-    # same local part on that domain.
-    internal = (INTERNAL_DOMAIN or "").strip().lower().lstrip("@")
-    local, _, domain = email.rpartition("@")
-    if not internal or not local or domain == internal:
+    username = owner.Username.strip().lower()
+    if "@" not in username:
         return None
-    return await fetch_user_id_by_email(client, f"{local}@{internal}")
+    return await fetch_user_id_by_email(client, username)
 
 
 class SalesforceAssignmentChangedHandler(TaskHandler):
