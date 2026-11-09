@@ -67,7 +67,15 @@ from tiger_agent.agent.types import LinkedChannelInfo  # noqa: E402
 from tiger_agent.agent.utils import create_agent_and_context  # noqa: E402
 from tiger_agent.customer.types import CustomerQuestionEvent  # noqa: E402
 from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent  # noqa: E402
-from tiger_agent.slack.types import SlackAppMentionEvent  # noqa: E402
+from tiger_agent.slack import utils as slack_utils  # noqa: E402
+from tiger_agent.slack.types import (  # noqa: E402
+    SlackAppMentionEvent,
+    SlackMessageEvent,
+    UserProfile,
+)
+from tiger_agent.slack.utils import (  # noqa: E402
+    slack_profile_has_internal_email_domain,
+)
 from tiger_agent.tasks.types import Task  # noqa: E402
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -212,6 +220,74 @@ class TestCreateAgentAndContext:
         )
         assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
         wrapper.fetch_user_info.assert_not_awaited()
+
+    async def test_an_event_without_a_slack_user_skips_the_email_domain_check(
+        self, wrapper, hctx
+    ):
+        # With INTERNAL_DOMAIN set the predicate is False for a missing user, but a
+        # Salesforce event has no asker to check: the channel alone decides.
+        wrapper.slack_profile_has_internal_email_domain.return_value = False
+        task = _task(
+            SalesforceAssignmentChangedEvent(
+                case={"Id": "500", "CaseNumber": "1"}, destination_channel="C_CASES"
+            )
+        )
+
+        await create_agent_and_context(hctx=hctx, task=task, agent=MagicMock())
+
+        wrapper.slack_profile_has_internal_email_domain.assert_not_called()
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is True
+
+    @pytest.fixture
+    def dm_from(self, wrapper, monkeypatch, make_user_info):
+        """A DM from a user with the given profile email, decided by the real
+        email-domain predicate with INTERNAL_DOMAIN set."""
+        monkeypatch.setattr(slack_utils, "INTERNAL_DOMAIN", "tigerdata.com")
+        monkeypatch.setattr(
+            utils_module,
+            "slack_profile_has_internal_email_domain",
+            slack_profile_has_internal_email_domain,
+        )
+        wrapper.fetch_linked_channel_info.return_value = LinkedChannelInfo(
+            id="D_DM", is_im=True
+        )
+
+        def _dm_from(email: str) -> Task:
+            wrapper.fetch_user_info.return_value = make_user_info(
+                profile=UserProfile(email=email)
+            )
+            return _task(
+                SlackMessageEvent(
+                    ts="1700000000.000100",
+                    event_ts="1700000000.000100",
+                    text="hi",
+                    channel="D_DM",
+                    user="U_USER",
+                )
+            )
+
+        return _dm_from
+
+    async def test_a_dm_from_a_user_on_the_internal_domain_gets_the_full_toolset(
+        self, wrapper, hctx, dm_from
+    ):
+        task = dm_from("alice@tigerdata.com")
+
+        await create_agent_and_context(hctx=hctx, task=task, agent=MagicMock())
+
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is True
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is True
+
+    async def test_a_dm_from_a_user_off_the_internal_domain_gets_the_reduced_toolset(
+        self, wrapper, hctx, dm_from
+    ):
+        task = dm_from("alice@gmail.com")
+
+        await create_agent_and_context(hctx=hctx, task=task, agent=MagicMock())
+
+        assert wrapper.build.await_args.kwargs["include_internal_mcps"] is False
+        assert wrapper.create_tools.call_args.kwargs["use_full_toolset"] is False
 
     async def test_a_vouched_for_user_may_use_internal_servers(self, wrapper, hctx):
         # True is also what the predicate returns when INTERNAL_DOMAIN is unset.
