@@ -1,23 +1,50 @@
 from typing import cast
 
 import logfire
+from slack_sdk.web.async_client import AsyncWebClient
 
 from tiger_agent.agent.limits import AGENT_USAGE_LIMITS, run_and_return_partial
 from tiger_agent.agent.types import AgentSalesforceResponse
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import upsert_feedback_request_reminder
 from tiger_agent.salesforce.constants import SALESFORCE_SLACK_THREAD_FIELD
-from tiger_agent.salesforce.types import SalesforceAssignmentChangedEvent
+from tiger_agent.salesforce.types import CaseData, SalesforceAssignmentChangedEvent
 from tiger_agent.salesforce.utils import create_case_url, update_case
 from tiger_agent.slack.types import FeedbackReminderThread, SlackMessage
 from tiger_agent.slack.utils import (
     fetch_end_of_day_for_user,
+    fetch_user_id_by_email,
     get_handle_link,
     post_response,
     request_feedback,
 )
 from tiger_agent.tasks.handlers.base import TaskHandler
+from tiger_agent.tasks.handlers.constants import SALESFORCE_QUEUE_ID_PREFIX
 from tiger_agent.tasks.types import Task
+
+
+async def resolve_case_owner_slack_user_id(
+    client: AsyncWebClient, case: CaseData
+) -> str | None:
+    """Find the Slack user to mention for the case owner, or None.
+
+    The owner is a Salesforce User (id prefix `005`) or a Queue (prefix `00G`).
+    A queue has no Slack user, so it resolves to None without a lookup. A user
+    resolves through one `users.lookupByEmail` call on the owner's Salesforce
+    *username*, which is the login address on the current company domain;
+    the Email field still carries pre-rename addresses for some staff, so it
+    is not used. A username that is not an address, or one Slack does not
+    know, resolves to None.
+    """
+    owner = case.Owner
+    if owner is None or not owner.Username:
+        return None
+    if owner.Id and owner.Id.startswith(SALESFORCE_QUEUE_ID_PREFIX):
+        return None
+    username = owner.Username.strip().lower()
+    if "@" not in username:
+        return None
+    return await fetch_user_id_by_email(client, username)
 
 
 class SalesforceAssignmentChangedHandler(TaskHandler):
@@ -53,7 +80,9 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
         )
         output = cast(AgentSalesforceResponse, response.output)
 
-        case_owner_user_id = output.case_owner_slack_user_id
+        case_owner_user_id = await resolve_case_owner_slack_user_id(
+            hctx.app.client, event.case
+        )
 
         original_message = await post_response(
             client=hctx.app.client,

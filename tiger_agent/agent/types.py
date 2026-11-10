@@ -186,10 +186,6 @@ class AgentSalesforceResponse(CaseSummary):
     """Structured response for Salesforce case events."""
 
     message: str
-    case_owner_slack_user_id: str | None = Field(
-        default=None,
-        description="The Slack user ID of the case owner (e.g. 'U012AB3CD'). Null if the Slack user ID cannot be determined for the case owner.",
-    )
 
 
 type ExtraContextDict = dict[str, BaseModel]
