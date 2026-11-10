@@ -333,3 +333,37 @@ class TestParseNewCaseFormData:
 
     def test_returns_none_when_body_has_no_state(self):
         assert parse_new_case_form_data({}) is None
+
+
+class TestDetectSpamCaseOrigin:
+    @pytest.fixture
+    def assess(self, monkeypatch):
+        assess = AsyncMock(return_value=MagicMock(is_spam=False))
+        monkeypatch.setattr(utils_module, "assess_case_for_spam", assess)
+        monkeypatch.setattr(utils_module, "AgentResponseContext", MagicMock())
+        monkeypatch.setattr(
+            utils_module,
+            "SPAM_FILTERING_SALESFORCE_ORIGIN",
+            frozenset({"email", "support email"}),
+        )
+        return assess
+
+    @staticmethod
+    def _task(origin: str | None) -> MagicMock:
+        task = MagicMock()
+        task.event.case.Origin = origin
+        return task
+
+    @pytest.mark.parametrize("origin", ["Email", "Support Email", " support email "])
+    async def test_assesses_configured_origins(self, assess, origin):
+        await utils_module.detect_spam_case(
+            hctx=MagicMock(), task=self._task(origin), agent=MagicMock()
+        )
+        assess.assert_awaited_once()
+
+    @pytest.mark.parametrize("origin", ["Cloud Console", "Billing Email", None])
+    async def test_skips_other_origins(self, assess, origin):
+        await utils_module.detect_spam_case(
+            hctx=MagicMock(), task=self._task(origin), agent=MagicMock()
+        )
+        assess.assert_not_awaited()

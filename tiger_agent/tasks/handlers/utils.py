@@ -22,6 +22,7 @@ from tiger_agent.salesforce.constants import (
     SALESFORCE_CASE_CHANNEL,
     SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD,
     SALESFORCE_SLACK_THREAD_FIELD,
+    SPAM_FILTERING_SALESFORCE_ORIGIN,
 )
 from tiger_agent.salesforce.types import (
     CaseData,
@@ -142,8 +143,8 @@ async def create_slack_thread_for_case(
 async def detect_spam_case(hctx: HarnessContext, task: Task, agent: TigerAgent) -> None:
     event: SalesforceCaseCreatedEvent = task.event
 
-    # at this time we only care about filtering email messages
-    if (event.case.Origin or "").lower() != "email":
+    origin = (event.case.Origin or "").strip().lower()
+    if origin not in SPAM_FILTERING_SALESFORCE_ORIGIN:
         return
 
     if hctx.bot_info is None:

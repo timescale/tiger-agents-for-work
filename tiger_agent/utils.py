@@ -403,3 +403,8 @@ def split_markdown_text_into_blocks(text: str, max_string_length: int) -> list[s
         chunks.append(current_chunk)
 
     return chunks
+
+
+def parse_comma_delimited_set(value: str) -> frozenset[str]:
+    """Parse a comma-delimited string into a set of trimmed, lowercased values."""
+    return frozenset(item.strip().lower() for item in value.split(",") if item.strip())
