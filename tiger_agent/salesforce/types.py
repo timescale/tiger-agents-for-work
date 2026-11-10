@@ -185,6 +185,44 @@ class ServiceRecord:
     project_id: str | None
 
 
+class CaseFacts(BaseModel):
+    """Facts about a case that code settles before the agent runs.
+
+    Read from the case and its account with one SOQL query (see
+    ``CASE_FACT_FIELDS``). ``platform`` is "MST" when either the case's
+    ``Platform_Name__c`` says so or the account's ``MST__c`` flag is set,
+    "Tiger Cloud" when the case says Cloud, otherwise whatever the case says.
+    """
+
+    platform: str | None = None
+    account_name: str | None = None
+    account_tier: str | None = None
+    billing_category: str | None = None
+    support_tier: str | None = None
+    cloud_region: str | None = None
+    is_production: bool | None = None
+
+    @classmethod
+    def from_record(cls, record: dict) -> "CaseFacts":
+        account = record.get("Account") or {}
+        platform_name = record.get("Platform_Name__c")
+        if account.get("MST__c") or platform_name == "MST":
+            platform = "MST"
+        elif platform_name == "Cloud":
+            platform = "Tiger Cloud"
+        else:
+            platform = platform_name
+        return cls(
+            platform=platform,
+            account_name=account.get("Name"),
+            account_tier=account.get("Account_Tier__c"),
+            billing_category=account.get("Billing_Category__c"),
+            support_tier=account.get("Support_Tier__c"),
+            cloud_region=record.get("Cloud_Region__c"),
+            is_production=record.get("Cloud_Is_Production__c"),
+        )
+
+
 class UserDefinedRule(BaseModel):
     id: int
     name: str

@@ -34,6 +34,21 @@ A new Salesforce support case has been received.
 
 {% endif %}
 
+{% if case_facts %}
+
+## Case Facts
+
+Settled from Salesforce before this run; treat them as established and do not look them up again. The one override: an MST-pattern plan name in the case body (for example `Timescale-basic-<credits>-<ram>-<cpu>-compute-optimized`) means MST even when the platform below says Tiger Cloud.
+
+{% if case_facts.platform %}- Platform: {{ case_facts.platform }}{% endif %}
+{% if case_facts.account_name %}- Account: {{ case_facts.account_name }}{% endif %}
+{% if case_facts.account_tier %}- Account tier: {{ case_facts.account_tier }}{% endif %}
+{% if case_facts.billing_category %}- Billing category: {{ case_facts.billing_category }}{% endif %}
+{% if case_facts.support_tier %}- Support tier: {{ case_facts.support_tier }}{% endif %}
+{% if case_facts.cloud_region %}- Region: {{ case_facts.cloud_region }}{% if case_facts.is_production is not none %} ({{ "production" if case_facts.is_production else "non-production" }}){% endif %}{% endif %}
+
+{% endif %}
+
 ## Case Emails
 
 Call `get_case_details` with `case_id_or_number` set to `{{ mention.case.Id }}` and `query_salesforce_directly` set to `true` to retrieve the full email thread. If an email has an attached or inline image, download that image for fuller context.

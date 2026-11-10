@@ -8,8 +8,12 @@ from tiger_agent.agent.types import AgentSalesforceResponse
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import upsert_feedback_request_reminder
 from tiger_agent.salesforce.constants import SALESFORCE_SLACK_THREAD_FIELD
-from tiger_agent.salesforce.types import CaseData, SalesforceAssignmentChangedEvent
-from tiger_agent.salesforce.utils import create_case_url, update_case
+from tiger_agent.salesforce.types import (
+    CaseData,
+    CaseFacts,
+    SalesforceAssignmentChangedEvent,
+)
+from tiger_agent.salesforce.utils import create_case_url, get_case_facts, update_case
 from tiger_agent.slack.types import FeedbackReminderThread, SlackMessage
 from tiger_agent.slack.utils import (
     fetch_end_of_day_for_user,
@@ -47,6 +51,45 @@ async def resolve_case_owner_slack_user_id(
     return await fetch_user_id_by_email(client, username)
 
 
+def case_details_lines(case: CaseData, facts: CaseFacts | None) -> list[str]:
+    """The Case Details block of the notification, one mrkdwn line per fact.
+
+    Rendered from the event and the facts query, so the agent does not have to
+    copy identifiers into its reply. Fields that are unset are left out.
+    """
+    owner = case.Owner
+    owner_name = (
+        " ".join(part for part in (owner.FirstName, owner.LastName) if part)
+        if owner is not None
+        else ""
+    )
+    region = None
+    if facts is not None and facts.cloud_region:
+        region = facts.cloud_region
+        if facts.is_production is not None:
+            region += " (prod)" if facts.is_production else " (non-prod)"
+    candidates: list[tuple[str, str | None]] = [
+        ("Severity", case.Severity__c),
+        ("Customer Impact", case.Cloud_Impact__c),
+        ("Platform", facts.platform if facts else None),
+        ("Account", facts.account_name if facts else None),
+        ("Tier", facts.account_tier if facts else None),
+        ("Billing Category", facts.billing_category if facts else None),
+        ("Service ID", case.Cloud_Service_ID__c),
+        ("Project ID", case.Cloud_Project_ID__c),
+        ("Region", region),
+        ("Case Owner", owner_name or None),
+        ("Created", case.CreatedDate),
+        (
+            "Customer Thread",
+            f"<{case.Customer_Slack_Thread__c}|link>"
+            if case.Customer_Slack_Thread__c
+            else None,
+        ),
+    ]
+    return [f"*{label}:* {value}" for label, value in candidates if value]
+
+
 class SalesforceAssignmentChangedHandler(TaskHandler):
     """
     Runs the agent to produce a case summary and posts it to the Salesforce
@@ -66,8 +109,10 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
                 "the listener sets it when the event is enqueued"
             )
 
+        facts = get_case_facts(hctx.salesforce_client, event.case.Id)
+        extra_context = {"case_facts": facts} if facts is not None else None
         agent_and_ctx = await create_agent_and_context(
-            hctx=hctx, task=task, agent=self._agent
+            hctx=hctx, task=task, agent=self._agent, extra_context=extra_context
         )
 
         # A case summary built from partial research still helps the assignee;
@@ -84,11 +129,23 @@ class SalesforceAssignmentChangedHandler(TaskHandler):
             hctx.app.client, event.case
         )
 
+        assigned = (
+            f", assigned to {get_handle_link(case_owner_user_id)}"
+            if case_owner_user_id
+            else ""
+        )
+        header = "\n".join(
+            [
+                f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{assigned}:thread: ",
+                f"```\n{output.short_description}\n```",
+                *case_details_lines(event.case, facts),
+            ]
+        )
         original_message = await post_response(
             client=hctx.app.client,
             channel=channel,
             thread_ts=None,
-            text=f"*New Case* <{create_case_url(event.case.Id)}|{event.case.CaseNumber}> - _{event.case.Subject}_{f', assigned to {get_handle_link(case_owner_user_id)}' if case_owner_user_id else ''}:thread: \n```\n{output.short_description}\n```",
+            text=header,
         )
 
         if not original_message:

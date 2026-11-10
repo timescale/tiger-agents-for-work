@@ -245,8 +245,13 @@ async def create_agent_and_context(
     task: Task,
     agent: TigerAgent,
     subagent_event_handler: EventStreamHandler[Any] | None = None,
+    extra_context: ExtraContextDict | None = None,
 ) -> AgentAndContext:
     """Build the coordinator for a task the harness is handling.
+
+    `extra_context` carries template variables the handler has already settled
+    (for a Salesforce case, the `case_facts`), merged with the ones gathered
+    here such as the thread history.
 
     The destination channel comes from the event (`destination_channel`, set
     when it was enqueued), never from the caller. Whether internal-only MCP
@@ -281,7 +286,7 @@ async def create_agent_and_context(
     )
 
     user: UserInfo | None = None
-    extra_context: ExtraContextDict = {}
+    extra_context = dict(extra_context or {})
     if isinstance(event, SlackBaseEvent):
         user = await fetch_user_info(client=hctx.app.client, user_id=event.user)
 

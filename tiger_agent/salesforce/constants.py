@@ -32,6 +32,20 @@ CASE_FIELDS = [
     "CreatedById",
 ]
 
+# Facts the case-notification handler settles in code before the agent runs:
+# which platform the case is on, the account's tier, and where the service is.
+CASE_FACT_FIELDS = [
+    "Id",
+    "Platform_Name__c",
+    "Cloud_Region__c",
+    "Cloud_Is_Production__c",
+    "Account.Name",
+    "Account.MST__c",
+    "Account.Account_Tier__c",
+    "Account.Billing_Category__c",
+    "Account.Support_Tier__c",
+]
+
 # The full record for reading a case after the fact (evals, drafting a customer
 # response). Kept separate from CASE_FIELDS so the streaming listener, which
 # re-queries the case on every event, does not pull the long text fields.
