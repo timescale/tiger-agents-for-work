@@ -1,6 +1,8 @@
 import os
 from types import MappingProxyType
 
+from tiger_agent.utils import parse_comma_delimited_set
+
 CASE_ID_FIELD = "Id"
 CASE_OWNER_ID_FIELD = "OwnerId"
 CASE_STATUS_FIELD = "Status"
@@ -60,6 +62,13 @@ SALESFORCE_CLIENT_SECRET = os.environ.get("SALESFORCE_CLIENT_SECRET", None)
 SALESFORCE_CASE_CHANNEL = os.environ.get("SALESFORCE_CASE_CHANNEL", None)
 SALESFORCE_ENABLE_SPAM_FILTERING = os.environ.get(
     "SALESFORCE_ENABLE_SPAM_FILTERING", None
+)
+
+
+# Case Origin values (comma-delimited, case-insensitive) that new-case spam
+# filtering assesses; cases from any other Origin skip the spam check.
+SPAM_FILTERING_SALESFORCE_ORIGIN = parse_comma_delimited_set(
+    os.environ.get("SPAM_FILTERING_SALESFORCE_ORIGIN", "Email,Support Email")
 )
 SALESFORCE_SLACK_THREAD_FIELD = os.environ.get("SALESFORCE_SLACK_THREAD_FIELD", None)
 SALESFORCE_SLACK_CUSTOMER_THREAD_FIELD = os.environ.get(

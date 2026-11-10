@@ -1,6 +1,7 @@
 from tiger_agent.utils import (
     RepeatedToolCallTracker,
     create_wrapped_process_tool_call,
+    parse_comma_delimited_set,
     split_markdown_text_into_blocks,
 )
 
@@ -321,3 +322,13 @@ class TestRunScoping:
 
     def test_run_id_tolerates_a_context_without_either(self):
         assert RepeatedToolCallTracker.run_id(object()) == "unknown-run"
+
+
+class TestParseCommaDelimitedSet:
+    def test_splits_trims_and_lowercases(self):
+        assert parse_comma_delimited_set(" Email , Support Email,") == frozenset(
+            {"email", "support email"}
+        )
+
+    def test_empty_string_matches_nothing(self):
+        assert parse_comma_delimited_set("") == frozenset()
