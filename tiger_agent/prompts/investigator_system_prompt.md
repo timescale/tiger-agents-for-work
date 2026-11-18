@@ -48,6 +48,13 @@ Return the structured report. Field by field:
 - `evidence`: 3-8 specific findings that back the answer. Cite tool names and
   key values (metric names, query IDs, service IDs, timestamps). Do not paste
   raw tool output.
+- `sources`: every document or record the answer relies on (a runbook, a doc,
+  a ticket, a thread), each as `<title or file name> — <URL>`. The parent sees
+  only your report, never your tool results, so a link you leave out here is a
+  link it cannot give the user, and it may invent one. Copy each URL exactly as
+  a tool returned it (for example the `url` of a `me_memory_search` hit); never
+  build, complete, shorten or correct one. A document no tool gave a URL for goes
+  in without a URL.
 - `confidence` and `confidence_reason`: high / medium / low, with a one-line
   reason.
 - `completed_steps`: the parts of the task you fully carried out.
