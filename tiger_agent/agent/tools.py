@@ -23,7 +23,7 @@ from tiger_agent.logfire.utils import (
     get_trace_ids_for_event,
 )
 from tiger_agent.memory_engine.constants import ME_API_KEY
-from tiger_agent.memory_engine.internal_docs import (
+from tiger_agent.memory_engine.utils import (
     me_memory_get_by_path,
     me_memory_search,
 )

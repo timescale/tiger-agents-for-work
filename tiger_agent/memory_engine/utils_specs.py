@@ -3,8 +3,8 @@ from typing import Any
 import httpx
 import pytest
 
-from tiger_agent.memory_engine import internal_docs as me
-from tiger_agent.memory_engine.internal_docs import (
+from tiger_agent.memory_engine import utils as me
+from tiger_agent.memory_engine.utils import (
     MemoryEngineError,
     me_memory_get_by_path,
     me_memory_search,
