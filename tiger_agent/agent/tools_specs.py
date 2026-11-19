@@ -71,6 +71,7 @@ def disable_feature_flags(monkeypatch):
     """
     monkeypatch.setattr(tools_module, "USER_DEFINED_EVENTS_ENABLED", False)
     monkeypatch.setattr(tools_module, "LOGFIRE_READ_TOKEN", "")
+    monkeypatch.setattr(tools_module, "ME_API_KEY", "")
 
 
 class TestCreateToolsNoDestination:
@@ -177,6 +178,34 @@ class TestCreateToolsInternalChannel:
         assert "get_logs_for_event" in names
         assert "get_log_by_id" in names
         assert "find_errors" in names
+
+    def test_memory_engine_tools_gated_off_by_default(self, hctx):
+        channel_info = _make_channel_info()
+        names = [t.name for t in create_tools(hctx, _make_slack_task(), channel_info)]
+        assert "me_memory_search" not in names
+        assert "me_memory_get_by_path" not in names
+
+    def test_memory_engine_tools_included_when_key_set(self, hctx, monkeypatch):
+        monkeypatch.setattr(tools_module, "ME_API_KEY", "me.id.secret")
+        channel_info = _make_channel_info()
+        for task in (_make_slack_task(), _make_non_slack_task()):
+            names = [t.name for t in create_tools(hctx, task, channel_info)]
+            assert "me_memory_search" in names
+            assert "me_memory_get_by_path" in names
+
+    def test_memory_engine_tools_withheld_from_external_and_reduced_runs(
+        self, hctx, monkeypatch
+    ):
+        monkeypatch.setattr(tools_module, "ME_API_KEY", "me.id.secret")
+        external = _make_channel_info(LINKED_ACCOUNT, is_ext_shared=True)
+        assert [t.name for t in create_tools(hctx, _make_slack_task(), external)] == [
+            "show_salesforce_case_form"
+        ]
+        internal = _make_channel_info(is_ext_shared=False, is_shared=False)
+        assert (
+            create_tools(hctx, _make_slack_task(), internal, use_full_toolset=False)
+            == []
+        )
 
     def test_non_slack_event_omits_slack_event_dependent_tools(self, hctx, monkeypatch):
         monkeypatch.setattr(tools_module, "USER_DEFINED_EVENTS_ENABLED", True)

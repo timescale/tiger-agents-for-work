@@ -130,6 +130,15 @@ class InvestigationReport(BaseModel):
         default_factory=list,
         description="3-8 specific findings backing the answer, citing tool names and key values. No raw tool output.",
     )
+    sources: list[str] = Field(
+        default_factory=list,
+        description=(
+            "One entry per document or record the answer relies on, as "
+            "'<title or file name> — <URL>' with the URL copied exactly from a tool "
+            "result. Never build, complete or guess a URL: leave a document out, or "
+            "list it without a URL, when no tool returned one."
+        ),
+    )
     confidence: Literal["high", "medium", "low"]
     confidence_reason: str = Field(
         description="One line on what drives the confidence level."
@@ -153,6 +162,9 @@ class InvestigationReport(BaseModel):
             lines.extend(f"- {item}" for item in self.evidence)
         else:
             lines.append("- none")
+        if self.sources:
+            lines.extend(["", "**Sources**:"])
+            lines.extend(f"- {item}" for item in self.sources)
         lines.extend(
             ["", f"**Confidence**: {self.confidence} — {self.confidence_reason}"]
         )

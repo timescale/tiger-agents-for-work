@@ -43,6 +43,28 @@ class TestInvestigationReportRendering:
         assert "suggested next: query pg_stat_replication directly" in text
         assert "**Budget exhausted**: yes" in text
 
+    def test_sources_are_listed_with_their_urls_for_the_coordinator(self):
+        text = str(
+            _report(
+                sources=[
+                    "replication.md — https://github.com/timescale/support-dev-collab"
+                    "/blob/HEAD/docs/runbooks/replication.md",
+                    "Working High Severity Cases (no URL)",
+                ]
+            )
+        )
+
+        assert "**Sources**:" in text
+        assert (
+            "- replication.md — https://github.com/timescale/support-dev-collab"
+            "/blob/HEAD/docs/runbooks/replication.md"
+        ) in text
+        assert "- Working High Severity Cases (no URL)" in text
+        assert text.index("**Sources**") < text.index("**Confidence**")
+
+    def test_no_sources_means_no_sources_section(self):
+        assert "Sources" not in str(_report())
+
     def test_empty_evidence_is_explicit(self):
         assert "- none" in str(_report(evidence=[]))
 
