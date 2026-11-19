@@ -11,15 +11,13 @@ from tiger_agent.memory_engine.utils import (
     project_memory,
 )
 
-SPACE = "space123"
-
 
 async def search(**kwargs: Any) -> Any:
-    return await me_memory_search(**{"space": SPACE, **kwargs})
+    return await me_memory_search(**kwargs)
 
 
 async def read(path: str, **kwargs: Any) -> Any:
-    return await me_memory_get_by_path(**{"space": SPACE, "path": path, **kwargs})
+    return await me_memory_get_by_path(path, **kwargs)
 
 
 REPO_DOC = {
@@ -144,20 +142,9 @@ class TestSearchGuards:
         assert "outside the searchable docs" in result
         assert rpc.calls == []
 
-    @pytest.mark.parametrize("space", ["", "bad space", "a/b", "x\r\nHost: evil", None])
-    async def test_a_missing_or_malformed_space_is_refused(self, rpc, space):
-        result = await me_memory_search(space=space, semantic="x", tree=me.SLAB_TREE)
-        assert "`space` is required" in result
-        assert rpc.calls == []
-
-    async def test_space_is_required_by_the_signature(self, rpc):
-        with pytest.raises(TypeError):
-            await me_memory_search(semantic="x", tree=me.SLAB_TREE)  # type: ignore[call-arg]
-
-    @pytest.mark.parametrize("space", ["ahkgk250pmzh", "bxrois55diwt", "my-space_1"])
-    async def test_the_space_the_caller_names_is_the_one_used(self, rpc, space):
-        await search(space=space, semantic="x", tree=me.SLAB_TREE)
-        assert rpc.spaces == [space]
+    async def test_the_space_is_always_the_fixed_one(self, rpc):
+        await me_memory_search(semantic="x", tree=me.SLAB_TREE)
+        assert rpc.spaces == [me.ME_SPACE]
 
     @pytest.mark.parametrize(
         "select",
@@ -397,16 +384,10 @@ class TestGetByPath:
         result = await read(self.PATH)
         assert result.startswith("No doc at")
 
-    async def test_a_missing_or_malformed_space_is_refused(self, rpc):
-        for space in ("", "bad space", None):
-            result = await me_memory_get_by_path(space=space, path=self.PATH)
-            assert "`space` is required" in result
-        assert rpc.calls == []
-
-    async def test_the_space_the_caller_names_is_the_one_used(self, rpc):
+    async def test_the_space_is_always_the_fixed_one(self, rpc):
         rpc.result = REPO_DOC
-        await read(self.PATH, space="ahkgk250pmzh")
-        assert rpc.spaces == ["ahkgk250pmzh"]
+        await me_memory_get_by_path(path=self.PATH)
+        assert rpc.spaces == [me.ME_SPACE]
 
 
 class TestProjectMemory:

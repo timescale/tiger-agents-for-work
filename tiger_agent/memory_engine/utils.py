@@ -5,8 +5,8 @@ mirror the Memory Engine MCP tools of the same name, because the
 ``td-find-internal-docs`` skill is written against exactly those two tools. They
 differ in four deliberate ways:
 
-* the space is a required argument on every call, as the skill passes it, with
-  no configured default,
+* there is no space argument: every call uses ``ME_SPACE``, because a model that
+  guesses a slug gets a 401 that looks like a bad key,
 * only two trees can be reached: ``/share/projects/<repo>/docs`` (repo docs) and
   ``/share/slab`` (the company wiki), and
 * ``select`` is applied here, because the JSON-RPC API has no such parameter, and
@@ -29,6 +29,7 @@ from tiger_agent.memory_engine.constants import (
     ME_SEARCH_DEFAULT_LIMIT,
     ME_SEARCH_MAX_LIMIT,
     ME_SERVER,
+    ME_SPACE,
     ME_TIMEOUT_SECONDS,
 )
 
@@ -61,8 +62,6 @@ _ALLOWED_MEMORY_PATH = re.compile(r"^/share/(?:projects/[^/]+/docs|slab)/.+$")
 _REPO_DOCS_TREE = re.compile(r"^/share/projects/([^/]+)/docs(?:/|$)")
 _SLAB_TREE = re.compile(r"^/share/slab(?:/|$)")
 _CONTENT_SELECTOR = re.compile(r"^content(?::(\d+)(?::(\d*))?)?$")
-# A space slug, e.g. "ahkgk250pmzh". It goes into a header, so keep it plain.
-_SPACE_SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 class MemoryEngineError(Exception):
@@ -101,15 +100,6 @@ async def _rpc(space: str, method: str, params: dict[str, Any]) -> Any:
 
 def _with_leading_slash(tree: str) -> str:
     return tree if tree.startswith("/") else f"/{tree}"
-
-
-def _check_space(space: str | None) -> str | None:
-    if not space or not _SPACE_SLUG.match(space):
-        return (
-            "`space` is required: pass the Memory Engine space slug the skill "
-            f"gives you, not {space!r}."
-        )
-    return None
 
 
 def _check_tree_filter(tree: str | None) -> str | None:
@@ -244,7 +234,6 @@ def _is_allowed(memory: dict[str, Any]) -> bool:
 
 
 async def me_memory_search(
-    space: str,
     semantic: str | None = None,
     fulltext: str | None = None,
     tree: str | None = None,
@@ -256,7 +245,6 @@ async def me_memory_search(
     """Search the internal docs in Memory Engine.
 
     Args:
-        space: Required. The Memory Engine space slug to search.
         semantic: Natural-language query for meaning-based search.
         fulltext: Keywords for exact matches: identifiers, errors, flags, alert names.
         tree: Required. The docs subtree to search.
@@ -268,7 +256,6 @@ async def me_memory_search(
     if not ME_API_KEY:
         return "Memory Engine is not configured."
     for problem in (
-        _check_space(space),
         _check_tree_filter(tree),
         _check_select(select),
     ):
@@ -289,7 +276,7 @@ async def me_memory_search(
             params[key] = value
 
     try:
-        result = await _rpc(space, "memory.search", params)
+        result = await _rpc(ME_SPACE, "memory.search", params)
     except (MemoryEngineError, httpx.HTTPError) as e:
         return f"Memory Engine search failed: {e}"
 
@@ -314,14 +301,12 @@ async def me_memory_search(
 
 
 async def me_memory_get_by_path(
-    space: str,
     path: str,
     select: list[str] | None = None,
 ) -> dict[str, Any] | str:
     """Read one doc from Memory Engine by its `tree/name` path.
 
     Args:
-        space: Required. The Memory Engine space slug to read from.
         path: The hit's `tree` + "/" + `name`, exactly as returned by a search.
         select: Fields to return. Omit for the whole doc. A body longer than the
             cap is cut, read the rest with a `content:M:N` selector.
@@ -337,12 +322,12 @@ async def me_memory_get_by_path(
             "`/share/projects/<repo>/docs/` or `/share/slab/`: take it from a "
             "search hit as `tree` + '/' + `name`."
         )
-    for problem in (_check_space(space), _check_select(select)):
+    for problem in (_check_select(select),):
         if problem:
             return problem
 
     try:
-        memory = await _rpc(space, "memory.getByPath", {"path": path})
+        memory = await _rpc(ME_SPACE, "memory.getByPath", {"path": path})
     except MemoryEngineError as e:
         if e.code == "NOT_FOUND":
             return (

@@ -1,9 +1,12 @@
 import os
 
 # Read-only access to the internal docs indexed in Memory Engine. The tools are
-# only offered to the agent when ME_API_KEY is set. There is deliberately no
-# space setting: the caller (the skill) names the space on every call.
+# only offered to the agent when ME_API_KEY is set. Every call uses ME_SPACE,
+# whatever space the model passes: a model that does not have the skill loaded
+# guesses a slug, and a wrong one comes back as a 401 that looks like a bad key.
 ME_API_KEY = os.environ.get("ME_API_KEY", "").strip()
+# The tiger-data space that holds the internal docs.
+ME_SPACE = "ahkgk250pmzh"
 ME_SERVER = (
     (os.environ.get("ME_SERVER") or "https://api.memory.build").strip().rstrip("/")
 )
