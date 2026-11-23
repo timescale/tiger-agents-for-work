@@ -427,9 +427,7 @@ class TestClose:
         assert last["status"] == "complete"
         assert "✓ done in 4s" in last["details"]
 
-    async def test_a_cancelled_run_marks_the_card_errored(
-        self, cards, stream, clock
-    ):
+    async def test_a_cancelled_run_marks_the_card_errored(self, cards, stream, clock):
         await cards.on_event(_tool_start("slack_search"))
         clock.now += 2
         await cards.close("cancelled")
@@ -484,4 +482,3 @@ class TestClose:
     async def test_close_with_no_cards_sends_nothing(self, cards, stream):
         await cards.close()
         assert _chunks(stream) == []
-

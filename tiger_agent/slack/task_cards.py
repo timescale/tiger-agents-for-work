@@ -157,7 +157,9 @@ class TaskCards:
             pending = self._drain(card)
             if outcome == "completed":
                 await self._send(
-                    card, status="complete", details=f"{pending}\n\n✓ done in {elapsed}s"
+                    card,
+                    status="complete",
+                    details=f"{pending}\n\n✓ done in {elapsed}s",
                 )
             else:
                 await self._send(
