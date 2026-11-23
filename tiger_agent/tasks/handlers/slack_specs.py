@@ -398,6 +398,46 @@ class TestSessionTracking:
         assert "processing" in statuses
 
 
+class TestUserlessEvent:
+    async def test_workflow_mention_with_no_user_posts_via_post_response(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """When event.user is None, the handler streams nothing and falls
+        back to post_response after the model run completes."""
+        monkeypatch.setattr(handler_module, "user_ignored", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            handler_module, "usage_limit_reached", AsyncMock(return_value=False)
+        )
+        client.chat_stream = AsyncMock(return_value=_live_stream())
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="Done."))
+        )
+        run_events.queue.put_nowait(None)
+
+        task = _make_task()
+        task.event = SlackAppMentionEvent(
+            ts=TS,
+            channel=CHANNEL,
+            user=None,  # e.g. a workflow or bot-posted mention
+            team="T_HOME",
+            text="what happened yesterday?",
+            event_ts=TS,
+        )
+
+        await asyncio.wait_for(handler.handle(task), timeout=1)
+
+        # No stream was started because there is no recipient_user_id
+        client.chat_stream.assert_not_awaited()
+        # Answer posted via post_response instead
+        client.chat_postMessage.assert_awaited()
+        # Session reset exactly once
+        active_count = sum(
+            1 for call in client.agents_sessions_setStatus.await_args_list
+            if call.kwargs.get("status") == "active"
+        )
+        assert active_count == 1
+
+
 class TestCancelSkipsCardClose:
     async def test_cancelled_run_does_not_close_cards(
         self, handler, hctx, client, run_events
@@ -419,6 +459,29 @@ class TestCancelSkipsCardClose:
         assert stream.stop.await_count == 1
         client.chat_delete.assert_awaited_once()
 
+    async def test_no_card_append_on_cancel(
+        self, handler, hctx, client, run_events
+    ):
+        """After a tool has opened a card, cancel must not attempt to close it."""
+        from pydantic_ai.messages import ToolCallPart
+
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        # Tool call opens a coordinator card
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=ToolCallPart(tool_name="slack_search", args={}))
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await _settle()
+
+        hctx.cancellations.cancel(CHANNEL, TS)
+        await asyncio.wait_for(run, timeout=1)
+
+        # Only the initial card-open chunk is sent; no closing chunk after
+        # cancellation because the discard path skips card appends.
+        chunks = [c for c in stream.append.await_args_list if c.kwargs.get("chunks")]
+        assert len(chunks) == 1  # only the tool-start update
+
 
 class TestPollSessionCancel:
     async def test_db_cancel_triggers_run_cancellation(
@@ -438,17 +501,11 @@ class TestPollSessionCancel:
             calls["n"] += 1
             return calls["n"] >= 2  # False on first poll, True on second
 
-        async def fake_delete_cancel(*, pool, channel_id, thread_ts, user_id):
-            pass
-
         # Make the polling loop sleep for 0.01s instead of 5s so the test
         # completes in the 1s timeout window.
         monkeypatch.setattr(handler_module, "_POLL_INTERVAL_SECONDS", 0.01)
 
         monkeypatch.setattr(handler_module, "is_session_cancelled", fake_is_cancelled)
-        monkeypatch.setattr(
-            handler_module, "delete_session_cancel", fake_delete_cancel
-        )
 
         run = asyncio.create_task(handler.handle(_make_task()))
         await asyncio.wait_for(run, timeout=1)
@@ -466,15 +523,20 @@ class TestPollSessionCancel:
         )
         run_events.queue.put_nowait(None)
 
-        monkeypatch.setattr(
-            handler_module,
-            "is_session_cancelled",
-            AsyncMock(side_effect=RuntimeError("db unreachable")),
-        )
+        calls = {"n": 0}
+
+        async def flaky(*, pool, channel_id, thread_ts, user_id, event_ts):
+            calls["n"] += 1
+            raise RuntimeError("db unreachable")
+
+        monkeypatch.setattr(handler_module, "is_session_cancelled", flaky)
+        monkeypatch.setattr(handler_module, "_POLL_INTERVAL_SECONDS", 0.01)
 
         await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
 
-        # Run completes normally despite polling errors
+        # Run completes normally despite polling errors. We shortened the
+        # poll interval so the path could fire, but the stream may finish
+        # before the first poll wakes; the important thing is no crash.
         assert run_events.cancel_calls == 0
         client.reactions_add.assert_awaited_once()
 

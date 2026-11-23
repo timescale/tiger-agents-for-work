@@ -9,7 +9,6 @@ from slack_sdk.errors import SlackApiError
 from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import (
-    delete_session_cancel,
     is_session_cancelled,
     usage_limit_reached,
     user_ignored,
@@ -77,6 +76,10 @@ async def _poll_session_cancel(
     Checks periodically whether another replica recorded a
     ``agent_session_stopped`` for this session, and if so tells the tracked
     run to cancel itself.
+
+    Rows are never deleted on consumption; a daily purge cleans old ones.
+    The ``stopped_at`` vs ``event_ts`` cutoff means a row never affects
+    messages sent after the stop.
     """
     while not tracked_run.cancel_requested.is_set():
         await asyncio.sleep(_POLL_INTERVAL_SECONDS)
@@ -89,12 +92,6 @@ async def _poll_session_cancel(
                 event_ts=event_ts,
             ):
                 tracked_run.cancel("user_request")
-                await delete_session_cancel(
-                    pool=pool,
-                    channel_id=channel_id,
-                    thread_ts=thread_ts,
-                    user_id=user_id,
-                )
                 return
         except Exception:
             logfire.exception("Failed to poll session cancellation")
@@ -108,38 +105,18 @@ class SlackTaskHandler(TaskHandler):
         event: SlackAppMentionEvent | SlackMessageEvent = task.event
         thread_ts = event.thread_ts or event.ts
 
-        # Track how many requests are active in this session so we only
-        # transition back to "active" when the last one leaves. This also
-        # sets the busy indicator for retried or proactively accepted tasks
-        # that do not pass through the listener's enqueue-time call.
-        session_count = self._hctx.cancellations.enter_session(event.channel, thread_ts)
-        if session_count == 1:
-            try:
-                await set_status(
-                    client=self._hctx.app.client,
-                    channel_id=event.channel,
-                    thread_ts=thread_ts,
-                    is_busy=True,
-                )
-            except Exception:
-                logfire.exception("Failed to set session busy at worker start")
-
-        # Register before any setup work so a cancellation that lands while we
-        # are still building the agent (MCP servers, thread history, ...) is
-        # not missed: the run can be stopped from outside by a `message_deleted`
-        # event for this message (SlackListener) or by the same user saying
-        # "nevermind" in the thread (the cancel_my_requests tool in a later run).
-        with self._hctx.cancellations.track(
-            event.channel, event.ts, user=event.user, thread_ts=event.thread_ts
-        ) as tracked_run:
-            try:
+        async with self._hctx.cancellations.session(
+            channel=event.channel,
+            thread_ts=thread_ts,
+            client=self._hctx.app.client,
+        ):
+            # Register before any setup work so a cancellation that lands
+            # while we are still building the agent (MCP servers, thread
+            # history, ...) is not missed.
+            with self._hctx.cancellations.track(
+                event.channel, event.ts, user=event.user, thread_ts=event.thread_ts
+            ) as tracked_run:
                 await self._answer(task, tracked_run)
-            finally:
-                remaining = self._hctx.cancellations.exit_session(
-                    event.channel, thread_ts
-                )
-                if remaining == 0:
-                    await _reset_session_status(self._hctx, event.channel, thread_ts)
 
     async def _answer(self, task: Task, tracked_run: TrackedRun) -> None:
         hctx = self._hctx
@@ -290,9 +267,10 @@ class SlackTaskHandler(TaskHandler):
                 stream_events.cancel()
             finally:
                 watcher.cancel()
-                if poller is not None:
-                    poller.cancel()
-                await asyncio.gather(watcher, poller, return_exceptions=True)
+                side_tasks = [t for t in (watcher, poller) if t is not None]
+                for t in side_tasks:
+                    t.cancel()
+                await asyncio.gather(*side_tasks, return_exceptions=True)
 
         if outcome != "completed":
             if outcome == "cancelled":
@@ -307,8 +285,6 @@ class SlackTaskHandler(TaskHandler):
             # When the stream is about to be discarded, skip card appends:
             # append_message_to_stream retries by opening a fresh stream,
             # which orphans the original message.
-            if task_cards is not None and outcome == "completed":
-                await task_cards.close(outcome)
             if response_stream is not None:
                 await response_stream.discard()
             # a normal return acks the task; there is nothing left to answer
