@@ -227,6 +227,42 @@ class TestCancelBeforeClaim:
             status="active",
         )
 
+    async def test_raising_is_session_cancelled_returns_false_no_deletions(
+        self, hctx, pool, monkeypatch
+    ):
+        """If the claim-time DB check raises, the processor is not called
+        and the task is not deleted so another worker can retry."""
+        called = [False]
+
+        async def fake_processor(_hctx, _task):
+            called[0] = True
+
+        monkeypatch.setattr(
+            task_utils, "is_session_cancelled", AsyncMock(side_effect=RuntimeError("db down"))
+        )
+        task = Task(
+            id=45755,
+            event_ts=datetime(2026, 9, 15, tzinfo=UTC),
+            attempts=1,
+            vt=datetime(2026, 9, 15, tzinfo=UTC),
+            claimed=[],
+            event=SlackAppMentionEvent(
+                ts="1700000000.000100",
+                channel="C_CHAN",
+                user="U_USER",
+                team="T_HOME",
+                text="hello",
+                event_ts="1700000000.000100",
+            ),
+        )
+
+        ok = await process_task(fake_processor, hctx, task)
+
+        assert ok is False
+        assert not called[0]
+        assert _deletes(pool) == []
+        assert _lease_updates(pool) == []
+
     async def test_uncancelled_event_is_processed_normally(
         self, hctx, pool, monkeypatch
     ):

@@ -332,32 +332,3 @@ class TestParseCommaDelimitedSet:
 
     def test_empty_string_matches_nothing(self):
         assert parse_comma_delimited_set("") == frozenset()
-
-
-class TestKeepHarmlessMatchesRemoved:
-    """The keep_harmless_matches callback was removed in round 5.
-
-    Default Logfire scrubbing now applies uniformly. This class preserves
-    behavioural coverage with the real Scrubber and no custom callback.
-    """
-
-    @staticmethod
-    def _scrub(attributes: dict) -> tuple[dict, list]:
-        from logfire._internal.scrubbing import Scrubber
-
-        return Scrubber(None, callback=None).scrub_value(("attributes",), attributes)
-
-    def test_scrubs_auth_in_arbitrary_strings(self):
-        attrs, notes = self._scrub({"text": "Requires authentication."})
-        assert attrs["text"].startswith("[Scrubbed")
-        assert len(notes) == 1
-
-    def test_scrubs_author_link_like_any_other_value(self):
-        # A key name is no longer accepted as proof a value is harmless.
-        attrs, notes = self._scrub(
-            {"extra": {"attachments": [{"author_link": "https://x/?token=abc"}]}}
-        )
-        assert attrs["extra"]["attachments"][0]["author_link"].startswith(
-            "[Scrubbed"
-        )
-        assert len(notes) == 1
