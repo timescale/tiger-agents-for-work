@@ -1,4 +1,4 @@
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 from tiger_agent.agent.tiger_agent import TigerAgent
 from tiger_agent.agent.types import AgentResponseContext, ExtraContextDict
