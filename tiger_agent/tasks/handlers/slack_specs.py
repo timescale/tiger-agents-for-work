@@ -255,6 +255,48 @@ class TestCancelDuringSetup:
         assert not hctx.cancellations.is_tracked(CHANNEL, TS)
 
 
+class TestTrackOuterContext:
+    async def test_cancel_during_set_status_is_tracked_and_stops_run(
+        self, handler, hctx, client, monkeypatch
+    ):
+        """track() is the outer context, so registration precedes the awaited
+        set_status in session(). Blocking set_status lets us verify the run
+        is already trackable and that a cancelled run never reaches
+        run_stream_events."""
+        set_status_event = asyncio.Event()
+        release_set_status = asyncio.Event()
+        agent = MagicMock()
+        agent.run_stream_events = MagicMock(return_value=_FakeRunEvents())
+
+        async def blocking_set_status(**_kwargs):
+            set_status_event.set()
+            await release_set_status.wait()
+
+        import tiger_agent.slack.utils as slack_utils_module
+
+        monkeypatch.setattr(slack_utils_module, "set_status", blocking_set_status)
+        monkeypatch.setattr(
+            handler_module,
+            "create_agent_and_context",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    agent=agent, user_prompt="prompt", ctx={}
+                )
+            ),
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(set_status_event.wait(), timeout=1)
+
+        assert hctx.cancellations.is_tracked(CHANNEL, TS)
+        assert hctx.cancellations.cancel(CHANNEL, TS) is True
+        release_set_status.set()
+        await asyncio.wait_for(run, timeout=1)
+
+        agent.run_stream_events.assert_not_called()
+        client.chat_stream.assert_not_awaited()
+        client.reactions_add.assert_not_awaited()
+
+
 class TestSessionStatusOnUnexpectedFailure:
     """An unexpected crash must not strand the session showing "processing"."""
 
@@ -546,6 +588,39 @@ class TestPollSessionCancel:
         assert calls["n"] >= 1
         assert run_events.cancel_calls == 0
         client.reactions_add.assert_awaited_once()
+
+
+class TestDbRecheckBeforeStream:
+    async def test_is_session_cancelled_true_before_stream_cancels_the_run(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """When the post-setup recheck finds a persistent cancel, the flag
+        is set. The run enters run_stream_events but the watcher cancels it
+        immediately, so no reaction is posted and the session resets."""
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        monkeypatch.setattr(
+            handler_module, "is_session_cancelled", AsyncMock(return_value=True)
+        )
+        agent = MagicMock()
+        agent.run_stream_events = MagicMock(return_value=run_events)
+        monkeypatch.setattr(
+            handler_module,
+            "create_agent_and_context",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    agent=agent, user_prompt="prompt", ctx={}
+                )
+            ),
+        )
+        await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        agent.run_stream_events.assert_called_once()
+        assert run_events.cancel_calls == 1
+        client.reactions_add.assert_not_awaited()
+        # stream is discarded (cancelled path), not stopped (completed path)
+        stream.stop.assert_not_awaited()
+        assert client.agents_sessions_setStatus.await_args.kwargs["status"] == "active"
 
 
 class TestResetCalledExactlyOnce:
