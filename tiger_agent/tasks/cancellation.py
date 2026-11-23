@@ -101,39 +101,27 @@ class RunCancellations:
         ``active`` after the last exit, so overlapping requests do not
         erase each other's indicator.
         """
-        count = self.enter_session(channel, thread_ts)
-        if count == 1:
-            try:
-                from tiger_agent.slack.utils import set_status
+        from tiger_agent.slack.utils import set_status
 
+        count = self.enter_session(channel, thread_ts)
+        try:
+            if count == 1:
                 await set_status(
                     client=client,
                     channel_id=channel,
                     thread_ts=thread_ts,
                     is_busy=True,
                 )
-            except Exception:
-                import logfire
-
-                logfire.exception("Failed to set session busy at worker start")
-        try:
             yield count
         finally:
             remaining = self.exit_session(channel, thread_ts)
             if remaining == 0:
-                try:
-                    from tiger_agent.slack.utils import set_status
-
-                    await set_status(
-                        client=client,
-                        channel_id=channel,
-                        thread_ts=thread_ts,
-                        is_busy=False,
-                    )
-                except Exception:
-                    import logfire
-
-                    logfire.exception("Failed to reset session status")
+                await set_status(
+                    client=client,
+                    channel_id=channel,
+                    thread_ts=thread_ts,
+                    is_busy=False,
+                )
 
     @contextlib.contextmanager
     def track(
