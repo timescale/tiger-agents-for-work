@@ -177,12 +177,6 @@ class SlackListener(Listener):
             )
             return
 
-        cancelled = self._hctx.cancellations.cancel_for_user(
-            channel=channel_id,
-            thread=thread_ts,
-            user=user_id,
-        )
-
         # Use Slack's own event timestamp so both sides of the comparison
         # are on the same clock.
         raw_event_ts = event.get("event_ts")
@@ -190,6 +184,13 @@ class SlackListener(Listener):
             datetime.fromtimestamp(float(raw_event_ts), tz=UTC)
             if raw_event_ts
             else datetime.now(UTC)
+        )
+
+        cancelled = self._hctx.cancellations.cancel_for_user(
+            channel=channel_id,
+            thread=thread_ts,
+            user=user_id,
+            stop_event_ts=event_dt,
         )
 
         await record_session_cancel(

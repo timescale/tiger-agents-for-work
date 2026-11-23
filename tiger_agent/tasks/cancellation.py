@@ -24,7 +24,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 RunKey = tuple[str, str]
 CancelReason = Literal["message_deleted", "user_request"]
@@ -38,6 +38,9 @@ class TrackedRun:
     thread: str
     """The thread the run answers in: the parent ``thread_ts``, or ``ts`` itself
     when the triggering message started the thread."""
+    event_ts: Any = None
+    """Timestamp of the Slack event that triggered this run, used to ignore
+    stale stop events delivered after a newer request has started."""
     cancel_requested: asyncio.Event = field(default_factory=asyncio.Event)
     reason: CancelReason | None = None
 
@@ -131,18 +134,22 @@ class RunCancellations:
         *,
         user: str | None = None,
         thread_ts: str | None = None,
+        event_ts=None,
     ) -> Iterator[TrackedRun]:
         """Register a run answering the message ``(channel, ts)``.
 
         ``user`` is who asked and ``thread_ts`` the thread the message is in
         (None when the message is itself the thread root); both feed
-        :meth:`cancel_for_user`. Always unregisters on exit, including when the
-        run raises. If the same key is tracked twice (it should not be, but two
-        workers could in theory hold two attempts of one task) the newer
+        :meth:`cancel_for_user`. ``event_ts`` is the Slack event timestamp,
+        used to ignore stale stop events. Always unregisters on exit, including
+        when the run raises. If the same key is tracked twice (it should not be,
+        but two workers could in theory hold two attempts of one task) the newer
         registration wins and the older one can no longer be reached.
         """
         key = (channel, ts)
-        run = TrackedRun(channel=channel, ts=ts, user=user, thread=thread_ts or ts)
+        run = TrackedRun(
+            channel=channel, ts=ts, user=user, thread=thread_ts or ts, event_ts=event_ts
+        )
         self._runs[key] = run
         try:
             yield run
@@ -172,6 +179,7 @@ class RunCancellations:
         thread: str,
         user: str,
         except_ts: str | None = None,
+        stop_event_ts: Any = None,
         reason: CancelReason = "user_request",
     ) -> int:
         """Stop every run ``user`` started in ``thread`` of ``channel``.
@@ -181,6 +189,10 @@ class RunCancellations:
         other users in the same thread are left alone, so one person cannot
         cancel another's question.
 
+        ``stop_event_ts`` is the timestamp of the stop event itself; only runs
+        whose triggering message was sent *before* the stop are cancelled.
+        This prevents an older, delayed stop from cancelling a newer request.
+
         Returns:
             How many runs were told to stop.
         """
@@ -189,6 +201,8 @@ class RunCancellations:
             if run.channel != channel or run.thread != thread:
                 continue
             if run.user != user or run.ts == except_ts:
+                continue
+            if stop_event_ts is not None and run.event_ts is not None and run.event_ts >= stop_event_ts:
                 continue
             if not run.cancel_requested.is_set():
                 run.cancel(reason)
