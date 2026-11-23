@@ -90,17 +90,20 @@ class SlackTaskHandler(TaskHandler):
         event: SlackAppMentionEvent | SlackMessageEvent = task.event
         thread_ts = event.thread_ts or event.ts
 
-        async with self._hctx.cancellations.session(
-            channel=event.channel,
-            thread_ts=thread_ts,
-            client=self._hctx.app.client,
-        ):
-            # Register before any setup work so a cancellation that lands
-            # while we are still building the agent (MCP servers, thread
-            # history, ...) is not missed.
-            with self._hctx.cancellations.track(
-                event.channel, event.ts, user=event.user, thread_ts=event.thread_ts
-            ) as tracked_run:
+        # Register first so any cancellation request posted while we are
+        # setting up the agent still reaches us.
+        with self._hctx.cancellations.track(
+            event.channel,
+            event.ts,
+            user=event.user,
+            thread_ts=event.thread_ts,
+            event_ts=task.event_ts,
+        ) as tracked_run:
+            async with self._hctx.cancellations.session(
+                channel=event.channel,
+                thread_ts=thread_ts,
+                client=self._hctx.app.client,
+            ):
                 await self._answer(task, tracked_run)
 
     async def _answer(self, task: Task, tracked_run: TrackedRun) -> None:
@@ -177,6 +180,24 @@ class SlackTaskHandler(TaskHandler):
                 reason=tracked_run.reason,
             )
             return
+
+        # Recheck the persistent cutoff: a stop click delivered to another
+        # replica during the setup phase would not have been seen yet by the
+        # poller, which first sleeps before its first query.
+        if event.user is not None:
+            try:
+                if await is_session_cancelled(
+                    pool=hctx.pool,
+                    channel_id=event.channel,
+                    thread_ts=thread_ts,
+                    user_id=event.user,
+                    event_ts=task.event_ts,
+                ):
+                    tracked_run.cancel("user_request")
+            except Exception:
+                logfire.exception(
+                    "Failed to recheck session cancellation after setup"
+                )
 
         response_text_parts: list[str] = []
         outcome: RunOutcome = "completed"
