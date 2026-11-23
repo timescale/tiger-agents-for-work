@@ -521,22 +521,25 @@ class TestPollSessionCancel:
         run_events.queue.put_nowait(
             PartStartEvent(index=0, part=TextPart(content="Here you go."))
         )
-        run_events.queue.put_nowait(None)
 
         calls = {"n": 0}
+        polled = asyncio.Event()
 
         async def flaky(*, pool, channel_id, thread_ts, user_id, event_ts):
             calls["n"] += 1
+            polled.set()
             raise RuntimeError("db unreachable")
 
         monkeypatch.setattr(handler_module, "is_session_cancelled", flaky)
         monkeypatch.setattr(handler_module, "_POLL_INTERVAL_SECONDS", 0.01)
 
-        await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(polled.wait(), timeout=1)
+        run_events.queue.put_nowait(None)
+        await asyncio.wait_for(run, timeout=1)
 
-        # Run completes normally despite polling errors. We shortened the
-        # poll interval so the path could fire, but the stream may finish
-        # before the first poll wakes; the important thing is no crash.
+        # The mocked polling path was actually exercised.
+        assert calls["n"] >= 1
         assert run_events.cancel_calls == 0
         client.reactions_add.assert_awaited_once()
 

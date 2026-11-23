@@ -76,15 +76,12 @@ async def _reset_if_session_empty(hctx, channel: str, thread_ts: str) -> None:
     stuck in processing forever.
     """
     if hctx.cancellations.get_session_count(channel, thread_ts) == 0:
-        try:
-            await set_status(
-                client=hctx.app.client,
-                channel_id=channel,
-                thread_ts=thread_ts,
-                is_busy=False,
-            )
-        except Exception:
-            logfire.exception("Failed to reset session after dropping cancelled task")
+        await set_status(
+            client=hctx.app.client,
+            channel_id=channel,
+            thread_ts=thread_ts,
+            is_busy=False,
+        )
 
 
 async def process_task(

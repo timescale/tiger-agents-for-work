@@ -23,7 +23,6 @@ from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
 from tiger_agent.slack.utils import (
     add_reaction,
     post_response,
-    set_status,
     slack_target_gone,
     stream_response_to_mention,
 )
@@ -32,20 +31,6 @@ from tiger_agent.tasks.handlers.base import TaskHandler
 from tiger_agent.tasks.types import Task
 
 RunOutcome = Literal["completed", "cancelled", "target_gone"]
-
-
-async def _reset_session_status(hctx, channel_id: str, thread_ts: str) -> None:
-    """Take the agent session back to "active" now the run is over.
-
-    The session is left showing "processing" otherwise, whether the run
-    finished, was cancelled, or gave up because the message is gone.
-    """
-    await set_status(
-        client=hctx.app.client,
-        channel_id=channel_id,
-        thread_ts=thread_ts,
-        is_busy=False,
-    )
 
 
 # How often a running worker checks the database for a cross-replica stop.
@@ -266,7 +251,6 @@ class SlackTaskHandler(TaskHandler):
                 )
                 stream_events.cancel()
             finally:
-                watcher.cancel()
                 side_tasks = [t for t in (watcher, poller) if t is not None]
                 for t in side_tasks:
                     t.cancel()
