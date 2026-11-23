@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -83,6 +83,57 @@ class RunCancellations:
             return 0
         self._session_counts[key] = count
         return count
+
+    def get_session_count(self, channel: str, thread: str) -> int:
+        """Return how many requests are currently active in this session."""
+        return self._session_counts.get((channel, thread), 0)
+
+    @contextlib.asynccontextmanager
+    async def session(
+        self,
+        channel: str,
+        thread_ts: str,
+        client,
+    ) -> AsyncIterator[int]:
+        """Enter the session, count it, and exit on scope end.
+
+        Sets the session to ``processing`` on first entry and back to
+        ``active`` after the last exit, so overlapping requests do not
+        erase each other's indicator.
+        """
+        count = self.enter_session(channel, thread_ts)
+        if count == 1:
+            try:
+                from tiger_agent.slack.utils import set_status
+
+                await set_status(
+                    client=client,
+                    channel_id=channel,
+                    thread_ts=thread_ts,
+                    is_busy=True,
+                )
+            except Exception:
+                import logfire
+
+                logfire.exception("Failed to set session busy at worker start")
+        try:
+            yield count
+        finally:
+            remaining = self.exit_session(channel, thread_ts)
+            if remaining == 0:
+                try:
+                    from tiger_agent.slack.utils import set_status
+
+                    await set_status(
+                        client=client,
+                        channel_id=channel,
+                        thread_ts=thread_ts,
+                        is_busy=False,
+                    )
+                except Exception:
+                    import logfire
+
+                    logfire.exception("Failed to reset session status")
 
     @contextlib.contextmanager
     def track(
