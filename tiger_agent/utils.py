@@ -39,14 +39,14 @@ from tiger_agent.mcp.types import MCPDict
 # pydantic-ai's `execute_tool` span and the MCP client's `MCP request:
 # tools/call` span) and the agent's final answer (on `invoke_agent`).
 MODEL_IO_ATTRIBUTES = frozenset(
-    {"gen_ai.tool.call.result", "tool_response", "response", "final_result"}
+    {"gen_ai.tool.call.result", "tool_response", "final_result"}
 )
 
-# Keys that match a scrubbing pattern by accident: "auth" in "author_*"
-# (Slack attachment fields such as author_name and author_link).
+# Slack attachment keys that only look sensitive because they contain "auth"
+# but hold only public metadata. Only scalar values are kept; nested dicts or
+# lists are passed through so Logfire can still scrub anything inside them.
 _HARMLESS_KEYS = frozenset(
     {
-        "author",
         "author_name",
         "author_link",
         "author_icon",
@@ -69,7 +69,8 @@ def keep_harmless_matches(match: logfire.ScrubMatch) -> Any:
       `gen_ai.output.messages`, which Logfire treats as safe, so keeping it
       here exposes nothing new. A match on a key there (e.g. a `password`
       field inside a tool result) is still redacted.
-    - A key that only looks sensitive, such as `author_name`.
+    - A key that only looks sensitive, such as `author_name`. The value must
+      be a scalar; nested structures are left for Logfire to recurse into.
 
     Everything else is redacted as before. Returning None lets Logfire redact.
     """
@@ -77,7 +78,11 @@ def keep_harmless_matches(match: logfire.ScrubMatch) -> Any:
     key = path[-1] if path else None
     matched_key = isinstance(key, str) and match.pattern_match.string == key
     if matched_key:
-        return match.value if key.lower() in _HARMLESS_KEYS else None
+        if key.lower() in _HARMLESS_KEYS and isinstance(
+            match.value, (str, int, float, bool, type(None))
+        ):
+            return match.value
+        return None
 
     in_model_io = (
         len(path) > 1 and path[0] == "attributes" and path[1] in MODEL_IO_ATTRIBUTES

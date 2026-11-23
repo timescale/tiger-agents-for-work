@@ -353,12 +353,12 @@ class TestKeepHarmlessMatches:
         assert "authentication" in attrs["gen_ai.tool.call.result"]
         assert notes == []
 
-    def test_keeps_docs_text_in_mcp_response(self):
+    def test_redacts_generic_response_keys(self):
         attrs, notes = self._scrub(
             {"response": {"structuredContent": {"text": "see auth docs"}}}
         )
-        assert attrs["response"]["structuredContent"]["text"] == "see auth docs"
-        assert notes == []
+        assert attrs["response"]["structuredContent"]["text"].startswith("[Scrubbed")
+        assert len(notes) == 1
 
     def test_still_redacts_secret_keys_inside_tool_results(self):
         attrs, notes = self._scrub(
@@ -395,6 +395,17 @@ class TestKeepHarmlessMatches:
             {"extra": {"event": {"text": "here is my auth token abc"}}}
         )
         assert attrs["extra"]["event"]["text"].startswith("[Scrubbed")
+        assert len(notes) == 1
+
+    def test_redacts_nested_secrets_under_author_keys(self):
+        """A harmless key name holding a dict value must not bypass recursion."""
+        attrs, notes = self._scrub(
+            {"extra": {"attachments": [{"author_name": {"password": "secret"}}]}}
+        )
+        # Because the value is a dict, the callback returns None and Logfire
+        # replaces the entire value with a scrubbed string.
+        author_name = attrs["extra"]["attachments"][0]["author_name"]
+        assert isinstance(author_name, str) and author_name.startswith("[Scrubbed")
         assert len(notes) == 1
 
     def test_redacts_author_password(self):
