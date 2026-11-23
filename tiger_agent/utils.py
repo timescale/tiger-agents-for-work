@@ -15,6 +15,7 @@ production (with full Logfire observability) environments.
 import json
 import logging
 import os
+import re
 from logging.config import dictConfig
 from typing import Any
 
@@ -34,6 +35,49 @@ from tiger_agent.agent.constants import (
 )
 from tiger_agent.agent.types import AgentResponseContext
 from tiger_agent.mcp.types import MCPDict
+
+# Span attributes holding text the model read or wrote: a tool's result (on
+# pydantic-ai's `execute_tool` span and the MCP client's `MCP request:
+# tools/call` span) and the agent's final answer (on `invoke_agent`).
+MODEL_IO_ATTRIBUTES = frozenset(
+    {"gen_ai.tool.call.result", "tool_response", "response", "final_result"}
+)
+
+# Keys that match a scrubbing pattern by accident: "auth" in "author_*"
+# (Slack attachment fields such as author_name and author_link).
+_HARMLESS_KEY = re.compile(r"^author(?:_|$)", re.IGNORECASE)
+
+
+def keep_harmless_matches(match: logfire.ScrubMatch) -> Any:
+    """Logfire scrubbing callback: keep matches that are not secrets.
+
+    The default scrubber redacts any string containing words like "auth" or
+    "credit card", which wipes out most docs search results (an IP allow list
+    page mentions authentication) and any answer that mentions them. Two kinds
+    of match are kept:
+
+    - Text in a tool result or the final answer. The same text is already
+      logged unscrubbed in the model calls' `gen_ai.input.messages` /
+      `gen_ai.output.messages`, which Logfire treats as safe, so keeping it
+      here exposes nothing new. A match on a key there (e.g. a `password`
+      field inside a tool result) is still redacted.
+    - A key that only looks sensitive, such as `author_name`.
+
+    Everything else is redacted as before. Returning None lets Logfire redact.
+    """
+    path = match.path
+    key = path[-1] if path else None
+    matched_key = isinstance(key, str) and match.pattern_match.string == key
+    if matched_key:
+        return match.value if _HARMLESS_KEY.match(key) else None
+
+    in_model_io = (
+        len(path) > 1 and path[0] == "attributes" and path[1] in MODEL_IO_ATTRIBUTES
+    )
+    matched_in_value = (
+        isinstance(match.value, str) and match.pattern_match.string == match.value
+    )
+    return match.value if in_model_io and matched_in_value else None
 
 
 def setup_logging(service_name: str = "tiger-agent") -> None:
@@ -69,6 +113,7 @@ def setup_logging(service_name: str = "tiger-agent") -> None:
         logfire.configure(
             service_name=os.getenv("SERVICE_NAME", service_name),
             service_version=__version__,
+            scrubbing=logfire.ScrubbingOptions(callback=keep_harmless_matches),
         )
 
         # Set up all the logfire instrumentation

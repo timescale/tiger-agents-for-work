@@ -20,7 +20,11 @@
         "description": "Slash commands creating a Salesforce case. Should match SLACK_CREATE_SALESFORCE_CASE_COMMAND",
         "should_escape": true
       }
-    ]
+    ],
+    "assistant_view": {
+      "assistant_description": "Ask the agent a question in a thread.",
+      "suggested_prompts": []
+    }
   },
   "oauth_config": {
     "scopes": {
@@ -41,13 +45,15 @@
         "files:read",
         "files:write",
         "team:read",
-        "usergroups:read"
+        "usergroups:read",
+        "assistant:write"
       ]
     }
   },
   "settings": {
     "event_subscriptions": {
       "bot_events": [
+        "agent_session_stopped",
         "app_mention",
         "message.channels",
         "message.im"

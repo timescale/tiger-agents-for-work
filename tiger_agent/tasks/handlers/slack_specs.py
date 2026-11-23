@@ -43,6 +43,8 @@ class _FakeRunEvents:
             raise RunCancelled("The agent run was cancelled.")
         if item is None:
             raise StopAsyncIteration
+        if isinstance(item, BaseException):
+            raise item
         return item
 
     def cancel(self) -> None:
@@ -154,11 +156,11 @@ class TestCancelOnMessageDeleted:
 
         assert run_events.cancel_calls == 1
         assert not hctx.cancellations.is_tracked(CHANNEL, TS)
-        # the partial intro is removed and the status cleared
+        # the partial intro is removed and the session goes back to active
         client.chat_delete.assert_awaited_once_with(
             channel=CHANNEL, ts=stream._stream_ts
         )
-        assert client.assistant_threads_setStatus.await_args.kwargs["status"] == ""
+        assert client.agents_sessions_setStatus.await_args.kwargs["status"] == "active"
         # nothing celebrates a run that answered nobody
         client.reactions_add.assert_not_awaited()
 
@@ -246,5 +248,39 @@ class TestCancelDuringSetup:
         agent.run_stream_events.assert_not_called()
         client.chat_stream.assert_not_awaited()
         client.reactions_add.assert_not_awaited()
-        assert client.assistant_threads_setStatus.await_args.kwargs["status"] == ""
+        assert client.agents_sessions_setStatus.await_args.kwargs["status"] == "active"
         assert not hctx.cancellations.is_tracked(CHANNEL, TS)
+
+
+class TestSessionStatusOnUnexpectedFailure:
+    """An unexpected crash must not strand the session showing "processing"."""
+
+    async def test_an_unexpected_error_still_resets_the_session_status(
+        self, handler, hctx, client, run_events
+    ):
+        client.chat_stream = AsyncMock(return_value=_live_stream())
+        run_events.queue.put_nowait(RuntimeError("model blew up"))
+
+        with pytest.raises(RuntimeError, match="model blew up"):
+            await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        assert statuses and statuses[-1] == "active", (
+            f"session left as {statuses[-1] if statuses else 'unset'!r}"
+        )
+
+    async def test_the_run_is_untracked_after_an_unexpected_error(
+        self, handler, hctx, client, run_events
+    ):
+        """track()'s finally always runs, so the registry must not leak."""
+        client.chat_stream = AsyncMock(return_value=_live_stream())
+        run_events.queue.put_nowait(RuntimeError("model blew up"))
+
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        assert not hctx.cancellations.is_tracked(CHANNEL, TS)
+

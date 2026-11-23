@@ -22,6 +22,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
 )
 from tiger_agent.slack.constants import (
+    AGENT_SESSION_STOPPED,
     CONFIRM_PROACTIVE_PROMPT,
     FEEDBACK_FORM_SUBMIT,
     FEEDBACK_FORM_TRIGGER,
@@ -118,6 +119,8 @@ class SlackListener(Listener):
         self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
         self._app.event("app_mention")(self._on_slack_event)
 
+        self._app.event(AGENT_SESSION_STOPPED)(self._on_slack_cancel_agent)
+
         handler = AsyncSocketModeHandler(self._app, app_token=SLACK_APP_TOKEN)
         tasks.create_task(self._run_socket_mode(handler))
 
@@ -143,6 +146,44 @@ class SlackListener(Listener):
         await insert_event(self._pool, event)
         await ack()
         await self._trigger.put(True)
+
+    async def _on_slack_cancel_agent(self, ack: AsyncAck, event: dict[str, Any]):
+        """Stop the runs behind the agent session the user just stopped.
+
+        The event names the session (channel + thread) and who stopped it, not
+        the message ts a run is registered under, so this cancels by
+        ``(channel, thread, user)``. Runs other people started in the same
+        thread are left alone, exactly as for "nevermind" in-thread.
+        """
+        await ack()
+
+        channel_id = event.get("channel")
+        # the thread is `ts` itself when the triggering message started it,
+        # matching how RunCancellations.track records a run's thread
+        thread_ts = event.get("thread_ts") or event.get("ts")
+        user_id = event.get("user")
+
+        if not channel_id or not thread_ts or not user_id:
+            logfire.warn(
+                "agent_session_stopped is missing the ids needed to cancel",
+                channel=channel_id,
+                thread_ts=thread_ts,
+                user=user_id,
+            )
+            return
+
+        cancelled = self._hctx.cancellations.cancel_for_user(
+            channel=channel_id,
+            thread=thread_ts,
+            user=user_id,
+        )
+        logfire.info(
+            "Agent session stopped by the user",
+            channel=channel_id,
+            thread_ts=thread_ts,
+            user=user_id,
+            cancelled=cancelled,
+        )
 
     async def _on_slack_admin_command(
         self, ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]

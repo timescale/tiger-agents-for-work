@@ -9,8 +9,7 @@ from slack_sdk.errors import SlackApiError
 from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.agent.utils import create_agent_and_context
 from tiger_agent.db.utils import usage_limit_reached, user_ignored
-from tiger_agent.slack.status import (
-    ResponseStatus,
+from tiger_agent.slack.events import (
     StreamEventSink,
     make_subagent_event_handler,
 )
@@ -20,6 +19,7 @@ from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
 from tiger_agent.slack.utils import (
     add_reaction,
     post_response,
+    set_status,
     slack_target_gone,
     stream_response_to_mention,
 )
@@ -28,6 +28,20 @@ from tiger_agent.tasks.handlers.base import TaskHandler
 from tiger_agent.tasks.types import Task
 
 RunOutcome = Literal["completed", "cancelled", "target_gone"]
+
+
+async def _reset_session_status(hctx, channel_id: str, thread_ts: str) -> None:
+    """Take the agent session back to "active" now the run is over.
+
+    The session is left showing "processing" otherwise, whether the run
+    finished, was cancelled, or gave up because the message is gone.
+    """
+    await set_status(
+        client=hctx.app.client,
+        channel_id=channel_id,
+        thread_ts=thread_ts,
+        is_busy=False,
+    )
 
 
 async def _cancel_when_requested(cancel_requested: asyncio.Event, run_events) -> None:
@@ -56,7 +70,17 @@ class SlackTaskHandler(TaskHandler):
         with self._hctx.cancellations.track(
             event.channel, event.ts, user=event.user, thread_ts=event.thread_ts
         ) as tracked_run:
-            await self._answer(task, tracked_run)
+            try:
+                await self._answer(task, tracked_run)
+            except Exception:
+                # _answer resets the session on every path it controls, but an
+                # unexpected failure would otherwise leave the thread showing
+                # "processing" forever: the task is retried or dropped, and
+                # nothing else ever takes that status back to "active".
+                await _reset_session_status(
+                    self._hctx, event.channel, event.thread_ts or event.ts
+                )
+                raise
 
     async def _answer(self, task: Task, tracked_run: TrackedRun) -> None:
         hctx = self._hctx
@@ -105,17 +129,15 @@ class SlackTaskHandler(TaskHandler):
             else None
         )
 
-        # Everything the agent tree does flows through these sinks:
-        # - the thread's assistant status (coordinator and sub-agent tool
-        #   calls, refreshed before Slack's two-minute expiry)
-        # - one task card per delegated sub-agent inside the streamed reply,
-        #   whose updates also keep that stream alive through a long delegation
-        status = ResponseStatus(
-            client=hctx.app.client, channel_id=event.channel, thread_ts=thread_ts
-        )
-        sinks: list[StreamEventSink] = [status]
+        # Everything the agent tree does flows through these sinks: one task
+        # card per agent inside the streamed reply (the coordinator's own, plus
+        # one per delegated sub-agent) listing the tools it calls. Those
+        # updates also keep the stream alive through a long delegation.
+        sinks: list[StreamEventSink] = []
+        task_cards: TaskCards | None = None
         if response_stream is not None:
-            sinks.append(TaskCards(response_stream))
+            task_cards = TaskCards(response_stream)
+            sinks.append(task_cards)
 
         agent_and_ctx = await create_agent_and_context(
             hctx=hctx,
@@ -133,10 +155,9 @@ class SlackTaskHandler(TaskHandler):
                 ts=event.ts,
                 reason=tracked_run.reason,
             )
-            await status.clear()
+            await _reset_session_status(hctx, event.channel, thread_ts)
             return
 
-        await status.set(None)
         response_text_parts: list[str] = []
         outcome: RunOutcome = "completed"
 
@@ -209,12 +230,17 @@ class SlackTaskHandler(TaskHandler):
                     ts=event.ts,
                     reason=tracked_run.reason,
                 )
+            if task_cards is not None:
+                # while the stream is still writable: discard() closes it
+                await task_cards.close(outcome)
             if response_stream is not None:
                 await response_stream.discard()
-            await status.clear()
+            await _reset_session_status(hctx, event.channel, thread_ts)
             # a normal return acks the task; there is nothing left to answer
             return
 
+        if task_cards is not None:
+            await task_cards.close()
         if response_stream is not None:
             await response_stream.stop()
         else:
@@ -227,5 +253,5 @@ class SlackTaskHandler(TaskHandler):
                     text=response_text,
                 )
 
-        await status.clear()
+        await _reset_session_status(hctx, event.channel, thread_ts)
         await add_reaction(hctx.app.client, event.channel, event.ts, "white_check_mark")

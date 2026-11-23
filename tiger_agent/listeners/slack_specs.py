@@ -231,3 +231,111 @@ class TestOnMessageDeleted:
         await listener._on_message(ack=AsyncMock(), event=event)
 
         delete_unclaimed.assert_awaited_once()
+
+
+class TestOnSlackCancelAgent:
+    """The Slack stop button cancels that user's runs in the session's thread."""
+
+    async def test_stopping_a_session_cancels_the_users_run_in_that_thread(
+        self, listener, hctx
+    ):
+        with hctx.cancellations.track(
+            "C_CHAN",
+            "1700000000.000100",
+            user="U_ASKER",
+            thread_ts="1700000000.000001",
+        ) as run:
+            await listener._on_slack_cancel_agent(
+                ack=AsyncMock(),
+                event={
+                    "type": "agent_session_stopped",
+                    "channel": "C_CHAN",
+                    "thread_ts": "1700000000.000001",
+                    "user": "U_ASKER",
+                },
+            )
+            assert run.cancel_requested.is_set()
+            assert run.reason == "user_request"
+
+    async def test_a_thread_root_run_is_found_when_the_event_has_no_thread_ts(
+        self, listener, hctx
+    ):
+        """track() falls back to ts for a thread root; the handler must match."""
+        with hctx.cancellations.track(
+            "C_CHAN", "1700000000.000100", user="U_ASKER"
+        ) as run:
+            await listener._on_slack_cancel_agent(
+                ack=AsyncMock(),
+                event={
+                    "type": "agent_session_stopped",
+                    "channel": "C_CHAN",
+                    "ts": "1700000000.000100",
+                    "user": "U_ASKER",
+                },
+            )
+            assert run.cancel_requested.is_set()
+
+    async def test_another_users_run_in_the_same_thread_is_left_alone(
+        self, listener, hctx
+    ):
+        with hctx.cancellations.track(
+            "C_CHAN",
+            "1700000000.000100",
+            user="U_SOMEONE_ELSE",
+            thread_ts="1700000000.000001",
+        ) as run:
+            await listener._on_slack_cancel_agent(
+                ack=AsyncMock(),
+                event={
+                    "type": "agent_session_stopped",
+                    "channel": "C_CHAN",
+                    "thread_ts": "1700000000.000001",
+                    "user": "U_ASKER",
+                },
+            )
+            assert not run.cancel_requested.is_set()
+
+    async def test_the_event_is_always_acked(self, listener, hctx):
+        ack = AsyncMock()
+        await listener._on_slack_cancel_agent(
+            ack=ack,
+            event={
+                "type": "agent_session_stopped",
+                "channel": "C_CHAN",
+                "thread_ts": "1700000000.000001",
+                "user": "U_ASKER",
+            },
+        )
+        ack.assert_awaited_once()
+
+    async def test_a_payload_missing_the_user_is_quiet(self, listener, hctx):
+        ack = AsyncMock()
+        with hctx.cancellations.track(
+            "C_CHAN",
+            "1700000000.000100",
+            user="U_ASKER",
+            thread_ts="1700000000.000001",
+        ) as run:
+            await listener._on_slack_cancel_agent(
+                ack=ack,
+                event={
+                    "type": "agent_session_stopped",
+                    "channel": "C_CHAN",
+                    "thread_ts": "1700000000.000001",
+                },
+            )
+            assert not run.cancel_requested.is_set()
+        ack.assert_awaited_once()
+
+    async def test_nothing_in_flight_is_not_an_error(self, listener, hctx):
+        await listener._on_slack_cancel_agent(
+            ack=AsyncMock(),
+            event={
+                "type": "agent_session_stopped",
+                "channel": "C_CHAN",
+                "thread_ts": "1700000000.000001",
+                "user": "U_ASKER",
+            },
+        )
+        assert hctx.cancellations.running == 0
+

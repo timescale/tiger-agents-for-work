@@ -621,47 +621,28 @@ async def set_status(
     channel_id: str,
     thread_ts: str,
     is_busy: bool,
-    message: str | None = None,
-) -> AsyncSlackResponse:
-    """Set the status indicator for an assistant thread.
+) -> None:
+    """Set the status indicator for an agent session.
 
     Args:
         client: Slack web client for API calls
         channel_id: ID of the Slack channel containing the thread
         thread_ts: Timestamp of the thread to update status for
-        message: Custom status message to display (truncated to 47 chars if longer)
-        is_busy: Whether to show busy status with loading messages
-
-    Returns:
-        Response from Slack API
+        is_busy: True while the agent is working ("processing"), False once it
+            is done ("active").
 
     Note:
-        If message is None and is_busy=True, displays random loading messages.
-        Exceptions are logged but not re-raised.
+        Exceptions are logged but not re-raised: a status indicator is
+        decoration and must never take a response down.
     """
-    truncated_message = (
-        message[:47] + "..." if message and len(message) > 50 else message
-    )
     try:
-        return await client.assistant_threads_setStatus(
+        await client.agents_sessions_setStatus(
             channel_id=channel_id,
             thread_ts=thread_ts,
-            status="is responding..." if is_busy else "",
-            loading_messages=[truncated_message]
-            if truncated_message
-            else [
-                "Prowling for info...",
-                "Hunting for the truth...",
-                "Stalking data...",
-                "Getting ready to pounce on the answer...",
-                "Fishing up the right stream...",
-                "Devouring data...",
-                "Chuffling...",
-                "Pacing...",
-            ],
+            status="processing" if is_busy else "active",
         )
     except Exception:
-        logfire.exception("Failed to set status of assistant", message=message)
+        logfire.exception("Failed to set status of agent session")
 
 
 async def append_message_to_stream(

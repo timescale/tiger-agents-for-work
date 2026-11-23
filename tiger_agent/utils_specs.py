@@ -332,3 +332,67 @@ class TestParseCommaDelimitedSet:
 
     def test_empty_string_matches_nothing(self):
         assert parse_comma_delimited_set("") == frozenset()
+
+
+class TestKeepHarmlessMatches:
+    @staticmethod
+    def _scrub(attributes: dict) -> tuple[dict, list]:
+        from logfire._internal.scrubbing import Scrubber
+
+        from tiger_agent.utils import keep_harmless_matches
+
+        return Scrubber(None, keep_harmless_matches).scrub_value(
+            ("attributes",), attributes
+        )
+
+    def test_keeps_docs_text_in_execute_tool_result(self):
+        result = (
+            '{"results": [{"content": "Requires authentication with a credit card."}]}'
+        )
+        attrs, notes = self._scrub({"gen_ai.tool.call.result": result})
+        assert "authentication" in attrs["gen_ai.tool.call.result"]
+        assert notes == []
+
+    def test_keeps_docs_text_in_mcp_response(self):
+        attrs, notes = self._scrub(
+            {"response": {"structuredContent": {"text": "see auth docs"}}}
+        )
+        assert attrs["response"]["structuredContent"]["text"] == "see auth docs"
+        assert notes == []
+
+    def test_still_redacts_secret_keys_inside_tool_results(self):
+        attrs, notes = self._scrub(
+            {"gen_ai.tool.call.result": {"password": "hunter2", "ok": "fine"}}
+        )
+        assert attrs["gen_ai.tool.call.result"]["password"] != "hunter2"
+        assert attrs["gen_ai.tool.call.result"]["ok"] == "fine"
+        assert len(notes) == 1
+
+    def test_still_redacts_outside_tool_results(self):
+        attrs, notes = self._scrub({"note": "my api key is abc123"})
+        assert attrs["note"].startswith("[Scrubbed")
+        assert len(notes) == 1
+
+    def test_keeps_final_answer_text(self):
+        attrs, notes = self._scrub(
+            {"final_result": "Authentication: SAML is Enterprise only."}
+        )
+        assert attrs["final_result"] == "Authentication: SAML is Enterprise only."
+        assert notes == []
+
+    def test_keeps_author_keys(self):
+        attrs, notes = self._scrub(
+            {"extra": {"attachments": [{"author_name": "Bot", "author_id": "B1"}]}}
+        )
+        assert attrs["extra"]["attachments"][0] == {
+            "author_name": "Bot",
+            "author_id": "B1",
+        }
+        assert notes == []
+
+    def test_still_redacts_slack_text_outside_model_io(self):
+        attrs, notes = self._scrub(
+            {"extra": {"event": {"text": "here is my auth token abc"}}}
+        )
+        assert attrs["extra"]["event"]["text"].startswith("[Scrubbed")
+        assert len(notes) == 1
