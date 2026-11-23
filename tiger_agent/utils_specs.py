@@ -396,3 +396,12 @@ class TestKeepHarmlessMatches:
         )
         assert attrs["extra"]["event"]["text"].startswith("[Scrubbed")
         assert len(notes) == 1
+
+    def test_redacts_author_password(self):
+        attrs, notes = self._scrub(
+            {"extra": {"attachments": [{"author_password": "secret"}]}}
+        )
+        assert attrs["extra"]["attachments"][0]["author_password"].startswith(
+            "[Scrubbed"
+        )
+        assert len(notes) == 1

@@ -15,7 +15,6 @@ production (with full Logfire observability) environments.
 import json
 import logging
 import os
-import re
 from logging.config import dictConfig
 from typing import Any
 
@@ -45,7 +44,16 @@ MODEL_IO_ATTRIBUTES = frozenset(
 
 # Keys that match a scrubbing pattern by accident: "auth" in "author_*"
 # (Slack attachment fields such as author_name and author_link).
-_HARMLESS_KEY = re.compile(r"^author(?:_|$)", re.IGNORECASE)
+_HARMLESS_KEYS = frozenset(
+    {
+        "author",
+        "author_name",
+        "author_link",
+        "author_icon",
+        "author_id",
+        "author_subname",
+    }
+)
 
 
 def keep_harmless_matches(match: logfire.ScrubMatch) -> Any:
@@ -69,7 +77,7 @@ def keep_harmless_matches(match: logfire.ScrubMatch) -> Any:
     key = path[-1] if path else None
     matched_key = isinstance(key, str) and match.pattern_match.string == key
     if matched_key:
-        return match.value if _HARMLESS_KEY.match(key) else None
+        return match.value if key.lower() in _HARMLESS_KEYS else None
 
     in_model_io = (
         len(path) > 1 and path[0] == "attributes" and path[1] in MODEL_IO_ATTRIBUTES
