@@ -4,7 +4,14 @@ import logging
 
 import logfire
 
-from tiger_agent.db.utils import claim_event, delete_event, extend_event_visibility
+from tiger_agent.db.utils import (
+    claim_event,
+    delete_event,
+    extend_event_visibility,
+    is_session_cancelled,
+)
+from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
+from tiger_agent.slack.utils import set_status
 from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -53,6 +60,52 @@ async def _heartbeat(hctx: HarnessContext, task: Task) -> None:
             return
 
 
+async def _drop_cancelled_event(pool, task_id: int) -> None:
+    """Remove a claimed event that was stopped before it was picked up."""
+    async with (
+        pool.connection() as con,
+        con.transaction() as _,
+    ):
+        await con.execute("DELETE FROM agent.event WHERE id = %s", (task_id,))
+
+
+async def _reset_if_session_empty(hctx, channel: str, thread_ts: str) -> None:
+    """Set the session back to active only if no local runs remain.
+
+    Called after dropping a cancelled task so the session does not stay
+    stuck in processing forever.
+    """
+    if hctx.cancellations.get_session_count(channel, thread_ts) == 0:
+        await set_status(
+            client=hctx.app.client,
+            channel_id=channel,
+            thread_ts=thread_ts,
+            is_busy=False,
+        )
+
+
+async def _cancelled_at_claim(
+    pool, task: Task
+) -> tuple[str | None, bool]:
+    """Check whether this claimed task should be dropped because a stop
+    arrived while it was still queued. Returns ``(thread_ts, True)`` when
+    the task should be dropped, ``(None, False)`` otherwise."""
+    if (
+        isinstance(task.event, (SlackAppMentionEvent, SlackMessageEvent))
+        and task.event.user
+    ):
+        thread_ts = task.event.thread_ts or task.event.ts
+        if await is_session_cancelled(
+            pool=pool,
+            channel_id=task.event.channel,
+            thread_ts=thread_ts,
+            user_id=task.event.user,
+            event_ts=task.event_ts,
+        ):
+            return thread_ts, True
+    return None, False
+
+
 async def process_task(
     task_processor: TaskProcessor, hctx: HarnessContext, task: Task
 ) -> bool:
@@ -63,15 +116,33 @@ async def process_task(
     task as completed. On failure, leaves the task in the queue for retry by
     other workers.
 
+    If the event was cancelled before claim (e.g. a stop click landed while
+    the task was still queued), the event is dropped without archiving.
+
     Args:
         task: The claimed task to process
 
     Returns:
-        bool: True if processing succeeded, False if it failed
+        bool: True if processing succeeded or the task was already cancelled,
+              False if processing failed
     """
     with logfire.span("process_task", task=task) as _:
         heartbeat = asyncio.create_task(_heartbeat(hctx, task))
         try:
+            # Check persistent cancellation: a stop click may have arrived
+            # on another replica before this worker claimed the task.
+            thread_ts, dropped = await _cancelled_at_claim(hctx.pool, task)
+            if dropped:
+                logfire.info(
+                    "Dropping already-cancelled event",
+                    task_id=task.id,
+                    channel=task.event.channel,
+                    thread_ts=thread_ts,
+                )
+                await _drop_cancelled_event(hctx.pool, task.id)
+                await _reset_if_session_empty(hctx, task.event.channel, thread_ts)
+                return True
+
             await task_processor(hctx, task)
             await delete_event(pool=hctx.pool, event=task)
             return True

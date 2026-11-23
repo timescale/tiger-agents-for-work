@@ -153,3 +153,26 @@ class TestCancelForUser:
             assert registry.cancel_for_user(channel="C1", thread="1.0", user="U_A") == 0
             # the first reason sticks
             assert run.reason == "message_deleted"
+
+    def test_stop_event_ts_skips_newer_runs(self):
+        registry = RunCancellations()
+        from datetime import UTC, datetime
+
+        T = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+        older_ts = datetime(2026, 1, 1, 11, 0, 0, tzinfo=UTC)
+        newer_ts = datetime(2026, 1, 1, 13, 0, 0, tzinfo=UTC)
+
+        with (
+            registry.track(
+                "C1", "1.0", user="U_A", thread_ts=None, event_ts=older_ts
+            ) as run_old,
+            registry.track(
+                "C1", "2.0", user="U_A", thread_ts=None, event_ts=newer_ts
+            ) as run_new,
+        ):
+            cancelled = registry.cancel_for_user(
+                channel="C1", thread="1.0", user="U_A", stop_event_ts=T
+            )
+            assert cancelled == 1
+            assert run_old.cancel_requested.is_set()
+            assert not run_new.cancel_requested.is_set()

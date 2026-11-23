@@ -1,6 +1,7 @@
 import json
 import re
 from asyncio import TaskGroup
+from datetime import UTC, datetime
 from typing import Any
 
 import logfire
@@ -14,6 +15,7 @@ from tiger_agent.db.utils import (
     get_salesforce_case_thread_case_id,
     insert_event,
     insert_handled_event,
+    record_session_cancel,
     upsert_feedback_request_reminder,
 )
 from tiger_agent.listeners import Listener
@@ -22,6 +24,7 @@ from tiger_agent.salesforce.types import (
     SalesforceCreateNewCaseEvent,
 )
 from tiger_agent.slack.constants import (
+    AGENT_SESSION_STOPPED,
     CONFIRM_PROACTIVE_PROMPT,
     FEEDBACK_FORM_SUBMIT,
     FEEDBACK_FORM_TRIGGER,
@@ -118,6 +121,8 @@ class SlackListener(Listener):
         self._app.command(re.compile(r"\/.*"))(self._on_slack_admin_command)
         self._app.event("app_mention")(self._on_slack_event)
 
+        self._app.event(AGENT_SESSION_STOPPED)(self._on_slack_cancel_agent)
+
         handler = AsyncSocketModeHandler(self._app, app_token=SLACK_APP_TOKEN)
         tasks.create_task(self._run_socket_mode(handler))
 
@@ -143,6 +148,78 @@ class SlackListener(Listener):
         await insert_event(self._pool, event)
         await ack()
         await self._trigger.put(True)
+
+    async def _on_slack_cancel_agent(self, ack: AsyncAck, event: dict[str, Any]):
+        """Stop the runs behind the agent session the user just stopped.
+
+        The event names the session (channel + thread) and who stopped it, not
+        the message ts a run is registered under, so this cancels by
+        ``(channel, thread, user)``. Runs other people started in the same
+        thread are left alone, exactly as for "nevermind" in-thread.
+
+        The cancel is also persisted so workers on other replicas see it at
+        claim time or during their run.
+        """
+        await ack()
+
+        channel_id = event.get("channel")
+        # Slack's agent_session_stopped payload names the thread with
+        # thread_ts; there is no ts fallback.
+        thread_ts = event.get("thread_ts")
+        user_id = event.get("user")
+
+        if not channel_id or not thread_ts or not user_id:
+            logfire.warn(
+                "agent_session_stopped is missing the ids needed to cancel",
+                channel=channel_id,
+                thread_ts=thread_ts,
+                user=user_id,
+            )
+            return
+
+        # Use Slack's own event timestamp so both sides of the comparison
+        # are on the same clock.
+        raw_event_ts = event.get("event_ts")
+        event_dt = (
+            datetime.fromtimestamp(float(raw_event_ts), tz=UTC)
+            if raw_event_ts
+            else datetime.now(UTC)
+        )
+
+        cancelled = self._hctx.cancellations.cancel_for_user(
+            channel=channel_id,
+            thread=thread_ts,
+            user=user_id,
+            stop_event_ts=event_dt,
+        )
+
+        await record_session_cancel(
+            pool=self._pool,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            user_id=user_id,
+            event_ts=event_dt,
+        )
+
+        # If no local runs remain in this session, move the status out of
+        # processing so the session does not stay stuck.
+        if not self._hctx.cancellations.get_session_count(
+            channel_id, thread_ts
+        ):
+            await set_status(
+                client=self._app.client,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                is_busy=False,
+            )
+
+        logfire.info(
+            "Agent session stopped by the user",
+            channel=channel_id,
+            thread_ts=thread_ts,
+            user=user_id,
+            cancelled=cancelled,
+        )
 
     async def _on_slack_admin_command(
         self, ack: AsyncAck, respond: AsyncRespond, command: dict[str, Any]
@@ -196,8 +273,13 @@ class SlackListener(Listener):
         # has to come before the user check below.
         if subtype == "message_deleted":
             deleted_ts = event.get("deleted_ts")
+            # For thread replies the deleted_ts is the message itself, but the
+            # session we need to reset is the parent thread.
+            thread_ts = (event.get("previous_message") or {}).get("thread_ts") or deleted_ts
             if channel and deleted_ts:
-                await self._on_message_deleted(channel=channel, deleted_ts=deleted_ts)
+                await self._on_message_deleted(
+                    channel=channel, deleted_ts=deleted_ts, thread_ts=thread_ts
+                )
             return
 
         # since Slack does not allow custom workflow event handlers to be called from external
@@ -296,7 +378,9 @@ class SlackListener(Listener):
                 event_hist_id=event_hist_id,
             )
 
-    async def _on_message_deleted(self, channel: str, deleted_ts: str) -> None:
+    async def _on_message_deleted(
+        self, channel: str, deleted_ts: str, thread_ts: str
+    ) -> None:
         """Stop answering a message that no longer exists.
 
         Cancels the in-flight run on this process (if any) and drops any task
@@ -308,6 +392,17 @@ class SlackListener(Listener):
         dropped = await delete_unclaimed_slack_events(
             self._pool, channel=channel, ts=deleted_ts
         )
+        # If tasks were dropped and no local runs are active in the thread,
+        # reset the session so it does not stay stuck in processing.
+        if dropped > 0 and not self._hctx.cancellations.get_session_count(
+            channel, thread_ts
+        ):
+            await set_status(
+                client=self._app.client,
+                channel_id=channel,
+                thread_ts=thread_ts,
+                is_busy=False,
+            )
         logfire.info(
             "Slack message deleted",
             channel=channel,

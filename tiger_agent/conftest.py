@@ -81,7 +81,7 @@ def _make_async_web_client_mock(**overrides) -> MagicMock:
         "files_info": {"ok": True, "file": {}},
         "files_upload_v2": {"ok": True},
         "auth_test": {"ok": True, "user_id": "U_BOT", "team_id": "T_HOME"},
-        "assistant_threads_setStatus": {"ok": True},
+        "agents_sessions_setStatus": {"ok": True},
     }
     for method_name, default_return in method_defaults.items():
         setattr(client, method_name, AsyncMock(return_value=default_return))

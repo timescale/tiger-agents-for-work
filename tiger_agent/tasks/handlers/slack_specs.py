@@ -43,6 +43,8 @@ class _FakeRunEvents:
             raise RunCancelled("The agent run was cancelled.")
         if item is None:
             raise StopAsyncIteration
+        if isinstance(item, BaseException):
+            raise item
         return item
 
     def cancel(self) -> None:
@@ -113,6 +115,9 @@ def handler(hctx, run_events, monkeypatch) -> SlackTaskHandler:
     monkeypatch.setattr(
         handler_module, "usage_limit_reached", AsyncMock(return_value=False)
     )
+    monkeypatch.setattr(
+        handler_module, "is_session_cancelled", AsyncMock(return_value=False)
+    )
     agent = MagicMock()
     agent.run_stream_events = MagicMock(return_value=run_events)
     monkeypatch.setattr(
@@ -154,11 +159,11 @@ class TestCancelOnMessageDeleted:
 
         assert run_events.cancel_calls == 1
         assert not hctx.cancellations.is_tracked(CHANNEL, TS)
-        # the partial intro is removed and the status cleared
+        # the partial intro is removed and the session goes back to active
         client.chat_delete.assert_awaited_once_with(
             channel=CHANNEL, ts=stream._stream_ts
         )
-        assert client.assistant_threads_setStatus.await_args.kwargs["status"] == ""
+        assert client.agents_sessions_setStatus.await_args.kwargs["status"] == "active"
         # nothing celebrates a run that answered nobody
         client.reactions_add.assert_not_awaited()
 
@@ -246,5 +251,416 @@ class TestCancelDuringSetup:
         agent.run_stream_events.assert_not_called()
         client.chat_stream.assert_not_awaited()
         client.reactions_add.assert_not_awaited()
-        assert client.assistant_threads_setStatus.await_args.kwargs["status"] == ""
+        assert client.agents_sessions_setStatus.await_args.kwargs["status"] == "active"
         assert not hctx.cancellations.is_tracked(CHANNEL, TS)
+
+
+class TestTrackOuterContext:
+    async def test_cancel_during_set_status_is_tracked_and_stops_run(
+        self, handler, hctx, client, monkeypatch
+    ):
+        """track() is the outer context, so registration precedes the awaited
+        set_status in session(). Blocking set_status lets us verify the run
+        is already trackable and that a cancelled run never reaches
+        run_stream_events."""
+        set_status_event = asyncio.Event()
+        release_set_status = asyncio.Event()
+        agent = MagicMock()
+        agent.run_stream_events = MagicMock(return_value=_FakeRunEvents())
+
+        async def blocking_set_status(**_kwargs):
+            set_status_event.set()
+            await release_set_status.wait()
+
+        import tiger_agent.slack.utils as slack_utils_module
+
+        monkeypatch.setattr(slack_utils_module, "set_status", blocking_set_status)
+        monkeypatch.setattr(
+            handler_module,
+            "create_agent_and_context",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    agent=agent, user_prompt="prompt", ctx={}
+                )
+            ),
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(set_status_event.wait(), timeout=1)
+
+        assert hctx.cancellations.is_tracked(CHANNEL, TS)
+        assert hctx.cancellations.cancel(CHANNEL, TS) is True
+        release_set_status.set()
+        await asyncio.wait_for(run, timeout=1)
+
+        agent.run_stream_events.assert_not_called()
+        client.chat_stream.assert_not_awaited()
+        client.reactions_add.assert_not_awaited()
+
+
+class TestSessionStatusOnUnexpectedFailure:
+    """An unexpected crash must not strand the session showing "processing"."""
+
+    async def test_an_unexpected_error_still_resets_the_session_status(
+        self, handler, hctx, client, run_events
+    ):
+        client.chat_stream = AsyncMock(return_value=_live_stream())
+        run_events.queue.put_nowait(RuntimeError("model blew up"))
+
+        with pytest.raises(RuntimeError, match="model blew up"):
+            await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        assert statuses and statuses[-1] == "active", (
+            f"session left as {statuses[-1] if statuses else 'unset'!r}"
+        )
+
+    async def test_the_run_is_untracked_after_an_unexpected_error(
+        self, handler, hctx, client, run_events
+    ):
+        """track()'s finally always runs, so the registry must not leak."""
+        client.chat_stream = AsyncMock(return_value=_live_stream())
+        run_events.queue.put_nowait(RuntimeError("model blew up"))
+
+        with pytest.raises(RuntimeError):
+            await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        assert not hctx.cancellations.is_tracked(CHANNEL, TS)
+
+
+class TestSessionStatusOnEarlyReturn:
+    async def test_user_ignored_resets_session_status(
+        self, handler, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        assert statuses and statuses[-1] == "active"
+        client.reactions_add.assert_not_awaited()
+
+    async def test_usage_limit_reached_resets_session_status(
+        self, handler, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            handler_module, "usage_limit_reached", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        assert statuses and statuses[-1] == "active"
+        client.reactions_add.assert_not_awaited()
+
+
+class TestSessionTracking:
+    async def test_early_exit_in_same_thread_keeps_session_busy(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """While one request is blocked, an ignored mention in the same
+        thread must not flip the session back to active."""
+        barrier = asyncio.Event()
+
+        async def slow_create(**_kwargs):
+            barrier.set()
+            await asyncio.sleep(10)
+            return SimpleNamespace(
+                agent=MagicMock(), user_prompt="prompt", ctx={}
+            )
+
+        monkeypatch.setattr(
+            handler_module, "create_agent_and_context", slow_create
+        )
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=False)
+        )
+
+        # Start a long-running task in the thread
+        long_task = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(barrier.wait(), timeout=1)
+
+        # Now a second task in the same thread exits early
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+
+        # Session must still be processing because the first task is alive
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        # The first task set busy, the early-return task did not add a new
+        # "processing" (it saw count==2), and neither has exited yet.
+        assert statuses.count("processing") == 1
+        assert "active" not in statuses
+
+        # Tear down the long task cleanly
+        hctx.cancellations.cancel(CHANNEL, TS)
+        long_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await long_task
+
+    async def test_last_leaving_task_resets_session_to_active(
+        self, handler, hctx, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+        await handler.handle(_make_task())
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        # Each sequential task sets busy on enter and active on exit.
+        # Because the pool_mock does not block on its context manager,
+        # the first task fully completes before the second task starts
+        # -- so there is never true overlap. Both get their own cycle.
+        assert statuses.count("processing") == 2
+        assert statuses.count("active") == 2
+
+    async def test_set_busy_called_at_worker_start_for_fresh_task(
+        self, handler, client, run_events
+    ):
+        run_events.queue.put_nowait(None)  # end the stream so the handler returns
+        await handler.handle(_make_task())
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        # The listener (not exercised here) also sets busy, but the handler
+        # itself must ensure the status is set when work begins.
+        assert "processing" in statuses
+
+
+class TestUserlessEvent:
+    async def test_workflow_mention_with_no_user_posts_via_post_response(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """When event.user is None, the handler streams nothing and falls
+        back to post_response after the model run completes."""
+        monkeypatch.setattr(handler_module, "user_ignored", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            handler_module, "usage_limit_reached", AsyncMock(return_value=False)
+        )
+        client.chat_stream = AsyncMock(return_value=_live_stream())
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="Done."))
+        )
+        run_events.queue.put_nowait(None)
+
+        task = _make_task()
+        task.event = SlackAppMentionEvent(
+            ts=TS,
+            channel=CHANNEL,
+            user=None,  # e.g. a workflow or bot-posted mention
+            team="T_HOME",
+            text="what happened yesterday?",
+            event_ts=TS,
+        )
+
+        await asyncio.wait_for(handler.handle(task), timeout=1)
+
+        # No stream was started because there is no recipient_user_id
+        client.chat_stream.assert_not_awaited()
+        # Answer posted via post_response instead
+        client.chat_postMessage.assert_awaited()
+        # Session reset exactly once
+        active_count = sum(
+            1 for call in client.agents_sessions_setStatus.await_args_list
+            if call.kwargs.get("status") == "active"
+        )
+        assert active_count == 1
+
+
+class TestCancelSkipsCardClose:
+    async def test_cancelled_run_does_not_close_cards(
+        self, handler, hctx, client, run_events
+    ):
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await _settle()
+
+        hctx.cancellations.cancel(CHANNEL, TS)
+        await asyncio.wait_for(run, timeout=1)
+
+        # On cancellation the stream is discarded, not stopped, and the card
+        # close is skipped. discard() internally calls stream.stop() once (to
+        # finalise before deleting), so exactly 1 stop call is expected.
+        assert stream.stop.await_count == 1
+        client.chat_delete.assert_awaited_once()
+
+    async def test_no_card_append_on_cancel(
+        self, handler, hctx, client, run_events
+    ):
+        """After a tool has opened a card, cancel must not attempt to close it."""
+        from pydantic_ai.messages import ToolCallPart
+
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        # Tool call opens a coordinator card
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=ToolCallPart(tool_name="slack_search", args={}))
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await _settle()
+
+        hctx.cancellations.cancel(CHANNEL, TS)
+        await asyncio.wait_for(run, timeout=1)
+
+        # Only the initial card-open chunk is sent; no closing chunk after
+        # cancellation because the discard path skips card appends.
+        chunks = [c for c in stream.append.await_args_list if c.kwargs.get("chunks")]
+        assert len(chunks) == 1  # only the tool-start update
+
+
+class TestPollSessionCancel:
+    async def test_db_cancel_triggers_run_cancellation(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """A session_cancel record written by another replica should still
+        stop the run via the polling side task."""
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+
+        calls = {"n": 0}
+
+        async def fake_is_cancelled(*, pool, channel_id, thread_ts, user_id, event_ts):
+            calls["n"] += 1
+            return calls["n"] >= 2  # False on first poll, True on second
+
+        # Make the polling loop sleep for 0.01s instead of 5s so the test
+        # completes in the 1s timeout window.
+        monkeypatch.setattr(handler_module, "_POLL_INTERVAL_SECONDS", 0.01)
+
+        monkeypatch.setattr(handler_module, "is_session_cancelled", fake_is_cancelled)
+
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(run, timeout=1)
+
+        assert run_events.cancel_calls == 1
+        assert calls["n"] >= 2
+
+    async def test_db_poll_errors_do_not_crash_the_run(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="Here you go."))
+        )
+
+        calls = {"n": 0}
+        polled = asyncio.Event()
+
+        async def flaky(*, pool, channel_id, thread_ts, user_id, event_ts):
+            calls["n"] += 1
+            polled.set()
+            raise RuntimeError("db unreachable")
+
+        monkeypatch.setattr(handler_module, "is_session_cancelled", flaky)
+        monkeypatch.setattr(handler_module, "_POLL_INTERVAL_SECONDS", 0.01)
+
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(polled.wait(), timeout=1)
+        run_events.queue.put_nowait(None)
+        await asyncio.wait_for(run, timeout=1)
+
+        # The mocked polling path was actually exercised.
+        assert calls["n"] >= 1
+        assert run_events.cancel_calls == 0
+        client.reactions_add.assert_awaited_once()
+
+
+class TestDbRecheckBeforeStream:
+    async def test_is_session_cancelled_true_before_stream_cancels_the_run(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """When the post-setup recheck finds a persistent cancel, the flag
+        is set. The run enters run_stream_events but the watcher cancels it
+        immediately, so no reaction is posted and the session resets."""
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        monkeypatch.setattr(
+            handler_module, "is_session_cancelled", AsyncMock(return_value=True)
+        )
+        agent = MagicMock()
+        agent.run_stream_events = MagicMock(return_value=run_events)
+        monkeypatch.setattr(
+            handler_module,
+            "create_agent_and_context",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    agent=agent, user_prompt="prompt", ctx={}
+                )
+            ),
+        )
+        await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        agent.run_stream_events.assert_called_once()
+        assert run_events.cancel_calls == 1
+        client.reactions_add.assert_not_awaited()
+        # stream is discarded (cancelled path), not stopped (completed path)
+        stream.stop.assert_not_awaited()
+        assert client.agents_sessions_setStatus.await_args.kwargs["status"] == "active"
+
+
+class TestResetCalledExactlyOnce:
+    async def test_cancelled_path_has_one_reset(
+        self, handler, hctx, client, run_events
+    ):
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await _settle()
+
+        hctx.cancellations.cancel(CHANNEL, TS)
+        await asyncio.wait_for(run, timeout=1)
+
+        active_count = sum(
+            1 for call in client.agents_sessions_setStatus.await_args_list
+            if call.kwargs.get("status") == "active"
+        )
+        assert active_count == 1, (
+            f"expected one active reset, got {active_count}"
+        )
+
+    async def test_target_gone_path_has_one_reset(
+        self, handler, hctx, client, run_events
+    ):
+        dead = _live_stream()
+        dead.append = AsyncMock(side_effect=_slack_error("invalid_thread_ts"))
+        client.chat_stream = AsyncMock(return_value=dead)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+
+        await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        active_count = sum(
+            1 for call in client.agents_sessions_setStatus.await_args_list
+            if call.kwargs.get("status") == "active"
+        )
+        assert active_count == 1
+

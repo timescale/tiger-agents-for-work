@@ -14,6 +14,7 @@ AGENT_FEEDBACK_RECEIVED_SLACK_CHANNEL = os.environ.get(
 # channel exactly as it was before.
 INTERNAL_DOMAIN = os.environ.get("INTERNAL_DOMAIN", None)
 
+AGENT_SESSION_STOPPED = "agent_session_stopped"
 CONFIRM_PROACTIVE_PROMPT = "confirm_proactive_prompt"
 REJECT_PROACTIVE_PROMPT = "reject_proactive_prompt"
 

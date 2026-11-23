@@ -18,7 +18,7 @@ import logging
 import random
 from asyncio import QueueShutDown, TaskGroup
 
-from tiger_agent.db.utils import delete_expired_events
+from tiger_agent.db.utils import delete_expired_events, purge_session_cancels
 from tiger_agent.migrations import runner
 from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.utils import process_tasks
@@ -117,6 +117,7 @@ class TaskHarness:
                 max_attempts=self._hctx.max_attempts,
                 max_age_minutes=self._hctx.max_age_minutes,
             )
+            await purge_session_cancels(pool=self._hctx.pool)
 
         shutdown = self._hctx.shutdown
 

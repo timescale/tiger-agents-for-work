@@ -97,6 +97,60 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
         return bool(row[0]) if row and row[0] is not None else False
 
 
+async def record_session_cancel(
+    pool: AsyncConnectionPool,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    event_ts: datetime,
+) -> None:
+    """Persist a user's stop-click so any replica can honour it.
+
+    Uses the Slack event's own timestamp so both sides of the comparison
+    are on the same clock. On conflict keeps the later timestamp.
+    """
+    async with pool.connection() as con:
+        await con.execute(
+            """INSERT INTO agent.session_cancel (channel_id, thread_ts, user_id, stopped_at)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (channel_id, thread_ts, user_id) DO UPDATE
+               SET stopped_at = greatest(session_cancel.stopped_at, EXCLUDED.stopped_at)""",
+            (channel_id, thread_ts, user_id, event_ts),
+        )
+
+
+async def is_session_cancelled(
+    pool: AsyncConnectionPool,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    event_ts: datetime,
+) -> bool:
+    """Check whether a stop was clicked for this session strictly before the event."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            """SELECT 1 FROM agent.session_cancel
+               WHERE channel_id = %s AND thread_ts = %s AND user_id = %s
+               AND stopped_at > %s""",
+            (channel_id, thread_ts, user_id, event_ts),
+        )
+        row = await result.fetchone()
+        return row is not None
+
+
+async def purge_session_cancels(
+    pool: AsyncConnectionPool,
+    max_age: timedelta = timedelta(days=1),
+) -> int:
+    """Remove old session_cancel rows so the table does not grow unbounded."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            "DELETE FROM agent.session_cancel WHERE stopped_at < now() - %s",
+            (max_age,),
+        )
+        return result.rowcount
+
+
 @logfire.instrument("insert_event", extract_args=False)
 async def insert_event(
     pool: AsyncConnectionPool,
@@ -412,7 +466,7 @@ async def is_case_assignment_new(
                 )
 
         result = await cur.execute(
-            """select * from agent.event_hist 
+            """select * from agent.event_hist
                 WHERE
                     event->>'type' = 'salesforce_event'
                     AND event->>'subtype' = 'new_assignee'

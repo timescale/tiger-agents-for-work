@@ -11,11 +11,11 @@ as a keep-alive, on any agent stream event once `STATUS_REFRESH_SECONDS` (60 s) 
 the last send. That covers every situation in which the agent tree is emitting events, which is
 almost all of them:
 
-| `tiger-eon-internal-prod`, 14 days to 2026-09-15 | |
-|---|---|
-| Tool calls (excluding `delegate_task`) | 19,714 |
-| p99 tool duration | 10 s |
-| Tool calls over 120 s | 9 (7 × `tiger-analyst_query_warehouse` at its 300 s timeout) |
+| `tiger-eon-internal-prod`, 14 days to 2026-09-15 |                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------ |
+| Tool calls (excluding `delegate_task`)           | 19,714                                                       |
+| p99 tool duration                                | 10 s                                                         |
+| Tool calls over 120 s                            | 9 (7 × `tiger-analyst_query_warehouse` at its 300 s timeout) |
 
 The gap is a **single tool call that emits nothing for more than two minutes**. During it no
 event reaches `ResponseStatus`, Slack drops the status, and the thread shows no activity until the
@@ -67,7 +67,7 @@ existing buffer-preserving retry, so ordering mistakes degrade gracefully.
 ## Verification
 
 - Unit: patch `STATUS_REFRESH_SECONDS` small, enter the context with no events for a few ticks,
-  assert `assistant_threads_setStatus` was awaited once per tick; then feed an event and assert
+  assert `agents_sessions_setStatus` was awaited once per tick; then feed an event and assert
   the following tick does not send (throttle).
 - Production: re-run a request whose investigator calls `tiger-analyst_query_warehouse` on a
   slow query and confirm the thread status stays visible for the full wait. Logfire check:
