@@ -7,11 +7,11 @@ import logfire
 from tiger_agent.db.utils import (
     claim_event,
     delete_event,
-    delete_session_cancel,
     extend_event_visibility,
     is_session_cancelled,
 )
 from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
+from tiger_agent.slack.utils import set_status
 from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -69,6 +69,24 @@ async def _drop_cancelled_event(pool, task_id: int) -> None:
         await con.execute("DELETE FROM agent.event WHERE id = %s", (task_id,))
 
 
+async def _reset_if_session_empty(hctx, channel: str, thread_ts: str) -> None:
+    """Set the session back to active only if no local runs remain.
+
+    Called after dropping a cancelled task so the session does not stay
+    stuck in processing forever.
+    """
+    if hctx.cancellations.get_session_count(channel, thread_ts) == 0:
+        try:
+            await set_status(
+                client=hctx.app.client,
+                channel_id=channel,
+                thread_ts=thread_ts,
+                is_busy=False,
+            )
+        except Exception:
+            logfire.exception("Failed to reset session after dropping cancelled task")
+
+
 async def process_task(
     task_processor: TaskProcessor, hctx: HarnessContext, task: Task
 ) -> bool:
@@ -109,13 +127,8 @@ async def process_task(
                 channel=task.event.channel,
                 thread_ts=thread_ts,
             )
-            await delete_session_cancel(
-                pool=hctx.pool,
-                channel_id=task.event.channel,
-                thread_ts=thread_ts,
-                user_id=task.event.user,
-            )
             await _drop_cancelled_event(hctx.pool, task.id)
+            await _reset_if_session_empty(hctx, task.event.channel, thread_ts)
             return True
 
     with logfire.span("process_task", task=task) as _:

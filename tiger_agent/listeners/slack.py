@@ -1,6 +1,7 @@
 import json
 import re
 from asyncio import TaskGroup
+from datetime import datetime
 from typing import Any
 
 import logfire
@@ -162,9 +163,9 @@ class SlackListener(Listener):
         await ack()
 
         channel_id = event.get("channel")
-        # the thread is `ts` itself when the triggering message started it,
-        # matching how RunCancellations.track records a run's thread
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        # Slack's agent_session_stopped payload names the thread with
+        # thread_ts; there is no ts fallback.
+        thread_ts = event.get("thread_ts")
         user_id = event.get("user")
 
         if not channel_id or not thread_ts or not user_id:
@@ -182,11 +183,21 @@ class SlackListener(Listener):
             user=user_id,
         )
 
+        # Use Slack's own event timestamp so both sides of the comparison
+        # are on the same clock.
+        raw_event_ts = event.get("event_ts")
+        event_dt = (
+            datetime.fromtimestamp(float(raw_event_ts))
+            if raw_event_ts
+            else datetime.now()
+        )
+
         await record_session_cancel(
             pool=self._pool,
             channel_id=channel_id,
             thread_ts=thread_ts,
             user_id=user_id,
+            event_ts=event_dt,
         )
 
         logfire.info(
@@ -361,6 +372,23 @@ class SlackListener(Listener):
         dropped = await delete_unclaimed_slack_events(
             self._pool, channel=channel, ts=deleted_ts
         )
+        # If the deleted message started a thread (deleted_ts == thread_ts)
+        # and no local runs are active there, reset the session so it does
+        # not stay stuck in processing.
+        if dropped > 0 and not self._hctx.cancellations.get_session_count(
+            channel, deleted_ts
+        ):
+            try:
+                from tiger_agent.slack.utils import set_status
+
+                await set_status(
+                    client=self._app.client,
+                    channel_id=channel,
+                    thread_ts=deleted_ts,
+                    is_busy=False,
+                )
+            except Exception:
+                logfire.exception("Failed to reset session after message deletion")
         logfire.info(
             "Slack message deleted",
             channel=channel,

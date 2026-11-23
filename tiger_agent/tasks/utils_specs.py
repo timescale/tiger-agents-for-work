@@ -55,10 +55,12 @@ def pool(make_pool_mock):
 
 
 @pytest.fixture
-def hctx(pool):
+def hctx(pool, make_async_web_client_mock):
     hctx = MagicMock()
     hctx.pool = pool
     hctx.invisibility_minutes = 0  # so the floor decides the interval
+    hctx.app.client = make_async_web_client_mock()
+    hctx.cancellations.get_session_count.return_value = 0
     return hctx
 
 
@@ -191,7 +193,6 @@ class TestCancelBeforeClaim:
             return True
 
         monkeypatch.setattr(task_utils, "is_session_cancelled", fake_is_cancelled)
-        monkeypatch.setattr(task_utils, "delete_session_cancel", AsyncMock())
 
         task = Task(
             id=45755,
@@ -219,6 +220,12 @@ class TestCancelBeforeClaim:
         delete_calls = [c for c in con_calls if "DELETE FROM agent.event" in c.args[0]]
         assert len(delete_calls) == 1
         assert delete_calls[0].args[1] == (task.id,)
+        # The session is reset because no local runs are active
+        hctx.app.client.agents_sessions_setStatus.assert_awaited_once_with(
+            channel_id="C_CHAN",
+            thread_ts="1700000000.000100",
+            status="active",
+        )
 
     async def test_uncancelled_event_is_processed_normally(
         self, hctx, pool, monkeypatch

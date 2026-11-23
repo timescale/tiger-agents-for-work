@@ -102,18 +102,20 @@ async def record_session_cancel(
     channel_id: str,
     thread_ts: str,
     user_id: str,
+    event_ts: datetime,
 ) -> None:
     """Persist a user's stop-click so any replica can honour it.
 
-    Upserts so the latest stop timestamp wins if a user clicks twice.
+    Uses the Slack event's own timestamp so both sides of the comparison
+    are on the same clock. On conflict keeps the later timestamp.
     """
     async with pool.connection() as con:
         await con.execute(
             """INSERT INTO agent.session_cancel (channel_id, thread_ts, user_id, stopped_at)
-               VALUES (%s, %s, %s, now())
+               VALUES (%s, %s, %s, %s)
                ON CONFLICT (channel_id, thread_ts, user_id) DO UPDATE
-               SET stopped_at = EXCLUDED.stopped_at""",
-            (channel_id, thread_ts, user_id),
+               SET stopped_at = greatest(session_cancel.stopped_at, EXCLUDED.stopped_at)""",
+            (channel_id, thread_ts, user_id, event_ts),
         )
 
 
@@ -124,30 +126,29 @@ async def is_session_cancelled(
     user_id: str,
     event_ts: datetime,
 ) -> bool:
-    """Check whether a stop was clicked for this session before the event."""
+    """Check whether a stop was clicked for this session strictly before the event."""
     async with pool.connection() as con:
         result = await con.execute(
             """SELECT 1 FROM agent.session_cancel
                WHERE channel_id = %s AND thread_ts = %s AND user_id = %s
-               AND stopped_at >= %s""",
+               AND stopped_at > %s""",
             (channel_id, thread_ts, user_id, event_ts),
         )
         row = await result.fetchone()
         return row is not None
 
 
-async def delete_session_cancel(
+async def purge_session_cancels(
     pool: AsyncConnectionPool,
-    channel_id: str,
-    thread_ts: str,
-    user_id: str,
-) -> None:
-    """Remove a cancellation record once it has been acted upon."""
+    max_age: timedelta = timedelta(days=1),
+) -> int:
+    """Remove old session_cancel rows so the table does not grow unbounded."""
     async with pool.connection() as con:
-        await con.execute(
-            "DELETE FROM agent.session_cancel WHERE channel_id = %s AND thread_ts = %s AND user_id = %s",
-            (channel_id, thread_ts, user_id),
+        result = await con.execute(
+            "DELETE FROM agent.session_cancel WHERE stopped_at < now() - %s",
+            (max_age,),
         )
+        return result.rowcount
 
 
 @logfire.instrument("insert_event", extract_args=False)
