@@ -14,6 +14,7 @@ from tiger_agent.db.utils import (
     get_salesforce_case_thread_case_id,
     insert_event,
     insert_handled_event,
+    record_session_cancel,
     upsert_feedback_request_reminder,
 )
 from tiger_agent.listeners import Listener
@@ -154,6 +155,9 @@ class SlackListener(Listener):
         the message ts a run is registered under, so this cancels by
         ``(channel, thread, user)``. Runs other people started in the same
         thread are left alone, exactly as for "nevermind" in-thread.
+
+        The cancel is also persisted so workers on other replicas see it at
+        claim time or during their run.
         """
         await ack()
 
@@ -177,6 +181,14 @@ class SlackListener(Listener):
             thread=thread_ts,
             user=user_id,
         )
+
+        await record_session_cancel(
+            pool=self._pool,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            user_id=user_id,
+        )
+
         logfire.info(
             "Agent session stopped by the user",
             channel=channel_id,

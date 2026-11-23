@@ -231,3 +231,36 @@ class TestOnMessageDeleted:
         await listener._on_message(ack=AsyncMock(), event=event)
 
         delete_unclaimed.assert_awaited_once()
+
+
+class TestAgentSessionStopped:
+    async def test_sessions_stop_is_persisted_to_database(self, listener, hctx, monkeypatch):
+        record_cancel = AsyncMock()
+        monkeypatch.setattr(
+            slack_listener_module, "record_session_cancel", record_cancel
+        )
+        event = {
+            "type": "agent_session_stopped",
+            "channel": "C_CHAN",
+            "ts": "1700000000.000100",
+            "thread_ts": "1700000000.000050",
+            "user": "U_USER",
+        }
+        await listener._on_slack_cancel_agent(ack=AsyncMock(), event=event)
+
+        record_cancel.assert_awaited_once_with(
+            pool=hctx.pool,
+            channel_id="C_CHAN",
+            thread_ts="1700000000.000050",
+            user_id="U_USER",
+        )
+
+    async def test_missing_ids_are_quietly_skipped(self, listener, hctx, monkeypatch):
+        record_cancel = AsyncMock()
+        monkeypatch.setattr(
+            slack_listener_module, "record_session_cancel", record_cancel
+        )
+        await listener._on_slack_cancel_agent(
+            ack=AsyncMock(), event={"channel": "C_CHAN"}
+        )
+        record_cancel.assert_not_awaited()

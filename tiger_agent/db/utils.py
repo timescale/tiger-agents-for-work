@@ -97,6 +97,59 @@ async def user_is_admin(pool: AsyncConnectionPool, user_id: str) -> bool:
         return bool(row[0]) if row and row[0] is not None else False
 
 
+async def record_session_cancel(
+    pool: AsyncConnectionPool,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+) -> None:
+    """Persist a user's stop-click so any replica can honour it.
+
+    Upserts so the latest stop timestamp wins if a user clicks twice.
+    """
+    async with pool.connection() as con:
+        await con.execute(
+            """INSERT INTO agent.session_cancel (channel_id, thread_ts, user_id, stopped_at)
+               VALUES (%s, %s, %s, now())
+               ON CONFLICT (channel_id, thread_ts, user_id) DO UPDATE
+               SET stopped_at = EXCLUDED.stopped_at""",
+            (channel_id, thread_ts, user_id),
+        )
+
+
+async def is_session_cancelled(
+    pool: AsyncConnectionPool,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    event_ts: datetime,
+) -> bool:
+    """Check whether a stop was clicked for this session before the event."""
+    async with pool.connection() as con:
+        result = await con.execute(
+            """SELECT 1 FROM agent.session_cancel
+               WHERE channel_id = %s AND thread_ts = %s AND user_id = %s
+               AND stopped_at >= %s""",
+            (channel_id, thread_ts, user_id, event_ts),
+        )
+        row = await result.fetchone()
+        return row is not None
+
+
+async def delete_session_cancel(
+    pool: AsyncConnectionPool,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+) -> None:
+    """Remove a cancellation record once it has been acted upon."""
+    async with pool.connection() as con:
+        await con.execute(
+            "DELETE FROM agent.session_cancel WHERE channel_id = %s AND thread_ts = %s AND user_id = %s",
+            (channel_id, thread_ts, user_id),
+        )
+
+
 @logfire.instrument("insert_event", extract_args=False)
 async def insert_event(
     pool: AsyncConnectionPool,

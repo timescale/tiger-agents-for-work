@@ -8,7 +8,7 @@ from tiger_agent.db.utils import (
     delete_unclaimed_slack_events,
     extend_event_visibility,
 )
-from tiger_agent.slack.types import SlackRequestNewCaseFormEvent
+from tiger_agent.slack.types import SlackAppMentionEvent, SlackRequestNewCaseFormEvent
 from tiger_agent.tasks import utils as task_utils
 from tiger_agent.tasks.types import Task
 from tiger_agent.tasks.utils import heartbeat_interval_seconds, process_task
@@ -176,6 +176,73 @@ class TestProcessTaskHeartbeat:
         assert ok is True
         assert _lease_updates(pool) == []
         assert _other_tasks() == set()
+
+
+class TestCancelBeforeClaim:
+    async def test_cancelled_slack_event_is_dropped_without_archiving(
+        self, hctx, pool, monkeypatch
+    ):
+        cancel_called = [False]
+
+        async def fake_is_cancelled(*, pool, channel_id, thread_ts, user_id, event_ts):
+            assert channel_id == "C_CHAN"
+            assert user_id == "U_USER"
+            cancel_called[0] = True
+            return True
+
+        monkeypatch.setattr(task_utils, "is_session_cancelled", fake_is_cancelled)
+        monkeypatch.setattr(task_utils, "delete_session_cancel", AsyncMock())
+
+        task = Task(
+            id=45755,
+            event_ts=datetime(2026, 9, 15, tzinfo=UTC),
+            attempts=1,
+            vt=datetime(2026, 9, 15, tzinfo=UTC),
+            claimed=[],
+            event=SlackAppMentionEvent(
+                ts="1700000000.000100",
+                channel="C_CHAN",
+                user="U_USER",
+                team="T_HOME",
+                text="hello",
+                event_ts="1700000000.000100",
+            ),
+        )
+
+        ok = await process_task(_slow_processor(0), hctx, task)
+
+        assert ok is True
+        assert cancel_called[0]
+        # The event is deleted, not archived to event_hist
+        assert _deletes(pool) == []
+        con_calls = pool._connection.execute.await_args_list
+        delete_calls = [c for c in con_calls if "DELETE FROM agent.event" in c.args[0]]
+        assert len(delete_calls) == 1
+        assert delete_calls[0].args[1] == (task.id,)
+
+    async def test_uncancelled_event_is_processed_normally(
+        self, hctx, pool, monkeypatch
+    ):
+        monkeypatch.setattr(
+            task_utils, "is_session_cancelled", AsyncMock(return_value=False)
+        )
+        task = Task(
+            id=45755,
+            event_ts=datetime(2026, 9, 15, tzinfo=UTC),
+            attempts=1,
+            vt=datetime(2026, 9, 15, tzinfo=UTC),
+            claimed=[],
+            event=SlackRequestNewCaseFormEvent(
+                user="U_REQUESTER",
+                channel="C_CHAN",
+                trigger_message_ts="1700000000.000100",
+            ),
+        )
+
+        ok = await process_task(_slow_processor(0), hctx, task)
+
+        assert ok is True
+        assert len(_deletes(pool)) == 1
 
 
 class TestDeleteUnclaimedSlackEvents:

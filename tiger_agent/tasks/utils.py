@@ -4,7 +4,14 @@ import logging
 
 import logfire
 
-from tiger_agent.db.utils import claim_event, delete_event, extend_event_visibility
+from tiger_agent.db.utils import (
+    claim_event,
+    delete_event,
+    delete_session_cancel,
+    extend_event_visibility,
+    is_session_cancelled,
+)
+from tiger_agent.slack.types import SlackAppMentionEvent, SlackMessageEvent
 from tiger_agent.tasks.handlers import TaskProcessor
 from tiger_agent.tasks.types import Task
 from tiger_agent.types import HarnessContext
@@ -53,6 +60,15 @@ async def _heartbeat(hctx: HarnessContext, task: Task) -> None:
             return
 
 
+async def _drop_cancelled_event(pool, task_id: int) -> None:
+    """Remove a claimed event that was stopped before it was picked up."""
+    async with (
+        pool.connection() as con,
+        con.transaction() as _,
+    ):
+        await con.execute("DELETE FROM agent.event WHERE id = %s", (task_id,))
+
+
 async def process_task(
     task_processor: TaskProcessor, hctx: HarnessContext, task: Task
 ) -> bool:
@@ -63,12 +79,45 @@ async def process_task(
     task as completed. On failure, leaves the task in the queue for retry by
     other workers.
 
+    If the event was cancelled before claim (e.g. a stop click landed while
+    the task was still queued), the event is dropped without archiving.
+
     Args:
         task: The claimed task to process
 
     Returns:
-        bool: True if processing succeeded, False if it failed
+        bool: True if processing succeeded or the task was already cancelled,
+              False if processing failed
     """
+    # Check persistent cancellation: a stop click may have arrived on
+    # another replica before this worker claimed the task.
+    if (
+        isinstance(task.event, (SlackAppMentionEvent, SlackMessageEvent))
+        and task.event.user
+    ):
+        thread_ts = task.event.thread_ts or task.event.ts
+        if await is_session_cancelled(
+            pool=hctx.pool,
+            channel_id=task.event.channel,
+            thread_ts=thread_ts,
+            user_id=task.event.user,
+            event_ts=task.event_ts,
+        ):
+            logfire.info(
+                "Dropping already-cancelled event",
+                task_id=task.id,
+                channel=task.event.channel,
+                thread_ts=thread_ts,
+            )
+            await delete_session_cancel(
+                pool=hctx.pool,
+                channel_id=task.event.channel,
+                thread_ts=thread_ts,
+                user_id=task.event.user,
+            )
+            await _drop_cancelled_event(hctx.pool, task.id)
+            return True
+
     with logfire.span("process_task", task=task) as _:
         heartbeat = asyncio.create_task(_heartbeat(hctx, task))
         try:
