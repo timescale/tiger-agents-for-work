@@ -8,7 +8,12 @@ from slack_sdk.errors import SlackApiError
 
 from tiger_agent.agent.limits import AGENT_USAGE_LIMITS
 from tiger_agent.agent.utils import create_agent_and_context
-from tiger_agent.db.utils import usage_limit_reached, user_ignored
+from tiger_agent.db.utils import (
+    delete_session_cancel,
+    is_session_cancelled,
+    usage_limit_reached,
+    user_ignored,
+)
 from tiger_agent.slack.events import (
     StreamEventSink,
     make_subagent_event_handler,
@@ -44,6 +49,10 @@ async def _reset_session_status(hctx, channel_id: str, thread_ts: str) -> None:
     )
 
 
+# How often a running worker checks the database for a cross-replica stop.
+_POLL_INTERVAL_SECONDS: float = 5.0
+
+
 async def _cancel_when_requested(cancel_requested: asyncio.Event, run_events) -> None:
     """Side task: turn a cancellation request into a pydantic-ai run cancel.
 
@@ -55,12 +64,65 @@ async def _cancel_when_requested(cancel_requested: asyncio.Event, run_events) ->
     run_events.cancel()
 
 
+async def _poll_session_cancel(
+    pool,
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    event_ts,
+    tracked_run: TrackedRun,
+) -> None:
+    """Side task: poll the database for a cross-replica stop click.
+
+    Checks periodically whether another replica recorded a
+    ``agent_session_stopped`` for this session, and if so tells the tracked
+    run to cancel itself.
+    """
+    while not tracked_run.cancel_requested.is_set():
+        await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+        try:
+            if await is_session_cancelled(
+                pool=pool,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                user_id=user_id,
+                event_ts=event_ts,
+            ):
+                tracked_run.cancel("user_request")
+                await delete_session_cancel(
+                    pool=pool,
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    user_id=user_id,
+                )
+                return
+        except Exception:
+            logfire.exception("Failed to poll session cancellation")
+
+
 class SlackTaskHandler(TaskHandler):
     EVENT_TYPES = [SlackAppMentionEvent, SlackMessageEvent]
 
     @logfire.instrument("SlackTaskHandler.handle", extract_args=False)
     async def handle(self, task: Task) -> None:
         event: SlackAppMentionEvent | SlackMessageEvent = task.event
+        thread_ts = event.thread_ts or event.ts
+
+        # Track how many requests are active in this session so we only
+        # transition back to "active" when the last one leaves. This also
+        # sets the busy indicator for retried or proactively accepted tasks
+        # that do not pass through the listener's enqueue-time call.
+        session_count = self._hctx.cancellations.enter_session(event.channel, thread_ts)
+        if session_count == 1:
+            try:
+                await set_status(
+                    client=self._hctx.app.client,
+                    channel_id=event.channel,
+                    thread_ts=thread_ts,
+                    is_busy=True,
+                )
+            except Exception:
+                logfire.exception("Failed to set session busy at worker start")
 
         # Register before any setup work so a cancellation that lands while we
         # are still building the agent (MCP servers, thread history, ...) is
@@ -73,9 +135,11 @@ class SlackTaskHandler(TaskHandler):
             try:
                 await self._answer(task, tracked_run)
             finally:
-                await _reset_session_status(
-                    self._hctx, event.channel, event.thread_ts or event.ts
+                remaining = self._hctx.cancellations.exit_session(
+                    event.channel, thread_ts
                 )
+                if remaining == 0:
+                    await _reset_session_status(self._hctx, event.channel, thread_ts)
 
     async def _answer(self, task: Task, tracked_run: TrackedRun) -> None:
         hctx = self._hctx
@@ -163,6 +227,20 @@ class SlackTaskHandler(TaskHandler):
             watcher = asyncio.create_task(
                 _cancel_when_requested(tracked_run.cancel_requested, stream_events)
             )
+            # Poll the database so a stop click delivered to another replica
+            # can still cancel this run.
+            poller = None
+            if event.user is not None:
+                poller = asyncio.create_task(
+                    _poll_session_cancel(
+                        pool=hctx.pool,
+                        channel_id=event.channel,
+                        thread_ts=thread_ts,
+                        user_id=event.user,
+                        event_ts=task.event_ts,
+                        tracked_run=tracked_run,
+                    )
+                )
             try:
                 async for stream_event in stream_events:
                     for sink in sinks:
@@ -212,7 +290,9 @@ class SlackTaskHandler(TaskHandler):
                 stream_events.cancel()
             finally:
                 watcher.cancel()
-                await asyncio.gather(watcher, return_exceptions=True)
+                if poller is not None:
+                    poller.cancel()
+                await asyncio.gather(watcher, poller, return_exceptions=True)
 
         if outcome != "completed":
             if outcome == "cancelled":
@@ -224,12 +304,13 @@ class SlackTaskHandler(TaskHandler):
                     ts=event.ts,
                     reason=tracked_run.reason,
                 )
-            if task_cards is not None and outcome != "target_gone":
-                # while the stream is still writable: discard() closes it
+            # When the stream is about to be discarded, skip card appends:
+            # append_message_to_stream retries by opening a fresh stream,
+            # which orphans the original message.
+            if task_cards is not None and outcome == "completed":
                 await task_cards.close(outcome)
             if response_stream is not None:
                 await response_stream.discard()
-            await _reset_session_status(hctx, event.channel, thread_ts)
             # a normal return acks the task; there is nothing left to answer
             return
 

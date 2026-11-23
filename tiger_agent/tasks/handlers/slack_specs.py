@@ -316,3 +316,207 @@ class TestSessionStatusOnEarlyReturn:
         assert statuses and statuses[-1] == "active"
         client.reactions_add.assert_not_awaited()
 
+
+class TestSessionTracking:
+    async def test_early_exit_in_same_thread_keeps_session_busy(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """While one request is blocked, an ignored mention in the same
+        thread must not flip the session back to active."""
+        barrier = asyncio.Event()
+
+        async def slow_create(**_kwargs):
+            barrier.set()
+            await asyncio.sleep(10)
+            return SimpleNamespace(
+                agent=MagicMock(), user_prompt="prompt", ctx={}
+            )
+
+        monkeypatch.setattr(
+            handler_module, "create_agent_and_context", slow_create
+        )
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=False)
+        )
+
+        # Start a long-running task in the thread
+        long_task = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(barrier.wait(), timeout=1)
+
+        # Now a second task in the same thread exits early
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+
+        # Session must still be processing because the first task is alive
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        # The first task set busy, the early-return task did not add a new
+        # "processing" (it saw count==2), and neither has exited yet.
+        assert statuses.count("processing") == 1
+        assert "active" not in statuses
+
+        # Tear down the long task cleanly
+        hctx.cancellations.cancel(CHANNEL, TS)
+        long_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await long_task
+
+    async def test_last_leaving_task_resets_session_to_active(
+        self, handler, hctx, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+        await handler.handle(_make_task())
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        # Each sequential task sets busy on enter and active on exit.
+        # Because the pool_mock does not block on its context manager,
+        # the first task fully completes before the second task starts
+        # -- so there is never true overlap. Both get their own cycle.
+        assert statuses.count("processing") == 2
+        assert statuses.count("active") == 2
+
+    async def test_set_busy_called_at_worker_start_for_fresh_task(
+        self, handler, client
+    ):
+        await handler.handle(_make_task())
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        # The listener (not exercised here) also sets busy, but the handler
+        # itself must ensure the status is set when work begins.
+        assert "processing" in statuses
+
+
+class TestCancelSkipsCardClose:
+    async def test_cancelled_run_does_not_close_cards(
+        self, handler, hctx, client, run_events
+    ):
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await _settle()
+
+        hctx.cancellations.cancel(CHANNEL, TS)
+        await asyncio.wait_for(run, timeout=1)
+
+        # On cancellation the stream is discarded, not stopped, and the card
+        # close is skipped. discard() internally calls stream.stop() once (to
+        # finalise before deleting), so exactly 1 stop call is expected.
+        assert stream.stop.await_count == 1
+        client.chat_delete.assert_awaited_once()
+
+
+class TestPollSessionCancel:
+    async def test_db_cancel_triggers_run_cancellation(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        """A session_cancel record written by another replica should still
+        stop the run via the polling side task."""
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+
+        calls = {"n": 0}
+
+        async def fake_is_cancelled(*, pool, channel_id, thread_ts, user_id, event_ts):
+            calls["n"] += 1
+            return calls["n"] >= 2  # False on first poll, True on second
+
+        async def fake_delete_cancel(*, pool, channel_id, thread_ts, user_id):
+            pass
+
+        # Make the polling loop sleep for 0.01s instead of 5s so the test
+        # completes in the 1s timeout window.
+        monkeypatch.setattr(handler_module, "_POLL_INTERVAL_SECONDS", 0.01)
+
+        monkeypatch.setattr(handler_module, "is_session_cancelled", fake_is_cancelled)
+        monkeypatch.setattr(
+            handler_module, "delete_session_cancel", fake_delete_cancel
+        )
+
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await asyncio.wait_for(run, timeout=1)
+
+        assert run_events.cancel_calls == 1
+        assert calls["n"] >= 2
+
+    async def test_db_poll_errors_do_not_crash_the_run(
+        self, handler, hctx, client, run_events, monkeypatch
+    ):
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="Here you go."))
+        )
+        run_events.queue.put_nowait(None)
+
+        monkeypatch.setattr(
+            handler_module,
+            "is_session_cancelled",
+            AsyncMock(side_effect=RuntimeError("db unreachable")),
+        )
+
+        await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        # Run completes normally despite polling errors
+        assert run_events.cancel_calls == 0
+        client.reactions_add.assert_awaited_once()
+
+
+class TestResetCalledExactlyOnce:
+    async def test_cancelled_path_has_one_reset(
+        self, handler, hctx, client, run_events
+    ):
+        stream = _live_stream()
+        client.chat_stream = AsyncMock(return_value=stream)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+        run = asyncio.create_task(handler.handle(_make_task()))
+        await _settle()
+
+        hctx.cancellations.cancel(CHANNEL, TS)
+        await asyncio.wait_for(run, timeout=1)
+
+        active_count = sum(
+            1 for call in client.agents_sessions_setStatus.await_args_list
+            if call.kwargs.get("status") == "active"
+        )
+        assert active_count == 1, (
+            f"expected one active reset, got {active_count}"
+        )
+
+    async def test_target_gone_path_has_one_reset(
+        self, handler, hctx, client, run_events
+    ):
+        dead = _live_stream()
+        dead.append = AsyncMock(side_effect=_slack_error("invalid_thread_ts"))
+        client.chat_stream = AsyncMock(return_value=dead)
+        run_events.queue.put_nowait(
+            PartStartEvent(index=0, part=TextPart(content="I'll look into that."))
+        )
+
+        await asyncio.wait_for(handler.handle(_make_task()), timeout=1)
+
+        active_count = sum(
+            1 for call in client.agents_sessions_setStatus.await_args_list
+            if call.kwargs.get("status") == "active"
+        )
+        assert active_count == 1
+

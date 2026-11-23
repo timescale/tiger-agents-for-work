@@ -50,6 +50,7 @@ class TrackedRun:
 class RunCancellations:
     def __init__(self) -> None:
         self._runs: dict[RunKey, TrackedRun] = {}
+        self._session_counts: dict[tuple[str, str], int] = {}
 
     @property
     def running(self) -> int:
@@ -57,6 +58,31 @@ class RunCancellations:
 
     def is_tracked(self, channel: str, ts: str) -> bool:
         return (channel, ts) in self._runs
+
+    def enter_session(self, channel: str, thread: str) -> int:
+        """Increment the count of active requests in this session.
+
+        Returns the new count so callers know whether this is the first
+        request (count == 1) and should set the session to busy.
+        """
+        key = (channel, thread)
+        count = self._session_counts.get(key, 0) + 1
+        self._session_counts[key] = count
+        return count
+
+    def exit_session(self, channel: str, thread: str) -> int:
+        """Decrement the count of active requests in this session.
+
+        Returns the new count so callers know whether the session is now
+        empty (count == 0) and should transition back to active.
+        """
+        key = (channel, thread)
+        count = self._session_counts.get(key, 1) - 1
+        if count <= 0:
+            self._session_counts.pop(key, None)
+            return 0
+        self._session_counts[key] = count
+        return count
 
     @contextlib.contextmanager
     def track(
