@@ -234,8 +234,8 @@ class TestOnMessageDeleted:
 
 
 class TestAgentSessionStopped:
-    async def test_sessions_stop_is_persisted_to_database(self, listener, hctx, monkeypatch):
-        from datetime import datetime
+    async def test_sessions_stop_is_persisted_to_database_as_utc(self, listener, hctx, monkeypatch):
+        from datetime import UTC, datetime
 
         record_cancel = AsyncMock()
         monkeypatch.setattr(
@@ -255,7 +255,8 @@ class TestAgentSessionStopped:
         assert kwargs["channel_id"] == "C_CHAN"
         assert kwargs["thread_ts"] == "1700000000.000050"
         assert kwargs["user_id"] == "U_USER"
-        assert isinstance(kwargs["event_ts"], datetime)
+        assert kwargs["event_ts"] == datetime.fromtimestamp(1700000000.000100, tz=UTC)
+        assert kwargs["event_ts"].tzinfo is UTC
 
     async def test_missing_ids_are_quietly_skipped(self, listener, hctx, monkeypatch):
         record_cancel = AsyncMock()
