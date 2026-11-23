@@ -334,85 +334,30 @@ class TestParseCommaDelimitedSet:
         assert parse_comma_delimited_set("") == frozenset()
 
 
-class TestKeepHarmlessMatches:
+class TestKeepHarmlessMatchesRemoved:
+    """The keep_harmless_matches callback was removed in round 5.
+
+    Default Logfire scrubbing now applies uniformly. This class preserves
+    behavioural coverage with the real Scrubber and no custom callback.
+    """
+
     @staticmethod
     def _scrub(attributes: dict) -> tuple[dict, list]:
         from logfire._internal.scrubbing import Scrubber
 
-        from tiger_agent.utils import keep_harmless_matches
+        return Scrubber(None, callback=None).scrub_value(("attributes",), attributes)
 
-        return Scrubber(None, keep_harmless_matches).scrub_value(
-            ("attributes",), attributes
-        )
-
-    def test_keeps_docs_text_in_execute_tool_result(self):
-        result = (
-            '{"results": [{"content": "Requires authentication with a credit card."}]}'
-        )
-        attrs, notes = self._scrub({"gen_ai.tool.call.result": result})
-        assert "authentication" in attrs["gen_ai.tool.call.result"]
-        assert notes == []
-
-    def test_redacts_generic_response_keys(self):
-        attrs, notes = self._scrub(
-            {"response": {"structuredContent": {"text": "see auth docs"}}}
-        )
-        assert attrs["response"]["structuredContent"]["text"].startswith("[Scrubbed")
+    def test_scrubs_auth_in_arbitrary_strings(self):
+        attrs, notes = self._scrub({"text": "Requires authentication."})
+        assert attrs["text"].startswith("[Scrubbed")
         assert len(notes) == 1
 
-    def test_still_redacts_secret_keys_inside_tool_results(self):
+    def test_scrubs_author_link_like_any_other_value(self):
+        # A key name is no longer accepted as proof a value is harmless.
         attrs, notes = self._scrub(
-            {"gen_ai.tool.call.result": {"password": "hunter2", "ok": "fine"}}
+            {"extra": {"attachments": [{"author_link": "https://x/?token=abc"}]}}
         )
-        assert attrs["gen_ai.tool.call.result"]["password"] != "hunter2"
-        assert attrs["gen_ai.tool.call.result"]["ok"] == "fine"
-        assert len(notes) == 1
-
-    def test_still_redacts_outside_tool_results(self):
-        attrs, notes = self._scrub({"note": "my api key is abc123"})
-        assert attrs["note"].startswith("[Scrubbed")
-        assert len(notes) == 1
-
-    def test_keeps_final_answer_text(self):
-        attrs, notes = self._scrub(
-            {"final_result": "Authentication: SAML is Enterprise only."}
-        )
-        assert attrs["final_result"] == "Authentication: SAML is Enterprise only."
-        assert notes == []
-
-    def test_keeps_author_keys(self):
-        attrs, notes = self._scrub(
-            {"extra": {"attachments": [{"author_name": "Bot", "author_id": "B1"}]}}
-        )
-        assert attrs["extra"]["attachments"][0] == {
-            "author_name": "Bot",
-            "author_id": "B1",
-        }
-        assert notes == []
-
-    def test_still_redacts_slack_text_outside_model_io(self):
-        attrs, notes = self._scrub(
-            {"extra": {"event": {"text": "here is my auth token abc"}}}
-        )
-        assert attrs["extra"]["event"]["text"].startswith("[Scrubbed")
-        assert len(notes) == 1
-
-    def test_redacts_nested_secrets_under_author_keys(self):
-        """A harmless key name holding a dict value must not bypass recursion."""
-        attrs, notes = self._scrub(
-            {"extra": {"attachments": [{"author_name": {"password": "secret"}}]}}
-        )
-        # Because the value is a dict, the callback returns None and Logfire
-        # replaces the entire value with a scrubbed string.
-        author_name = attrs["extra"]["attachments"][0]["author_name"]
-        assert isinstance(author_name, str) and author_name.startswith("[Scrubbed")
-        assert len(notes) == 1
-
-    def test_redacts_author_password(self):
-        attrs, notes = self._scrub(
-            {"extra": {"attachments": [{"author_password": "secret"}]}}
-        )
-        assert attrs["extra"]["attachments"][0]["author_password"].startswith(
+        assert attrs["extra"]["attachments"][0]["author_link"].startswith(
             "[Scrubbed"
         )
         assert len(notes) == 1
