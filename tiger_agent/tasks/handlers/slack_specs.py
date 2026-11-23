@@ -115,6 +115,9 @@ def handler(hctx, run_events, monkeypatch) -> SlackTaskHandler:
     monkeypatch.setattr(
         handler_module, "usage_limit_reached", AsyncMock(return_value=False)
     )
+    monkeypatch.setattr(
+        handler_module, "is_session_cancelled", AsyncMock(return_value=False)
+    )
     agent = MagicMock()
     agent.run_stream_events = MagicMock(return_value=run_events)
     monkeypatch.setattr(
@@ -386,8 +389,9 @@ class TestSessionTracking:
         assert statuses.count("active") == 2
 
     async def test_set_busy_called_at_worker_start_for_fresh_task(
-        self, handler, client
+        self, handler, client, run_events
     ):
+        run_events.queue.put_nowait(None)  # end the stream so the handler returns
         await handler.handle(_make_task())
         statuses = [
             call.kwargs["status"]

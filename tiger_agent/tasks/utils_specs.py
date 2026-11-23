@@ -230,25 +230,34 @@ class TestCancelBeforeClaim:
     async def test_uncancelled_event_is_processed_normally(
         self, hctx, pool, monkeypatch
     ):
-        monkeypatch.setattr(
-            task_utils, "is_session_cancelled", AsyncMock(return_value=False)
-        )
+        is_cancelled = AsyncMock(return_value=False)
+        monkeypatch.setattr(task_utils, "is_session_cancelled", is_cancelled)
         task = Task(
             id=45755,
             event_ts=datetime(2026, 9, 15, tzinfo=UTC),
             attempts=1,
             vt=datetime(2026, 9, 15, tzinfo=UTC),
             claimed=[],
-            event=SlackRequestNewCaseFormEvent(
-                user="U_REQUESTER",
+            event=SlackAppMentionEvent(
+                ts="1700000000.000100",
                 channel="C_CHAN",
-                trigger_message_ts="1700000000.000100",
+                user="U_USER",
+                team="T_HOME",
+                text="hello",
+                event_ts="1700000000.000100",
             ),
         )
 
         ok = await process_task(_slow_processor(0), hctx, task)
 
         assert ok is True
+        # The query was actually invoked with the thread and event timestamp.
+        is_cancelled.assert_awaited_once()
+        kwargs = is_cancelled.await_args.kwargs
+        assert kwargs["channel_id"] == "C_CHAN"
+        assert kwargs["thread_ts"] == "1700000000.000100"
+        assert kwargs["user_id"] == "U_USER"
+        assert kwargs["event_ts"] == task.event_ts
         assert len(_deletes(pool)) == 1
 
 

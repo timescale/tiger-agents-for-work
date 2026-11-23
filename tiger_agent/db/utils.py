@@ -466,7 +466,7 @@ async def is_case_assignment_new(
                 )
 
         result = await cur.execute(
-            """select * from agent.event_hist 
+            """select * from agent.event_hist
                 WHERE
                     event->>'type' = 'salesforce_event'
                     AND event->>'subtype' = 'new_assignee'
