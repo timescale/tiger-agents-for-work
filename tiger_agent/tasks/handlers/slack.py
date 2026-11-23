@@ -72,15 +72,10 @@ class SlackTaskHandler(TaskHandler):
         ) as tracked_run:
             try:
                 await self._answer(task, tracked_run)
-            except Exception:
-                # _answer resets the session on every path it controls, but an
-                # unexpected failure would otherwise leave the thread showing
-                # "processing" forever: the task is retried or dropped, and
-                # nothing else ever takes that status back to "active".
+            finally:
                 await _reset_session_status(
                     self._hctx, event.channel, event.thread_ts or event.ts
                 )
-                raise
 
     async def _answer(self, task: Task, tracked_run: TrackedRun) -> None:
         hctx = self._hctx
@@ -155,7 +150,6 @@ class SlackTaskHandler(TaskHandler):
                 ts=event.ts,
                 reason=tracked_run.reason,
             )
-            await _reset_session_status(hctx, event.channel, thread_ts)
             return
 
         response_text_parts: list[str] = []
@@ -230,7 +224,7 @@ class SlackTaskHandler(TaskHandler):
                     ts=event.ts,
                     reason=tracked_run.reason,
                 )
-            if task_cards is not None:
+            if task_cards is not None and outcome != "target_gone":
                 # while the stream is still writable: discard() closes it
                 await task_cards.close(outcome)
             if response_stream is not None:
@@ -253,5 +247,4 @@ class SlackTaskHandler(TaskHandler):
                     text=response_text,
                 )
 
-        await _reset_session_status(hctx, event.channel, thread_ts)
         await add_reaction(hctx.app.client, event.channel, event.ts, "white_check_mark")

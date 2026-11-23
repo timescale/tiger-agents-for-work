@@ -284,3 +284,35 @@ class TestSessionStatusOnUnexpectedFailure:
 
         assert not hctx.cancellations.is_tracked(CHANNEL, TS)
 
+
+class TestSessionStatusOnEarlyReturn:
+    async def test_user_ignored_resets_session_status(
+        self, handler, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            handler_module, "user_ignored", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        assert statuses and statuses[-1] == "active"
+        client.reactions_add.assert_not_awaited()
+
+    async def test_usage_limit_reached_resets_session_status(
+        self, handler, client, monkeypatch
+    ):
+        monkeypatch.setattr(
+            handler_module, "usage_limit_reached", AsyncMock(return_value=True)
+        )
+        await handler.handle(_make_task())
+
+        statuses = [
+            call.kwargs["status"]
+            for call in client.agents_sessions_setStatus.await_args_list
+        ]
+        assert statuses and statuses[-1] == "active"
+        client.reactions_add.assert_not_awaited()
+
