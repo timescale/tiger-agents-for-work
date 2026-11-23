@@ -290,13 +290,16 @@ class TaskCards:
         # `details` is appended to the card by Slack, so send only the new
         # lines. A batched flush can outgrow one chunk, so split it and send
         # the pieces in order rather than clipping tool lines away.
-        for piece in _split(details, DETAILS_CHUNK_MAX_CHARS):
+        # Only the final piece carries the terminal status and output.
+        pieces = _split(details, DETAILS_CHUNK_MAX_CHARS)
+        for index, piece in enumerate(pieces):
+            is_last = index == len(pieces) - 1
             chunk = TaskUpdateChunk(
                 id=card.id,
                 title=card.title,
-                status=status,
+                status=status if is_last else "in_progress",
                 details=piece,
-                output=output,
+                output=output if is_last else None,
             )
             try:
                 await self._stream.append(chunks=[chunk])

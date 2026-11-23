@@ -268,15 +268,35 @@ class TestSubagentToolCalls:
         self, cards, stream, clock
     ):
         await cards.on_event(_delegate_call("c1", TASK_A))
-        for i in range(40):
-            await _advance_and_call(cards, clock, f"tool_{i}")
+        # Queue many tool calls inside one throttle window so they batch into
+        # a single flush that exceeds DETAILS_CHUNK_MAX_CHARS.
+        num_tools = 20
+        for i in range(num_tools):
+            await cards.on_event(
+                _tool_start(f"tool_{i}"), subtask="investigator", prompt=TASK_A
+            )
+        # Finishing the delegation flushes the pending batch.
         await cards.on_event(_delegate_result("c1"))
 
+        c1_chunks = [c for c in _chunks(stream) if c["id"] == "c1"]
+        # start chunk + at least two from the split batch
+        assert len(c1_chunks) >= 3
+
+        for chunk in c1_chunks:
+            assert len(chunk["details"]) <= task_cards_module.DETAILS_CHUNK_MAX_CHARS
+
+        # Only the last chunk carries terminal status and output.
+        for chunk in c1_chunks[:-1]:
+            assert chunk["status"] == "in_progress"
+            assert chunk.get("output") is None
+        assert c1_chunks[-1]["status"] == "complete"
+        assert c1_chunks[-1].get("output") is None
+
+        # Concatenated log contains every tool line in order.
         log = _card_log(stream, "c1")
-        for i in range(40):
-            tagged = f"• tool_{i} (investigator)"
-            assert f"{tagged}\n" in log or log.endswith(tagged)
-        assert log.endswith("✓ done in 120s")
+        for i in range(num_tools):
+            assert f"• tool_{i} (investigator)" in log
+        assert log.endswith("✓ done in 0s")
 
     async def test_every_chunk_fits_slacks_task_update_limit(
         self, cards, stream, clock
