@@ -84,6 +84,28 @@ async def _reset_if_session_empty(hctx, channel: str, thread_ts: str) -> None:
         )
 
 
+async def _cancelled_at_claim(
+    pool, task: Task
+) -> tuple[str | None, bool]:
+    """Check whether this claimed task should be dropped because a stop
+    arrived while it was still queued. Returns ``(thread_ts, True)`` when
+    the task should be dropped, ``(None, False)`` otherwise."""
+    if (
+        isinstance(task.event, (SlackAppMentionEvent, SlackMessageEvent))
+        and task.event.user
+    ):
+        thread_ts = task.event.thread_ts or task.event.ts
+        if await is_session_cancelled(
+            pool=pool,
+            channel_id=task.event.channel,
+            thread_ts=thread_ts,
+            user_id=task.event.user,
+            event_ts=task.event_ts,
+        ):
+            return thread_ts, True
+    return None, False
+
+
 async def process_task(
     task_processor: TaskProcessor, hctx: HarnessContext, task: Task
 ) -> bool:
@@ -104,33 +126,23 @@ async def process_task(
         bool: True if processing succeeded or the task was already cancelled,
               False if processing failed
     """
-    # Check persistent cancellation: a stop click may have arrived on
-    # another replica before this worker claimed the task.
-    if (
-        isinstance(task.event, (SlackAppMentionEvent, SlackMessageEvent))
-        and task.event.user
-    ):
-        thread_ts = task.event.thread_ts or task.event.ts
-        if await is_session_cancelled(
-            pool=hctx.pool,
-            channel_id=task.event.channel,
-            thread_ts=thread_ts,
-            user_id=task.event.user,
-            event_ts=task.event_ts,
-        ):
-            logfire.info(
-                "Dropping already-cancelled event",
-                task_id=task.id,
-                channel=task.event.channel,
-                thread_ts=thread_ts,
-            )
-            await _drop_cancelled_event(hctx.pool, task.id)
-            await _reset_if_session_empty(hctx, task.event.channel, thread_ts)
-            return True
-
     with logfire.span("process_task", task=task) as _:
         heartbeat = asyncio.create_task(_heartbeat(hctx, task))
         try:
+            # Check persistent cancellation: a stop click may have arrived
+            # on another replica before this worker claimed the task.
+            thread_ts, dropped = await _cancelled_at_claim(hctx.pool, task)
+            if dropped:
+                logfire.info(
+                    "Dropping already-cancelled event",
+                    task_id=task.id,
+                    channel=task.event.channel,
+                    thread_ts=thread_ts,
+                )
+                await _drop_cancelled_event(hctx.pool, task.id)
+                await _reset_if_session_empty(hctx, task.event.channel, thread_ts)
+                return True
+
             await task_processor(hctx, task)
             await delete_event(pool=hctx.pool, event=task)
             return True
