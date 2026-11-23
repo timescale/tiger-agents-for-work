@@ -201,6 +201,18 @@ class SlackListener(Listener):
             event_ts=event_dt,
         )
 
+        # If no local runs remain in this session, move the status out of
+        # processing so the session does not stay stuck.
+        if not self._hctx.cancellations.get_session_count(
+            channel_id, thread_ts
+        ):
+            await set_status(
+                client=self._app.client,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                is_busy=False,
+            )
+
         logfire.info(
             "Agent session stopped by the user",
             channel=channel_id,

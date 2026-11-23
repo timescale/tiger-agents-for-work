@@ -267,3 +267,34 @@ class TestAgentSessionStopped:
             ack=AsyncMock(), event={"channel": "C_CHAN"}
         )
         record_cancel.assert_not_awaited()
+
+    async def test_in_memory_runs_are_cancelled_and_session_reset(
+        self, listener, hctx, monkeypatch
+    ):
+        """The listener calls cancel_for_user with the stop event timestamp,
+        which cancels tracked runs in memory and resets the session when no
+        local runs remain."""
+        record_cancel = AsyncMock()
+        monkeypatch.setattr(
+            slack_listener_module, "record_session_cancel", record_cancel
+        )
+        set_status_mock = AsyncMock()
+        monkeypatch.setattr(
+            slack_listener_module, "set_status", set_status_mock
+        )
+        with hctx.cancellations.track(
+            "C_CHAN", "1700000000.000100", user="U_USER", thread_ts="1700000000.000050"
+        ) as run:
+            event = {
+                "type": "agent_session_stopped",
+                "channel": "C_CHAN",
+                "event_ts": "1700000000.000500",
+                "thread_ts": "1700000000.000050",
+                "user": "U_USER",
+            }
+            await listener._on_slack_cancel_agent(ack=AsyncMock(), event=event)
+
+            assert run.cancel_requested.is_set()
+            assert run.reason == "user_request"
+        # No local runs remain after the tracked run exits, so session resets
+        assert set_status_mock.await_args.kwargs["is_busy"] is False
