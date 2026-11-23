@@ -21,8 +21,8 @@
         "should_escape": true
       }
     ],
-    "assistant_view": {
-      "assistant_description": "Ask the agent a question in a thread.",
+    "agent_view": {
+      "agent_description": "Ask the agent a question in a thread.",
       "suggested_prompts": []
     }
   },
