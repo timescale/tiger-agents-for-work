@@ -183,6 +183,7 @@ class SalesforceCaseStatusChangedEvent(SalesforceBaseEvent):
 class ServiceRecord:
     service_id: str
     project_id: str | None
+    service_name: str | None = None
 
 
 class CaseFacts(BaseModel):

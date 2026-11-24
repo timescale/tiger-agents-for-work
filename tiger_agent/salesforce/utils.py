@@ -262,14 +262,18 @@ def get_pick_list_values(sf_object: SFType, field_name: str) -> list[str]:
 def get_services_for_account(
     salesforce_client: Salesforce, account_id: str
 ) -> list[ServiceRecord] | None:
-    result = salesforce_client.query(
-        f"SELECT Name, Project_Id__c FROM Service__c WHERE Account__c = '{account_id}'"
+    get_services_results = salesforce_client.query(
+        f"SELECT Name, Project_Id__c, Service_Name__c FROM Service__c WHERE Account__c = '{account_id}'"
     )
-    records = result.get("records", [])
+    records = get_services_results.get("records", [])
     if not records:
         return None
     return [
-        ServiceRecord(service_id=r["Name"], project_id=r.get("Project_Id__c"))
+        ServiceRecord(
+            service_id=r["Name"],
+            project_id=r.get("Project_Id__c"),
+            service_name=r.get("Service_Name__c"),
+        )
         for r in records
         if r.get("Name")
     ]

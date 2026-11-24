@@ -390,7 +390,7 @@ def _build_service_dropdown(
             {
                 "text": {
                     "type": "plain_text",
-                    "text": f"Project: {s.project_id}, Service: {s.service_id}",
+                    "text": f"Project: {s.project_id}, Service: {s.service_name} ({s.service_id})",
                 },
                 "value": pair_value,
             }
